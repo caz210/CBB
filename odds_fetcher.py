@@ -168,16 +168,46 @@ def match_vegas_to_game(result: dict, vegas_df: pd.DataFrame) -> dict:
     result["vegas_home_ml"] = best_match["vegas_home_ml"]
     result["source_book"]   = best_match["source_book"]
 
-    # Edge score: |my_spread - vegas_spread| / vegas_total
-    # Higher = bigger disagreement with Vegas relative to the total
+    # ── Edge score logic ──────────────────────────────────────────────────────
+    # Vegas spread convention: negative = home team favored (e.g. -7 means home -7)
+    # My spread convention:    positive = team1 (home) favored (e.g. +7 means home +7)
+    #
+    # To compare apples to apples:
+    #   Vegas favored team spread = v_spread (negative means home favored)
+    #   My favored team spread    = my_spread (positive means home favored)
+    #
+    # Example: Vegas has Georgia -2 (home favored by 2)
+    #          My model has Texas  +2 (away favored by 2, so home is -2 in my model)
+    #          Vegas home line = -2, My home line = +2
+    #          Swing = |-2 - 2| = 4 points ✓
+    #
+    # Both expressed from HOME team perspective, then take absolute difference.
+
     if v_spread is not None and v_total and v_total > 0:
-        spread_diff = abs(my_spread - (-v_spread))  # convert vegas to same sign convention
-        result["spread_edge"]  = round(spread_diff, 2)
-        result["total_edge"]   = round(abs(result["total"] - v_total), 2)
-        result["edge_score"]   = round(spread_diff / v_total, 4)  # YOUR KEY METRIC
+        # v_spread is already from home team perspective (negative = home favored)
+        # my_spread is positive when home favored — convert to same sign as vegas
+        my_spread_vegas_convention = -my_spread  # flip so negative = home favored
+
+        # Raw point swing between the two lines
+        spread_diff = abs(v_spread - my_spread_vegas_convention)
+
+        # Who each side favors
+        vegas_fav  = result["team1"] if v_spread < 0 else (result["team2"] if v_spread > 0 else "Pick")
+        my_fav     = result["team1"] if my_spread > 0 else (result["team2"] if my_spread < 0 else "Pick")
+        sides_agree = vegas_fav == my_fav
+
+        result["spread_edge"]   = round(spread_diff, 2)
+        result["total_edge"]    = round(abs(result["total"] - v_total), 2)
+        result["edge_score"]    = round(spread_diff / v_total, 4)   # YOUR KEY METRIC
+        result["vegas_fav"]     = vegas_fav
+        result["my_fav"]        = my_fav
+        result["sides_agree"]   = sides_agree   # False = you disagree on WHO wins
     else:
-        result["spread_edge"] = None
-        result["total_edge"]  = None
-        result["edge_score"]  = None
+        result["spread_edge"]  = None
+        result["total_edge"]   = None
+        result["edge_score"]   = None
+        result["vegas_fav"]    = None
+        result["my_fav"]       = None
+        result["sides_agree"]  = None
 
     return result
