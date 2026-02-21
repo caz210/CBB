@@ -12,7 +12,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-ODDS_API_KEY = os.getenv("ODDS_API_KEY")
+def _get_secret(key: str) -> str:
+    try:
+        import streamlit as st
+        return st.secrets.get(key) or os.getenv(key)
+    except Exception:
+        return os.getenv(key)
+
+ODDS_API_KEY = _get_secret("ODDS_API_KEY")
 BASE_URL     = "https://api.the-odds-api.com/v4/sports/basketball_ncaab/odds"
 
 # Preferred books in priority order — first available line wins
