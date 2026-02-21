@@ -20,16 +20,34 @@ SEASON = 2026  # Current season (2025-26)
 
 # ── Parse fanmatch into game dicts ───────────────────────────────────────────
 
+def is_neutral_site(row) -> bool:
+    """
+    Detect neutral site games from fanmatch data.
+    KenPom sets HomeWP to exactly 0.5 for neutral site games (no home court advantage).
+    We also check if HomePred and VisitorPred are symmetric as a secondary signal.
+    """
+    try:
+        home_wp = float(row.get("HomeWP", 0))
+        # KenPom uses exactly 0.5 for neutral sites
+        if home_wp == 0.5:
+            return True
+        # Secondary check: if predicted scores are within 0.1 of each other
+        # and HomeWP is very close to 0.5, likely neutral
+        home_pred    = float(row.get("HomePred", 0))
+        visitor_pred = float(row.get("VisitorPred", 0))
+        if abs(home_wp - 0.5) < 0.01 and abs(home_pred - visitor_pred) < 1.0:
+            return True
+    except (TypeError, ValueError):
+        pass
+    return False
+
+
 def games_from_fanmatch(today: str) -> list[dict]:
     """
     Pulls today's schedule from the KenPom fanmatch endpoint.
-    Returns a list of game dicts ready for project_game().
-
-    Fanmatch fields used:
-      Home     → team playing at home
-      Visitor  → team playing away
-      HomePred / VisitorPred → KenPom's own score predictions (saved for reference)
-      HomeWP   → KenPom win probability for home team
+    Detects neutral site games via HomeWP = 0.5 (KenPom convention).
+    team1 = Home team, team2 = Visitor.
+    team1_is_home = True (home game), False (away), None (neutral site).
     """
     print(f"📡 Fetching today's games from fanmatch ({today})...")
     fm = fetch_fanmatch(today)
@@ -39,11 +57,16 @@ def games_from_fanmatch(today: str) -> list[dict]:
         return []
 
     games = []
+    neutral_count = 0
     for _, row in fm.iterrows():
+        neutral = is_neutral_site(row)
+        if neutral:
+            neutral_count += 1
+
         games.append({
-            "team1":          row["Home"],       # team1 = home team
-            "team2":          row["Visitor"],    # team2 = away team
-            "team1_is_home":  True,              # Home is always team1 here
+            "team1":          row["Home"],
+            "team2":          row["Visitor"],
+            "team1_is_home":  None if neutral else True,   # None = neutral site
             "kp_home_score":  row.get("HomePred",    None),
             "kp_away_score":  row.get("VisitorPred", None),
             "kp_home_wp":     row.get("HomeWP",      None),
@@ -51,7 +74,8 @@ def games_from_fanmatch(today: str) -> list[dict]:
             "game_id":        row.get("GameID",      None),
         })
 
-    print(f"   ✅ {len(games)} games found today")
+    home_count = len(games) - neutral_count
+    print(f"   ✅ {len(games)} games found ({home_count} home/away, {neutral_count} neutral site)")
     return games
 
 
@@ -118,16 +142,22 @@ def run(refresh_data: bool = True, target_date: str = None):
     vegas_df = fetch_vegas_lines()
     results = [match_vegas_to_game(r, vegas_df) for r in results]
 
-    # Print edge scores
+    # Print edge scores sorted best to worst
     if any(r.get("edge_score") is not None for r in results):
-        print(f"\n{'─'*50}")
-        print(f"  {'Game':<35} {'My Sprd':>8} {'VGS Sprd':>9} {'Edge':>7} {'Scr':>7}")
-        print(f"{'─'*50}")
+        print(f"\n🎯 EDGE REPORT — sorted by disagreement with Vegas")
+        print(f"  {'Game':<32} {'My Fav':<14} {'VGS Fav':<14} {'Swing':>6} {'Edge':>8} {'Agree?'}")
+        print(f"  {'─'*85}")
         sorted_results = sorted(results, key=lambda r: r.get("edge_score") or 0, reverse=True)
         for r in sorted_results:
             if r.get("vegas_spread") is not None:
-                game = f"{r['team1']} vs {r['team2']}"[:34]
-                print(f"  {game:<35} {r['spread']:>+7.1f} {r['vegas_spread']:>+9.1f} {r.get('spread_edge', 0):>7.2f} {r.get('edge_score', 0):>7.4f}")
+                game      = f"{r['team1']} vs {r['team2']}"[:31]
+                my_fav    = (r.get('my_fav') or '—')[:13]
+                vgs_fav   = (r.get('vegas_fav') or '—')[:13]
+                swing     = r.get('spread_edge', 0)
+                edge      = r.get('edge_score', 0)
+                agree     = "✅" if r.get('sides_agree') else "❌ DIFFER"
+                neutral   = " [N]" if r.get("location") == "neutral" else ""
+                print(f"  {game+neutral:<32} {my_fav:<14} {vgs_fav:<14} {swing:>6.1f} {edge:>8.4f} {agree}")
 
     # 7. Write debug Excel log
     write_debug_excel(results, today)
