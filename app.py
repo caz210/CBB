@@ -286,6 +286,9 @@ if not results:
 else:
     for r in results:
         edge = r.get("edge_score")
+        disagree = r.get("sides_agree") is False
+        my_fav    = (r.get("my_fav")    or "—")[:12]
+        vegas_fav = (r.get("vegas_fav") or "—")[:12]
         if edge and edge > 0.08:
             badge_cls = "edge-hot"
             badge_txt = f"🔥 EDGE {edge:.4f}" + (" · SIDES DIFFER" if disagree else "")
