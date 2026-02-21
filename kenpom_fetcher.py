@@ -12,7 +12,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-API_KEY  = os.getenv("KENPOM_API_KEY")
+def _get_secret(key: str) -> str:
+    """Read from Streamlit secrets if running in cloud, else fall back to .env"""
+    try:
+        import streamlit as st
+        return st.secrets.get(key) or os.getenv(key)
+    except Exception:
+        return os.getenv(key)
+
+API_KEY = _get_secret("KENPOM_API_KEY")
 BASE_URL = "https://kenpom.com/api.php"
 SEASON   = 2025  # Update each year
 
