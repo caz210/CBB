@@ -287,11 +287,14 @@ else:
     for r in results:
         edge = r.get("edge_score")
         if edge and edge > 0.08:
-            badge_cls, badge_txt = "edge-hot", f"🔥 EDGE {edge:.4f}"
+            badge_cls = "edge-hot"
+            badge_txt = f"🔥 EDGE {edge:.4f}" + (" · SIDES DIFFER" if disagree else "")
         elif edge and edge > 0.05:
-            badge_cls, badge_txt = "edge-good", f"✓ EDGE {edge:.4f}"
+            badge_cls = "edge-good"
+            badge_txt = f"✓ EDGE {edge:.4f}" + (" · SIDES DIFFER" if disagree else "")
         elif edge:
-            badge_cls, badge_txt = "edge-low", f"EDGE {edge:.4f}"
+            badge_cls = "edge-low"
+            badge_txt = f"EDGE {edge:.4f}" + (" · SIDES DIFFER" if disagree else "")
         else:
             badge_cls, badge_txt = "edge-low", "NO LINE"
 
@@ -315,11 +318,11 @@ else:
             <div class="game-meta">
                 <span>MY SPREAD <span class="meta-val">{r['spread']:+.1f}</span></span>
                 <span>VEGAS <span class="meta-val">{v_spread_txt}</span></span>
-                <span>DIFF <span class="meta-val">{spread_diff}</span></span>
+                <span>SWING <span class="meta-val">{spread_diff}</span></span>
+                <span>MY FAV <span class="meta-val">{my_fav}</span></span>
+                <span>VGS FAV <span class="meta-val">{vegas_fav}</span></span>
                 <span>MY TOTAL <span class="meta-val">{r['total']:.1f}</span></span>
                 <span>VGS TOTAL <span class="meta-val">{v_total_txt}</span></span>
-                <span>KP {r['team1'][:8]} <span class="meta-val">{kp_home}</span></span>
-                <span>KP {r['team2'][:8]} <span class="meta-val">{kp_away}</span></span>
                 <span>PACE <span class="meta-val">{r['projected_pace']}</span></span>
             </div>
         </div>
