@@ -77,40 +77,37 @@ def compute_ncaa_averages(ratings: pd.DataFrame, ff: pd.DataFrame, height: pd.Da
 
 # ── Adjustment Metric (Percentile) ───────────────────────────────────────────
 
-def compute_adjustment_metric(
+def compute_team_percentile(
     team_name: str,
     ratings: pd.DataFrame,
-    net: pd.DataFrame,
 ) -> tuple[float, dict]:
     """
-    Normalized 0–100 percentile score combining KenPom rank and NCAA NET rank.
-    Returns (combined_metric, debug_dict) where debug_dict has the breakdown.
-    Higher = better team. Used to scale TO, REB, FT adjustments.
+    Returns KenPom percentile for a single team as a 0-1 decimal.
+    Rank 1 (best) → ~1.0, last rank → ~0.0
     """
-    t_kp  = get_team(ratings, team_name)
-    t_net = get_team(net, team_name)
+    t_kp    = get_team(ratings, team_name)
+    n       = len(ratings)
+    kp_rank = float(t_kp["RankAdjEM"])
+    kp_pct  = (n - kp_rank) / n   # 0-1 decimal
 
-    n_kp  = len(ratings)
-    n_net = len(net)
-
-    kp_rank  = float(t_kp["RankAdjEM"])
-    net_rank = float(t_net["Rank"])
-
-    # Invert ranks so rank 1 → 100, last rank → ~0
-    kp_pct  = (n_kp  - kp_rank)  / n_kp  * 100
-    net_pct = (n_net - net_rank) / n_net * 100
-    combined = (kp_pct + net_pct) / 2
-
-    # Sanity check — flag if rank seems wrong (e.g. team ranked 300+ but should be ~244)
     if kp_rank > 300:
-        print(f"   ⚠️  {team_name} KP rank={int(kp_rank)} — if this looks wrong, "
-              f"check data/ratings.csv for duplicate TeamName rows or wrong RankAdjEM column.")
+        print(f"   ⚠️  {team_name} KP rank={int(kp_rank)} — check data/ratings.csv")
 
-    debug = {
-        "kp_rank": kp_rank, "net_rank": net_rank,
-        "kp_pct": kp_pct / 100, "net_pct": net_pct / 100,  # as decimals for Excel %
-    }
-    return combined, debug
+    debug = {"kp_rank": kp_rank, "kp_pct": kp_pct}
+    return kp_pct, debug
+
+
+def compute_game_adjustment(home_pct: float, away_pct: float) -> tuple[float, float]:
+    """
+    Computes the per-game adjustment metric used in TO/REB/FT formulas.
+    Matches sheet formula: U2_away = (Home_KP_pct - Away_KP_pct) * 0.5
+                           U2_home = (Away_KP_pct - Home_KP_pct) * 0.5
+    Result is a small signed decimal (e.g. +0.0103 for away, -0.0103 for home).
+    Positive = that team is the weaker team in this matchup (gets upward adjustment).
+    """
+    away_adj = (home_pct - away_pct) * 0.5
+    home_adj = (away_pct - home_pct) * 0.5
+    return home_adj, away_adj
 
 
 # ── Core Model Formulas ───────────────────────────────────────────────────────
@@ -126,63 +123,67 @@ def points_per_possession(off_eff: float, opp_def_eff: float) -> float:
 
 
 def projected_turnovers(
-    team_to_pct: float,   # TO_Pct  (offense)
-    opp_dto_pct: float,   # DTO_Pct (opp defense — turnovers forced)
-    avg_to: float,
-    avg_dto: float,
-    adjustment: float,    # 0–100 percentile metric
+    team_to_pct: float,   # Opponent offense TO_Pct (we want THEM to turn it over)
+    opp_dto_pct: float,   # Our defense DTO_Pct (turnovers we force)
+    avg_to: float,        # NCAA avg offense TO_Pct
+    avg_dto: float,       # NCAA avg defense DTO_Pct
+    adjustment: float,    # Game-level adj: small signed decimal e.g. +0.0103
 ) -> float:
     """
-    Raw = (Avg TO − Team TO) − (Avg DTO Caused − Opp DTO Caused)
-    Positive = team turns it over less than avg AND opp forces fewer TOs than avg
-    Adj = Raw + abs(Raw) * (adjustment / 100)
+    Sheet formula: Raw = (Avg TO - Opp TO) - (Avg DTO - Team DTO)
+    Adj = Raw + abs(Raw) * adjustment
+    Signed — positive means favorable TO matchup (they turn it over more, we force more).
     """
     raw = (avg_to - team_to_pct) - (avg_dto - opp_dto_pct)
-    adj = raw + abs(raw) * (adjustment / 100)
-    return abs(adj)  # always positive — represents possession advantage
+    return raw + abs(raw) * adjustment
 
 
 def projected_rebounds(
-    opp_dor_pct: float,   # DOR_Pct of opponent (allowed offensive rebounds)
-    team_or_pct: float,   # OR_Pct  of team
-    avg_dor: float,
+    team_or_pct: float,   # Team offensive rebound %
+    opp_dor_pct: float,   # Opponent defensive rebound % allowed
     avg_or: float,
+    avg_dor: float,
     adjustment: float,
 ) -> float:
     """
-    Raw = (Opp DOR_Pct − Avg DOR) − (Avg OR − Team OR_Pct)
-    Adj = Raw + abs(Raw) * (adjustment / 100)
-    Always returned as positive — represents extra possession advantage.
+    Sheet formula: Raw = (Opp DOR - Avg DOR) - (Avg OR - Team OR)
+    Adj = Raw + abs(Raw) * adjustment
+    Signed — positive means favorable rebound matchup.
     """
     raw = (opp_dor_pct - avg_dor) - (avg_or - team_or_pct)
-    adj = raw + abs(raw) * (adjustment / 100)
-    return abs(adj)
+    return raw + abs(raw) * adjustment
 
 
 def projected_ft(
-    team_ft_rate: float,   # FT_Rate  (offense)
-    opp_dft_rate: float,   # DFT_Rate (opponent defense)
+    team_def_ft: float,   # Team's DEFENSIVE FT rate (DFT_Rate)
+    team_off_ft: float,   # Team's OFFENSIVE FT rate (FT_Rate) — same team!
     adjustment: float,
 ) -> float:
     """
-    Raw = Team FT_Rate − Opp DFT_Rate
-    Adj = Raw + abs(Raw) * (adjustment / 100)
-    Always returned as positive — represents FT possession contribution.
+    Sheet formula: Raw = team_def_FTRate - team_off_FTRate  (same team, not cross-team)
+    AE2 = VLOOKUP(Away team, defense sheet, FTRate) - VLOOKUP(Away team, offense sheet, FTRate)
+    Positive = team defends FTs better than they draw them
+    Negative = team draws more FTs than they prevent (FT-heavy offense)
+    Adj = Raw + abs(Raw) * adjustment
     """
-    raw = team_ft_rate - opp_dft_rate
-    adj = raw + abs(raw) * (adjustment / 100)
-    return abs(adj)
+    raw = team_def_ft - team_off_ft
+    return raw + abs(raw) * adjustment
 
 
 def adjusted_possessions(pace: float, proj_reb: float, proj_to: float, proj_ft: float) -> float:
     """
-    AdjPoss = Pace*(REB*0.01) + Pace*(TO*0.01) + Pace*(FT*0.44*0.01)
+    Sheet formula:
+      AL2 (raw poss delta) = pace*(reb*0.01) + pace*(to*0.01) + pace*(ft*0.44*0.01)
+      AN2 (adj possessions) = pace + pace*(AL2*0.01)
+
+    We return the FULL adjusted possessions (AN2) — the total possession count for the game.
     """
-    return (
+    raw_delta = (
         pace * (proj_reb * 0.01) +
         pace * (proj_to  * 0.01) +
         pace * (proj_ft  * 0.44 * 0.01)
     )
+    return pace + pace * (raw_delta * 0.01)
 
 
 def unit_score(avg_hgt: float, exp: float, bench: float, avgs: dict, n_teams: float) -> float:
@@ -241,9 +242,18 @@ def project_game(
     t1_h  = get_team(height,  team1)
     t2_h  = get_team(height,  team2)
 
-    # Adjustment metrics
-    adj1, adj1_debug = compute_adjustment_metric(team1, ratings, net)
-    adj2, adj2_debug = compute_adjustment_metric(team2, ratings, net)
+    # Per-team KP percentiles (0-1 decimal, 1=best team)
+    # team1 = home, team2 = away (fanmatch convention)
+    t1_pct, adj1_debug = compute_team_percentile(team1, ratings)
+    t2_pct, adj2_debug = compute_team_percentile(team2, ratings)
+
+    # Game-level adjustment: (home_pct - away_pct)*0.5 and inverse
+    # Matches sheet: U2_home=(Away_pct - Home_pct)*0.5, U2_away=(Home_pct - Away_pct)*0.5
+    if team1_is_home is None:
+        adj1, adj2 = 0.0, 0.0   # neutral site — no adjustment
+    else:
+        # team1 is home, team2 is away
+        adj1, adj2 = compute_game_adjustment(t1_pct, t2_pct)
 
     # Pace
     pace = projected_pace(t1_r["AdjTempo"], t2_r["AdjTempo"], avgs["pace"])
@@ -252,17 +262,20 @@ def project_game(
     t1_ppp = points_per_possession(t1_r["AdjOE"], t2_r["AdjDE"])
     t2_ppp = points_per_possession(t2_r["AdjOE"], t1_r["AdjDE"])
 
-    # Turnovers
-    t1_to = projected_turnovers(t1_ff["TO_Pct"],  t2_ff["DTO_Pct"], avgs["to_pct"], avgs["dto_pct"], adj1)
-    t2_to = projected_turnovers(t2_ff["TO_Pct"],  t1_ff["DTO_Pct"], avgs["to_pct"], avgs["dto_pct"], adj2)
+    # Turnovers — args: (opp off TO, team def DTO, avg_off_to, avg_def_to, adj)
+    # "How much does opponent turn it over vs our defense forcing turnovers"
+    t1_to = projected_turnovers(t2_ff["TO_Pct"], t1_ff["DTO_Pct"], avgs["to_pct"], avgs["dto_pct"], adj1)
+    t2_to = projected_turnovers(t1_ff["TO_Pct"], t2_ff["DTO_Pct"], avgs["to_pct"], avgs["dto_pct"], adj2)
 
-    # Rebounds
-    t1_reb = projected_rebounds(t2_ff["DOR_Pct"], t1_ff["OR_Pct"],  avgs["dor_pct"], avgs["or_pct"], adj1)
-    t2_reb = projected_rebounds(t1_ff["DOR_Pct"], t2_ff["OR_Pct"],  avgs["dor_pct"], avgs["or_pct"], adj2)
+    # Rebounds — args: (team OR_Pct, opp DOR_Pct, avg_or, avg_dor, adj)
+    t1_reb = projected_rebounds(t1_ff["OR_Pct"], t2_ff["DOR_Pct"], avgs["or_pct"], avgs["dor_pct"], adj1)
+    t2_reb = projected_rebounds(t2_ff["OR_Pct"], t1_ff["DOR_Pct"], avgs["or_pct"], avgs["dor_pct"], adj2)
 
-    # Free throws
-    t1_ft = projected_ft(t1_ff["FT_Rate"], t2_ff["DFT_Rate"], adj1)
-    t2_ft = projected_ft(t2_ff["FT_Rate"], t1_ff["DFT_Rate"], adj2)
+    # Free throws — args: (team def FT rate, team off FT rate, adj)
+    # Sheet: VLOOKUP(team, defense, FTRate) - VLOOKUP(team, offense, FTRate)
+    # Same team's own def vs own off — measures FT style/matchup impact
+    t1_ft = projected_ft(t1_ff["DFT_Rate"], t1_ff["FT_Rate"], adj1)
+    t2_ft = projected_ft(t2_ff["DFT_Rate"], t2_ff["FT_Rate"], adj2)
 
     # Adjusted possessions
     t1_poss = adjusted_possessions(pace, t1_reb, t1_to, t1_ft)
@@ -292,8 +305,10 @@ def project_game(
         "team2_score":       round(t2_score, 1),
         "spread":            round(t1_score - t2_score, 1),
         "total":             round(t1_score + t2_score, 1),
-        "team1_adj_metric":  round(adj1, 1),
-        "team2_adj_metric":  round(adj2, 1),
+        "team1_adj_metric":  round(adj1, 6),
+        "team2_adj_metric":  round(adj2, 6),
+        "team1_kp_pct":      round(t1_pct, 4),
+        "team2_kp_pct":      round(t2_pct, 4),
         "team1_unit_score":  round(u1, 3),
         "team2_unit_score":  round(u2, 3),
         "team1_ppp":         round(t1_ppp, 4),
@@ -302,9 +317,9 @@ def project_game(
         # Full debug breakdown for Excel logger
         "debug": {
             "kenpom_rank_t1": adj1_debug["kp_rank"],   "kenpom_rank_t2": adj2_debug["kp_rank"],
-            "net_rank_t1":    adj1_debug["net_rank"],   "net_rank_t2":    adj2_debug["net_rank"],
+            "net_rank_t1":    None,                      "net_rank_t2":    None,
             "kp_pct_t1":      adj1_debug["kp_pct"],     "kp_pct_t2":      adj2_debug["kp_pct"],
-            "net_pct_t1":     adj1_debug["net_pct"],    "net_pct_t2":     adj2_debug["net_pct"],
+            "net_pct_t1":     None,                      "net_pct_t2":     None,
             "avg_pace":       round(avgs["pace"], 2),
             "t1_tempo":       float(t1_r["AdjTempo"]),  "t2_tempo":       float(t2_r["AdjTempo"]),
             "t1_adjoe":       float(t1_r["AdjOE"]),     "t2_adjoe":       float(t2_r["AdjOE"]),
