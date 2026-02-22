@@ -360,8 +360,10 @@ def project_game(
 
     # Turnovers  args: (opp off TO, team def DTO, avg_off_to, avg_def_to, adj)
     # "How much does opponent turn it over vs our defense forcing turnovers"
-    t1_to = projected_turnovers(t2_ff["TO_Pct"], t1_ff["DTO_Pct"], avgs["to_pct"], avgs["dto_pct"], adj1)
-    t2_to = projected_turnovers(t1_ff["TO_Pct"], t2_ff["DTO_Pct"], avgs["to_pct"], avgs["dto_pct"], adj2)
+    # Home TO = (AVG_TO - Home_TO) - (AVG_DTO - Away_DTO)  [sheet: E2=home, D2=away]
+    # Away TO = (AVG_TO - Away_TO) - (AVG_DTO - Home_DTO)
+    t1_to = projected_turnovers(t1_ff["TO_Pct"], t2_ff["DTO_Pct"], avgs["to_pct"], avgs["dto_pct"], adj1)
+    t2_to = projected_turnovers(t2_ff["TO_Pct"], t1_ff["DTO_Pct"], avgs["to_pct"], avgs["dto_pct"], adj2)
 
     # Rebounds  args: (team OR_Pct, opp DOR_Pct, avg_or, avg_dor, adj)
     t1_reb = projected_rebounds(t1_ff["OR_Pct"], t2_ff["DOR_Pct"], avgs["or_pct"], avgs["dor_pct"], adj1)
