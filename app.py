@@ -178,141 +178,256 @@ if not results:
     st.warning(f"No games found for {today}. Try a different date or hit Refresh Data.")
     st.stop()
 
-# --- Metrics ---
-games_with_vegas = [r for r in results if r.get("vegas_spread") is not None]
-high_edge  = [r for r in results if (r.get("edge_score") or 0) > 0.07]
-differ     = [r for r in results if r.get("sides_agree") is False]
-avg_total  = round(sum(r["total"] for r in results) / len(results), 1)
+tab1, tab2 = st.tabs([' Daily Projections', ' Simulator'])
 
-c1,c2,c3,c4,c5 = st.columns(5)
-c1.metric("Games Today", len(results))
-c2.metric("With Vegas Lines", len(games_with_vegas))
-c3.metric("High Edge (>0.07)", len(high_edge))
-c4.metric("Sides Differ", len(differ))
-c5.metric("Avg Total", avg_total)
-st.markdown("<hr class='divider'>", unsafe_allow_html=True)
+with tab1:
+    # --- Metrics ---
+    games_with_vegas = [r for r in results if r.get("vegas_spread") is not None]
+    high_edge  = [r for r in results if (r.get("edge_score") or 0) > 0.07]
+    differ     = [r for r in results if r.get("sides_agree") is False]
+    avg_total  = round(sum(r["total"] for r in results) / len(results), 1)
 
-# --- Sort & Filter ---
-if sort_by == "Edge Score":
-    results = sorted(results, key=lambda r: r.get("edge_score") or 0, reverse=True)
-elif sort_by == "Total":
-    results = sorted(results, key=lambda r: r["total"], reverse=True)
-elif sort_by == "Spread (biggest fav)":
-    results = sorted(results, key=lambda r: abs(r["spread"]), reverse=True)
-else:
-    results = sorted(results, key=lambda r: r["team1"])
+    c1,c2,c3,c4,c5 = st.columns(5)
+    c1.metric("Games Today", len(results))
+    c2.metric("With Vegas Lines", len(games_with_vegas))
+    c3.metric("High Edge (>0.07)", len(high_edge))
+    c4.metric("Sides Differ", len(differ))
+    c5.metric("Avg Total", avg_total)
+    st.markdown("<hr class='divider'>", unsafe_allow_html=True)
 
-if show_only_vegas:
-    results = [r for r in results if r.get("vegas_spread") is not None]
-if min_edge > 0:
-    results = [r for r in results if (r.get("edge_score") or 0) >= min_edge]
-if show_only_differ:
-    results = [r for r in results if r.get("sides_agree") is False]
+    # --- Sort & Filter ---
+    if sort_by == "Edge Score":
+        results = sorted(results, key=lambda r: r.get("edge_score") or 0, reverse=True)
+    elif sort_by == "Total":
+        results = sorted(results, key=lambda r: r["total"], reverse=True)
+    elif sort_by == "Spread (biggest fav)":
+        results = sorted(results, key=lambda r: abs(r["spread"]), reverse=True)
+    else:
+        results = sorted(results, key=lambda r: r["team1"])
 
-# --- Game Cards ---
-st.markdown("<div class='section-title'>TODAY'S PROJECTIONS</div>", unsafe_allow_html=True)
+    if show_only_vegas:
+        results = [r for r in results if r.get("vegas_spread") is not None]
+    if min_edge > 0:
+        results = [r for r in results if (r.get("edge_score") or 0) >= min_edge]
+    if show_only_differ:
+        results = [r for r in results if r.get("sides_agree") is False]
 
-if not results:
-    st.info("No games match your filters.")
-else:
-    for r in results:
-        edge     = r.get("edge_score")
-        disagree = r.get("sides_agree") is False
+    # --- Game Cards ---
+    st.markdown("<div class='section-title'>TODAY'S PROJECTIONS</div>", unsafe_allow_html=True)
 
-        # Badge
-        if disagree and edge and edge > 0.05:
-            badge_cls, badge_txt = "edge-diff", f"SIDES DIFFER  {edge:.4f}"
-        elif edge and edge > 0.08:
-            badge_cls, badge_txt = "edge-hot",  f"HOT EDGE  {edge:.4f}"
-        elif edge and edge > 0.05:
-            badge_cls, badge_txt = "edge-good", f"EDGE  {edge:.4f}"
-        elif edge:
-            badge_cls, badge_txt = "edge-low",  f"EDGE {edge:.4f}"
-        else:
-            badge_cls, badge_txt = "edge-low",  "NO LINE"
+    if not results:
+        st.info("No games match your filters.")
+    else:
+        for r in results:
+            edge     = r.get("edge_score")
+            disagree = r.get("sides_agree") is False
 
-        # Away on top, Home on bottom
-        away_score = r["team2_score"]
-        home_score = r["team1_score"]
-        away_name  = r["team2"]
-        home_name  = r["team1"]
-        away_cls = "team-score team-score-winner" if away_score > home_score else "team-score"
-        home_cls = "team-score team-score-winner" if home_score > away_score else "team-score"
-
-        # CZarp Spread: "FavTeam -X.0"
-        s = r["spread"]  # positive = home favored
-        if s > 0:
-            czarp_txt = f"{home_name[:16]} {-abs(s):+.1f}"
-        elif s < 0:
-            czarp_txt = f"{away_name[:16]} {-abs(s):+.1f}"
-        else:
-            czarp_txt = "EVEN"
-
-        # Vegas Spread: "FavTeam -X.0"
-        vs = r.get("vegas_spread")
-        vt = r.get("vegas_total")
-        if vs is not None:
-            if vs > 0:
-                vtxt = f"{home_name[:16]} {-abs(vs):+.1f}"
-            elif vs < 0:
-                vtxt = f"{away_name[:16]} {-abs(vs):+.1f}"
+            # Badge
+            if disagree and edge and edge > 0.05:
+                badge_cls, badge_txt = "edge-diff", f"SIDES DIFFER  {edge:.4f}"
+            elif edge and edge > 0.08:
+                badge_cls, badge_txt = "edge-hot",  f"HOT EDGE  {edge:.4f}"
+            elif edge and edge > 0.05:
+                badge_cls, badge_txt = "edge-good", f"EDGE  {edge:.4f}"
+            elif edge:
+                badge_cls, badge_txt = "edge-low",  f"EDGE {edge:.4f}"
             else:
-                vtxt = "EVEN"
-            vttxt = f"{vt:.1f}" if vt else "-"
+                badge_cls, badge_txt = "edge-low",  "NO LINE"
+
+            # Away on top, Home on bottom
+            away_score = r["team2_score"]
+            home_score = r["team1_score"]
+            away_name  = r["team2"]
+            home_name  = r["team1"]
+            away_cls = "team-score team-score-winner" if away_score > home_score else "team-score"
+            home_cls = "team-score team-score-winner" if home_score > away_score else "team-score"
+
+            # CZarp Spread: "FavTeam -X.0"
+            s = r["spread"]  # positive = home favored
+            if s > 0:
+                czarp_txt = f"{home_name[:16]} {-abs(s):+.1f}"
+            elif s < 0:
+                czarp_txt = f"{away_name[:16]} {-abs(s):+.1f}"
+            else:
+                czarp_txt = "EVEN"
+
+            # Vegas Spread: "FavTeam -X.0"
+            vs = r.get("vegas_spread")
+            vt = r.get("vegas_total")
+            if vs is not None:
+                if vs > 0:
+                    vtxt = f"{home_name[:16]} {-abs(vs):+.1f}"
+                elif vs < 0:
+                    vtxt = f"{away_name[:16]} {-abs(vs):+.1f}"
+                else:
+                    vtxt = "EVEN"
+                vttxt = f"{vt:.1f}" if vt else "-"
+            else:
+                vtxt, vttxt = "-", "-"
+
+            swing_txt = f"{r['spread_edge']:+.1f}" if r.get("spread_edge") is not None else "-"
+            gtime = r.get("game_time") or ""
+            time_html = f"<div class='game-time'>{gtime}</div>" if gtime else ""
+            differ_html = "<span class='meta-val meta-val-differ'>SIDES DIFFER</span>" if disagree else ""
+            differ_block = '<div class="meta-item"><span class="meta-label">&nbsp;</span>' + differ_html + '</div>' if disagree else ""
+
+            st.markdown(f"""<div class="game-card">
+                <span class="edge-badge {badge_cls}">{badge_txt}</span>
+                {time_html}
+                <div class="team-row">
+                    <span class="team-name">{away_name} <span class="team-label">AWAY</span></span>
+                    <span class="{away_cls}">{away_score:.1f}</span>
+                </div>
+                <div class="team-row">
+                    <span class="team-name">{home_name} <span class="team-label">HOME</span></span>
+                    <span class="{home_cls}">{home_score:.1f}</span>
+                </div>
+                <div class="game-meta">
+                    <div class="meta-item"><span class="meta-label">CZarp Spread</span><span class="meta-val meta-val-hot">{czarp_txt}</span></div>
+                    <div class="meta-item"><span class="meta-label">CZarp Total</span><span class="meta-val">{r['total']:.1f}</span></div>
+                    <div class="meta-item"><span class="meta-label">Vegas Spread</span><span class="meta-val">{vtxt}</span></div>
+                    <div class="meta-item"><span class="meta-label">Vegas Total</span><span class="meta-val">{vttxt}</span></div>
+                    <div class="meta-item"><span class="meta-label">Swing</span><span class="meta-val">{swing_txt}</span></div>
+                    {differ_block}
+                </div>
+            </div>""", unsafe_allow_html=True)
+
+    # --- Full Table ---
+    st.markdown("<div class='section-title'>FULL TABLE</div>", unsafe_allow_html=True)
+    table_rows = []
+    for r in results:
+        s = r["spread"]
+        czarp_t = f"{(r['team1'] if s>0 else r['team2'])[:18]} {-abs(s):+.1f}" if s != 0 else "EVEN"
+        vs = r.get("vegas_spread")
+        vtxt_t = f"{(r['team1'] if vs>0 else r['team2'])[:18]} {-abs(vs):+.1f}" if vs else "-"
+        table_rows.append({
+            "Time":         r.get("game_time") or "",
+            "Away":         r["team2"],
+            "Home":         r["team1"],
+            "Away Score":   r["team2_score"],
+            "Home Score":   r["team1_score"],
+            "CZarp Spread": czarp_t,
+            "CZarp Total":  r["total"],
+            "Vegas Spread": vtxt_t,
+            "Vegas Total":  r.get("vegas_total") or "",
+            "Swing":        r.get("spread_edge") or "",
+            "Edge":         round(r.get("edge_score") or 0, 4),
+            "Differ":       "YES" if r.get("sides_agree") is False else "",
+            "KP Away":      r.get("kp_away_score") or "",
+            "KP Home":      r.get("kp_home_score") or "",
+        })
+    df = pd.DataFrame(table_rows)
+    st.dataframe(df, use_container_width=True, hide_index=True)
+
+    st.markdown(f"<div style='margin-top:40px; padding-top:20px; border-top:1px solid #1e2535; font-size:0.75rem; color:#444; text-align:center;'>CZarp CBB Model &nbsp; 2025-26 &nbsp; Last updated {datetime.now().strftime('%I:%M %p')}</div>", unsafe_allow_html=True)
+
+with tab2:
+    st.markdown("<div class='section-title'>GAME SIMULATOR</div>", unsafe_allow_html=True)
+    st.markdown("<p style='color:#666; font-size:0.85rem; margin-top:-8px;'>Project any matchup — perfect for March Madness bracket research</p>", unsafe_allow_html=True)
+
+    try:
+        sim_data = get_kenpom_data()
+        team_list = sorted(sim_data["ratings"]["TeamName"].dropna().tolist())
+    except Exception as e:
+        st.error(f"Could not load team list: {e}")
+        team_list = []
+
+    if team_list:
+        st.markdown("<hr class='divider'>", unsafe_allow_html=True)
+        sc1, sc2, sc3 = st.columns([2, 2, 1])
+
+        with sc1:
+            team_a = st.selectbox("Team A", team_list, index=team_list.index("Duke") if "Duke" in team_list else 0, key="sim_team_a")
+        with sc2:
+            team_b = st.selectbox("Team B", team_list, index=team_list.index("Kentucky") if "Kentucky" in team_list else 1, key="sim_team_b")
+        with sc3:
+            site = st.radio("Site", ["Neutral", "Team A Home", "Team B Home"], key="sim_site")
+
+        if site == "Neutral":
+            team1_is_home = None
+            home_label, away_label = "NEUTRAL", "NEUTRAL"
+        elif site == "Team A Home":
+            team1_is_home = True
+            home_label, away_label = "HOME", "AWAY"
         else:
-            vtxt, vttxt = "-", "-"
+            team1_is_home = False
+            home_label, away_label = "AWAY", "HOME"
 
-        swing_txt = f"{r['spread_edge']:+.1f}" if r.get("spread_edge") is not None else "-"
-        gtime = r.get("game_time") or ""
-        time_html = f"<div class='game-time'>{gtime}</div>" if gtime else ""
-        differ_html = "<span class='meta-val meta-val-differ'>SIDES DIFFER</span>" if disagree else ""
+        run_sim = st.button("  Run Projection", use_container_width=False, key="sim_run")
 
-        st.markdown(f"""<div class="game-card">
-            <span class="edge-badge {badge_cls}">{badge_txt}</span>
-            {time_html}
-            <div class="team-row">
-                <span class="team-name">{away_name} <span class="team-label">AWAY</span></span>
-                <span class="{away_cls}">{away_score:.1f}</span>
-            </div>
-            <div class="team-row">
-                <span class="team-name">{home_name} <span class="team-label">HOME</span></span>
-                <span class="{home_cls}">{home_score:.1f}</span>
-            </div>
-            <div class="game-meta">
-                <div class="meta-item"><span class="meta-label">CZarp Spread</span><span class="meta-val meta-val-hot">{czarp_txt}</span></div>
-                <div class="meta-item"><span class="meta-label">CZarp Total</span><span class="meta-val">{r['total']:.1f}</span></div>
-                <div class="meta-item"><span class="meta-label">Vegas Spread</span><span class="meta-val">{vtxt}</span></div>
-                <div class="meta-item"><span class="meta-label">Vegas Total</span><span class="meta-val">{vttxt}</span></div>
-                <div class="meta-item"><span class="meta-label">Swing</span><span class="meta-val">{swing_txt}</span></div>
-                {'<div class="meta-item"><span class="meta-label">&nbsp;</span>' + differ_html + '</div>' if disagree else ''}
-            </div>
-        </div>""", unsafe_allow_html=True)
+        if run_sim or "sim_result" in st.session_state:
+            if run_sim:
+                try:
+                    r = project_game(team_a, team_b, team1_is_home, sim_data)
+                    st.session_state["sim_result"] = r
+                    st.session_state["sim_labels"] = (home_label, away_label, site, team_a, team_b)
+                except Exception as e:
+                    st.error(f"Projection error: {e}")
+                    if "sim_result" in st.session_state:
+                        del st.session_state["sim_result"]
 
-# --- Full Table ---
-st.markdown("<div class='section-title'>FULL TABLE</div>", unsafe_allow_html=True)
-table_rows = []
-for r in results:
-    s = r["spread"]
-    czarp_t = f"{(r['team1'] if s>0 else r['team2'])[:18]} {-abs(s):+.1f}" if s != 0 else "EVEN"
-    vs = r.get("vegas_spread")
-    vtxt_t = f"{(r['team1'] if vs>0 else r['team2'])[:18]} {-abs(vs):+.1f}" if vs else "-"
-    table_rows.append({
-        "Time":         r.get("game_time") or "",
-        "Away":         r["team2"],
-        "Home":         r["team1"],
-        "Away Score":   r["team2_score"],
-        "Home Score":   r["team1_score"],
-        "CZarp Spread": czarp_t,
-        "CZarp Total":  r["total"],
-        "Vegas Spread": vtxt_t,
-        "Vegas Total":  r.get("vegas_total") or "",
-        "Swing":        r.get("spread_edge") or "",
-        "Edge":         round(r.get("edge_score") or 0, 4),
-        "Differ":       "YES" if r.get("sides_agree") is False else "",
-        "KP Away":      r.get("kp_away_score") or "",
-        "KP Home":      r.get("kp_home_score") or "",
-    })
-df = pd.DataFrame(table_rows)
-st.dataframe(df, use_container_width=True, hide_index=True)
+            if "sim_result" in st.session_state:
+                r = st.session_state["sim_result"]
+                hl, al, sv, ta, tb = st.session_state["sim_labels"]
+
+                away_score = r["team2_score"]
+                home_score = r["team1_score"]
+                away_name  = r["team2"]
+                home_name  = r["team1"]
+                away_wins  = away_score > home_score
+                home_wins  = home_score > away_score
+
+                # Spread text
+                s = r["spread"]
+                if s > 0:
+                    czarp_txt = f"{home_name} {-abs(s):+.1f}"
+                elif s < 0:
+                    czarp_txt = f"{away_name} {-abs(s):+.1f}"
+                else:
+                    czarp_txt = "EVEN"
+
+                away_sc = "team-score team-score-winner" if away_wins else "team-score"
+                home_sc = "team-score team-score-winner" if home_wins else "team-score"
+
+                site_badge = f"<span style='background:#1e2535; color:#888; font-size:0.7rem; padding:2px 8px; border-radius:10px; margin-bottom:8px; display:inline-block;'>{sv.upper()}</span>"
+
+                st.markdown(f"""
+                <div class="game-card" style="max-width:520px; margin-top:20px;">
+                    {site_badge}
+                    <div class="team-row">
+                        <span class="team-name">{away_name} <span class="team-label">{al}</span></span>
+                        <span class="{away_sc}">{away_score:.1f}</span>
+                    </div>
+                    <div class="team-row">
+                        <span class="team-name">{home_name} <span class="team-label">{hl}</span></span>
+                        <span class="{home_sc}">{home_score:.1f}</span>
+                    </div>
+                    <div class="game-meta">
+                        <div class="meta-item"><span class="meta-label">CZarp Spread</span><span class="meta-val meta-val-hot">{czarp_txt}</span></div>
+                        <div class="meta-item"><span class="meta-label">CZarp Total</span><span class="meta-val">{r["total"]:.1f}</span></div>
+                        <div class="meta-item"><span class="meta-label">KenPom Proj</span><span class="meta-val">{r.get("kp_home_score") or "—"} / {r.get("kp_away_score") or "—"}</span></div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # Detail breakdown
+                with st.expander("Show full breakdown"):
+                    d = r.get("debug", {})
+                    bc1, bc2 = st.columns(2)
+                    with bc1:
+                        st.markdown(f"**{home_name}**")
+                        st.markdown(f"KenPom Rank: **{int(d.get('kenpom_rank_t1',0))}**")
+                        st.markdown(f"NET Rank: **{d.get('net_rank_t1') or 'N/A'}**")
+                        st.markdown(f"AdjOE: **{d.get('t1_adjoe',0):.1f}** / AdjDE: **{d.get('t1_adjde',0):.1f}**")
+                        st.markdown(f"PPP: **{r.get('team1_ppp',0):.4f}**")
+                        st.markdown(f"Adj Metric: **{r.get('team1_adj_metric',0):.4f}**")
+                    with bc2:
+                        st.markdown(f"**{away_name}**")
+                        st.markdown(f"KenPom Rank: **{int(d.get('kenpom_rank_t2',0))}**")
+                        st.markdown(f"NET Rank: **{d.get('net_rank_t2') or 'N/A'}**")
+                        st.markdown(f"AdjOE: **{d.get('t2_adjoe',0):.1f}** / AdjDE: **{d.get('t2_adjde',0):.1f}**")
+                        st.markdown(f"PPP: **{r.get('team2_ppp',0):.4f}**")
+                        st.markdown(f"Adj Metric: **{r.get('team2_adj_metric',0):.4f}**")
+                    st.markdown(f"Projected Pace: **{r.get('projected_pace',0):.1f}** | Avg Pace used: **{d.get('avg_pace',0):.1f}**")
 
 st.markdown(f"<div style='margin-top:40px; padding-top:20px; border-top:1px solid #1e2535; font-size:0.75rem; color:#444; text-align:center;'>CZarp CBB Model &nbsp; 2025-26 &nbsp; Last updated {datetime.now().strftime('%I:%M %p')}</div>", unsafe_allow_html=True)
