@@ -1,7 +1,7 @@
 """
 kenpom_fetcher.py
 Fetches all data needed by the CBB model via the official KenPom REST API.
-API key loaded from .env — never hardcode it here.
+API key loaded from .env  never hardcode it here.
 """
 
 import os
@@ -64,8 +64,13 @@ def fetch_height(year: int = SEASON) -> pd.DataFrame:
 
 
 def fetch_teams(year: int = SEASON) -> pd.DataFrame:
-    """Team list with TeamID — for resolving team names to IDs."""
+    """Team list with TeamID  for resolving team names to IDs."""
     return pd.DataFrame(_get("teams", {"y": year}))
+
+
+def fetch_misc(year: int = SEASON) -> pd.DataFrame:
+    """Misc stats including clutch time performance."""
+    return pd.DataFrame(_get("misc", {"y": year}))
 
 
 def fetch_fanmatch(date: str) -> pd.DataFrame:
@@ -75,15 +80,16 @@ def fetch_fanmatch(date: str) -> pd.DataFrame:
 
 def fetch_all(year: int = SEASON) -> dict[str, pd.DataFrame]:
     """Pull every dataset the model needs."""
-    print(f"📡 Fetching KenPom data for {year} season...")
+    print(f" Fetching KenPom data for {year} season...")
     data = {
         "ratings":      fetch_ratings(year),
         "four_factors": fetch_four_factors(year),
         "height":       fetch_height(year),
         "teams":        fetch_teams(year),
+        "misc":         fetch_misc(year),
     }
     for name, df in data.items():
-        print(f"   ✅ {name:<15} ({len(df)} teams)")
+        print(f"    {name:<15} ({len(df)} teams)")
     return data
 
 
@@ -91,7 +97,7 @@ def save_data(data: dict[str, pd.DataFrame], output_dir: str = "data") -> None:
     os.makedirs(output_dir, exist_ok=True)
     for name, df in data.items():
         df.to_csv(f"{output_dir}/{name}.csv", index=False)
-    print(f"   💾 All CSVs saved to /{output_dir}/")
+    print(f"    All CSVs saved to /{output_dir}/")
 
 
 if __name__ == "__main__":
