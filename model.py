@@ -249,6 +249,72 @@ HCA_VALUE = 3.5  # KenPom's typical home court advantage (points)
              # Replace with dynamic value from hca.php if you add that endpoint
 
 
+def mround(value: float, multiple: float = 0.5) -> float:
+    """Round to nearest multiple (like Excel MROUND). Default 0.5 for gambling lines."""
+    return round(value / multiple) * multiple
+
+
+def compute_clutch_score(team_name: str, misc: pd.DataFrame) -> float:
+    """
+    Execution Score (Clutch) from KenPom misc data.
+    Formula from sheet: =100-O4+Q4-S4-U4  (OppFG2Pct, OppFG3Pct, OppFTPct, OppBLKpct based)
+    Simplified: use ClutchScore or similar field if available, else return 0.
+    We store raw clutch score and normalize it for application.
+    """
+    if misc is None or misc.empty:
+        return 0.0
+    try:
+        row = get_team(misc, team_name)
+        # Try common field names from KenPom misc API
+        for field in ["ClutchScore", "Clutch", "clutch_score"]:
+            if field in row.index:
+                return float(row[field])
+    except Exception:
+        pass
+    return 0.0
+
+
+def apply_clutch_adjustment(t1_score: float, t2_score: float,
+                             t1_clutch: float, t2_clutch: float,
+                             t1_poss: float, t2_poss: float) -> tuple[float, float]:
+    """
+    Apply clutch adjustment only when projected game is within 5 pts at 87% of possessions.
+    Last 13% of possessions (approx last 5 min of 2H):
+      clutch_poss = total_poss * 0.13
+      adjusted score uses clutch percentile weighted by possession share.
+
+    clutch_away = clutch_t1 / (clutch_t1 + clutch_t2)  (away perspective)
+    clutch_home = clutch_t2 / (clutch_t1 + clutch_t2)  (home perspective)
+    Then adjust last 13% of score by clutch win probability shift.
+    """
+    spread = abs(t1_score - t2_score)
+    # Only apply if game is within 5 pts (i.e., close game at 87% mark)
+    if spread > 5.0:
+        return t1_score, t2_score
+
+    total_clutch = t1_clutch + t2_clutch
+    if total_clutch == 0:
+        return t1_score, t2_score
+
+    clutch_pct_t1 = t1_clutch / total_clutch  # t1 clutch win share
+    clutch_pct_t2 = t2_clutch / total_clutch  # t2 clutch win share
+
+    # Last 13% of possessions
+    clutch_poss_t1 = t1_poss * 0.13
+    clutch_poss_t2 = t2_poss * 0.13
+
+    # Baseline: each team scores proportionally to their clutch share
+    # Adjustment = (clutch_pct - 0.5) * clutch_poss * ppp_proxy
+    # We approximate PPP from score/poss
+    ppp_t1 = t1_score / t1_poss if t1_poss > 0 else 1.0
+    ppp_t2 = t2_score / t2_poss if t2_poss > 0 else 1.0
+
+    t1_clutch_adj = (clutch_pct_t1 - 0.5) * clutch_poss_t1 * ppp_t1
+    t2_clutch_adj = (clutch_pct_t2 - 0.5) * clutch_poss_t2 * ppp_t2
+
+    return t1_score + t1_clutch_adj, t2_score + t2_clutch_adj
+
+
 def project_game(
     team1: str,
     team2: str,
@@ -259,6 +325,7 @@ def project_game(
     ff      = data["four_factors"]
     height  = data["height"]
     net     = data["net"]
+    misc    = data.get("misc", pd.DataFrame())
 
     avgs = compute_ncaa_averages(ratings, ff, height)
 
@@ -329,14 +396,26 @@ def project_game(
     t1_score += h1_adj
     t2_score += h2_adj
 
+    # Clutch adjustment (only applied when game is within 5 pts)
+    t1_clutch = compute_clutch_score(team1, misc)
+    t2_clutch = compute_clutch_score(team2, misc)
+    t1_score, t2_score = apply_clutch_adjustment(t1_score, t2_score, t1_clutch, t2_clutch, t1_poss, t2_poss)
+
+    # Round all final scores to nearest 0.5 (standard for gambling lines)
+    t1_score = mround(t1_score, 0.5)
+    t2_score = mround(t2_score, 0.5)
+
     return {
         "team1":             team1,
         "team2":             team2,
+        "game_time":         game_time,
         "projected_pace":    round(pace, 1),
-        "team1_score":       round(t1_score, 1),
-        "team2_score":       round(t2_score, 1),
-        "spread":            round(t1_score - t2_score, 1),
-        "total":             round(t1_score + t2_score, 1),
+        "team1_score":       t1_score,
+        "team2_score":       t2_score,
+        "spread":            mround(t1_score - t2_score, 0.5),
+        "total":             mround(t1_score + t2_score, 0.5),
+        "team1_clutch":      round(t1_clutch, 2),
+        "team2_clutch":      round(t2_clutch, 2),
         "team1_adj_metric":  round(adj1, 6),
         "team2_adj_metric":  round(adj2, 6),
         "team1_kp_pct":      round(t1_pct, 4),
