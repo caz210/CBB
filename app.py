@@ -271,27 +271,22 @@ with tab1:
             differ_html = "<span class='meta-val meta-val-differ'>SIDES DIFFER</span>" if disagree else ""
             differ_block = '<div class="meta-item"><span class="meta-label">&nbsp;</span>' + differ_html + '</div>' if disagree else ""
 
-            card_html = f"""<div class="game-card">
-                <span class="edge-badge {badge_cls}">{badge_txt}</span>
-                {time_html}
-                <div class="team-row">
-                    <span class="team-name">{away_name} <span class="team-label">AWAY</span></span>
-                    <span class="{away_cls}">{away_score:.1f}</span>
-                </div>
-                <div class="team-row">
-                    <span class="team-name">{home_name} <span class="team-label">HOME</span></span>
-                    <span class="{home_cls}">{home_score:.1f}</span>
-                </div>
-                <div class="game-meta">
-                    <div class="meta-item"><span class="meta-label">CZarp Spread</span><span class="meta-val meta-val-hot">{czarp_txt}</span></div>
-                    <div class="meta-item"><span class="meta-label">CZarp Total</span><span class="meta-val">{r['total']:.1f}</span></div>
-                    <div class="meta-item"><span class="meta-label">Vegas Spread</span><span class="meta-val">{vtxt}</span></div>
-                    <div class="meta-item"><span class="meta-label">Vegas Total</span><span class="meta-val">{vttxt}</span></div>
-                    <div class="meta-item"><span class="meta-label">Swing</span><span class="meta-val">{swing_txt}</span></div>
-                    {differ_block}
-                </div>
-            </div>"""
-    st.markdown(card_html.strip(), unsafe_allow_html=True)
+            parts = [
+                f'<div class="game-card">',
+                f'<span class="edge-badge {badge_cls}">{badge_txt}</span>',
+                time_html,
+                f'<div class="team-row"><span class="team-name">{away_name} <span class="team-label">AWAY</span></span><span class="{away_cls}">{away_score:.1f}</span></div>',
+                f'<div class="team-row"><span class="team-name">{home_name} <span class="team-label">HOME</span></span><span class="{home_cls}">{home_score:.1f}</span></div>',
+                f'<div class="game-meta">',
+                f'<div class="meta-item"><span class="meta-label">CZarp Spread</span><span class="meta-val meta-val-hot">{czarp_txt}</span></div>',
+                f'<div class="meta-item"><span class="meta-label">CZarp Total</span><span class="meta-val">{r["total"]:.1f}</span></div>',
+                f'<div class="meta-item"><span class="meta-label">Vegas Spread</span><span class="meta-val">{vtxt}</span></div>',
+                f'<div class="meta-item"><span class="meta-label">Vegas Total</span><span class="meta-val">{vttxt}</span></div>',
+                f'<div class="meta-item"><span class="meta-label">Swing</span><span class="meta-val">{swing_txt}</span></div>',
+                differ_block,
+                '</div></div>',
+            ]
+            st.markdown("".join(parts), unsafe_allow_html=True)
 
     # --- Full Table ---
     st.markdown("<div class='section-title'>FULL TABLE</div>", unsafe_allow_html=True)
