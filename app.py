@@ -265,16 +265,12 @@ with tab1:
             else:
                 czarp_txt = "EVEN"
 
-            # Vegas Spread: "FavTeam -X.0"
-            vs = r.get("vegas_spread")
-            vt = r.get("vegas_total")
-            if vs is not None:
-                if vs > 0:
-                    vtxt = f"{home_name[:16]} {-abs(vs):+.1f}"
-                elif vs < 0:
-                    vtxt = f"{away_name[:16]} {-abs(vs):+.1f}"
-                else:
-                    vtxt = "EVEN"
+            # Vegas Spread: use pre-computed vegas_fav (handles flip detection correctly)
+            vs   = r.get("vegas_spread")
+            vt   = r.get("vegas_total")
+            vfav = r.get("vegas_fav")
+            if vs is not None and vfav:
+                vtxt  = f"{vfav[:16]} {-abs(vs):+.1f}" if vs != 0 else "EVEN"
                 vttxt = f"{vt:.1f}" if vt else "-"
             else:
                 vtxt, vttxt = "-", "-"
@@ -309,10 +305,8 @@ with tab1:
         s = r["spread"]
         czarp_t = f"{(r['team1'] if s>0 else r['team2'])[:18]} {-abs(s):+.1f}" if s != 0 else "EVEN"
         vs = r.get("vegas_spread")
-        vtxt_t = (
-        f"{(r['team1'] if vs < 0 else r['team2'])[:18]} {(vs if vs < 0 else -vs):+.1f}"
-        if vs and vs != 0 else ("EVEN" if vs == 0 else "-")
-    )
+        vfav_t = r.get("vegas_fav")
+        vtxt_t = f"{vfav_t[:18]} {-abs(vs):+.1f}" if (vs and vs != 0 and vfav_t) else ("EVEN" if vs == 0 else "-")
         table_rows.append({
             "Time":         r.get("game_time") or "",
             "Away":         r["team2"],
