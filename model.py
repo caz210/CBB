@@ -318,8 +318,9 @@ def apply_clutch_adjustment(t1_score: float, t2_score: float,
 def project_game(
     team1: str,
     team2: str,
-    team1_is_home: bool | None,   # True=home, False=away, None=neutral
-    data: dict[str, pd.DataFrame],
+    team1_is_home,
+    data: dict,
+    game_time: str = None,
 ) -> dict:
     ratings = data["ratings"]
     ff      = data["four_factors"]
