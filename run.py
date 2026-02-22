@@ -77,6 +77,9 @@ def games_from_fanmatch(today: str) -> list[dict]:
 
     home_count = len(games) - neutral_count
     print(f"    {len(games)} games found ({home_count} home/away, {neutral_count} neutral site)")
+    # Save fanmatch as CSV fallback for Streamlit (which may run on a different date)
+    if games:
+        fm.to_csv(f"data/fanmatch_{today}.csv", index=False)
     return games
 
 
