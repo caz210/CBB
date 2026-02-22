@@ -86,17 +86,24 @@ def fetch_all(year: int = SEASON) -> dict[str, pd.DataFrame]:
         "four_factors": fetch_four_factors(year),
         "height":       fetch_height(year),
         "teams":        fetch_teams(year),
-        "misc":         fetch_misc(year),
     }
+    # misc is optional - not all KenPom API tiers include it
+    try:
+        data["misc"] = fetch_misc(year)
+        print(f"    {'misc':<15} ({len(data['misc'])} teams)")
+    except Exception:
+        data["misc"] = None
     for name, df in data.items():
-        print(f"    {name:<15} ({len(df)} teams)")
+        if name != "misc" and df is not None:
+            print(f"    {name:<15} ({len(df)} teams)")
     return data
 
 
-def save_data(data: dict[str, pd.DataFrame], output_dir: str = "data") -> None:
+def save_data(data: dict, output_dir: str = "data") -> None:
     os.makedirs(output_dir, exist_ok=True)
     for name, df in data.items():
-        df.to_csv(f"{output_dir}/{name}.csv", index=False)
+        if df is not None:
+            df.to_csv(f"{output_dir}/{name}.csv", index=False)
     print(f"    All CSVs saved to /{output_dir}/")
 
 
