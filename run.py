@@ -18,7 +18,7 @@ from odds_fetcher import fetch_vegas_lines, match_vegas_to_game
 SEASON = 2026  # Current season (2025-26)
 
 
-# ── Parse fanmatch into game dicts ───────────────────────────────────────────
+#  Parse fanmatch into game dicts 
 
 def is_neutral_site(row) -> bool:
     """
@@ -49,11 +49,11 @@ def games_from_fanmatch(today: str) -> list[dict]:
     team1 = Home team, team2 = Visitor.
     team1_is_home = True (home game), False (away), None (neutral site).
     """
-    print(f"📡 Fetching today's games from fanmatch ({today})...")
+    print(f" Fetching today's games from fanmatch ({today})...")
     fm = fetch_fanmatch(today)
 
     if fm.empty:
-        print("   ⚠️  No games found for today in fanmatch.")
+        print("     No games found for today in fanmatch.")
         return []
 
     games = []
@@ -66,20 +66,21 @@ def games_from_fanmatch(today: str) -> list[dict]:
         games.append({
             "team1":          row["Home"],
             "team2":          row["Visitor"],
-            "team1_is_home":  None if neutral else True,   # None = neutral site
+            "team1_is_home":  None if neutral else True,
             "kp_home_score":  row.get("HomePred",    None),
             "kp_away_score":  row.get("VisitorPred", None),
             "kp_home_wp":     row.get("HomeWP",      None),
             "kp_tempo":       row.get("PredTempo",   None),
             "game_id":        row.get("GameID",      None),
+            "game_time":      row.get("GameTime",    row.get("Time", None)),
         })
 
     home_count = len(games) - neutral_count
-    print(f"   ✅ {len(games)} games found ({home_count} home/away, {neutral_count} neutral site)")
+    print(f"    {len(games)} games found ({home_count} home/away, {neutral_count} neutral site)")
     return games
 
 
-# ── Main runner ───────────────────────────────────────────────────────────────
+#  Main runner 
 
 def run(refresh_data: bool = True, target_date: str = None):
     today = target_date or str(date.today())
@@ -90,10 +91,10 @@ def run(refresh_data: bool = True, target_date: str = None):
         save_data(kp_data)
 
         # 2. Pull NCAA NET rankings
-        print("📡 Fetching NCAA NET rankings...")
+        print(" Fetching NCAA NET rankings...")
         net_df = fetch_net_rankings()
         net_df.to_csv("data/net.csv", index=False)
-        print(f"   ✅ NET rankings  ({len(net_df)} teams)")
+        print(f"    NET rankings  ({len(net_df)} teams)")
 
     # 3. Load all model data
     data = load_data()
@@ -106,7 +107,7 @@ def run(refresh_data: bool = True, target_date: str = None):
 
     # 5. Run your model on every game
     results = []
-    print(f"\n🏀 Projections for {today}\n{'─'*50}")
+    print(f"\n Projections for {today}\n{''*50}")
 
     for game in games:
         try:
@@ -115,6 +116,7 @@ def run(refresh_data: bool = True, target_date: str = None):
                 team2=game["team2"],
                 team1_is_home=game["team1_is_home"],
                 data=data,
+                game_time=game.get("game_time"),
             )
 
             # Attach KenPom's own predictions for easy side-by-side comparison
@@ -127,35 +129,35 @@ def run(refresh_data: bool = True, target_date: str = None):
             results.append(r)
 
             # Print side-by-side: your model vs KenPom
-            print(f"  🏠 {r['team1']:22} YOUR: {r['team1_score']:5.1f}   KP: {game['kp_home_score']}")
-            print(f"  ✈️  {r['team2']:22} YOUR: {r['team2_score']:5.1f}   KP: {game['kp_away_score']}")
+            print(f"   {r['team1']:22} YOUR: {r['team1_score']:5.1f}   KP: {game['kp_home_score']}")
+            print(f"    {r['team2']:22} YOUR: {r['team2_score']:5.1f}   KP: {game['kp_away_score']}")
 
             spread_team = r['team1'] if r['spread'] > 0 else r['team2']
             print(f"      Spread: {spread_team} -{abs(r['spread']):.1f}  |  Total: {r['total']:.1f}  |  KP Tempo: {game['kp_tempo']}")
             print()
 
         except Exception as e:
-            print(f"  ⚠️  {game['team1']} vs {game['team2']}: {e}\n")
+            print(f"    {game['team1']} vs {game['team2']}: {e}\n")
 
     # 6. Match Vegas lines to results
-    print("📡 Fetching Vegas lines...")
+    print(" Fetching Vegas lines...")
     vegas_df = fetch_vegas_lines()
     results = [match_vegas_to_game(r, vegas_df) for r in results]
 
     # Print edge scores sorted best to worst
     if any(r.get("edge_score") is not None for r in results):
-        print(f"\n🎯 EDGE REPORT — sorted by disagreement with Vegas")
+        print(f"\n EDGE REPORT  sorted by disagreement with Vegas")
         print(f"  {'Game':<32} {'My Fav':<14} {'VGS Fav':<14} {'Swing':>6} {'Edge':>8} {'Agree?'}")
-        print(f"  {'─'*85}")
+        print(f"  {''*85}")
         sorted_results = sorted(results, key=lambda r: r.get("edge_score") or 0, reverse=True)
         for r in sorted_results:
             if r.get("vegas_spread") is not None:
                 game      = f"{r['team1']} vs {r['team2']}"[:31]
-                my_fav    = (r.get('my_fav') or '—')[:13]
-                vgs_fav   = (r.get('vegas_fav') or '—')[:13]
+                my_fav    = (r.get('my_fav') or '')[:13]
+                vgs_fav   = (r.get('vegas_fav') or '')[:13]
                 swing     = r.get('spread_edge', 0)
                 edge      = r.get('edge_score', 0)
-                agree     = "✅" if r.get('sides_agree') else "❌ DIFFER"
+                agree     = "" if r.get('sides_agree') else " DIFFER"
                 neutral   = " [N]" if r.get("location") == "neutral" else ""
                 print(f"  {game+neutral:<32} {my_fav:<14} {vgs_fav:<14} {swing:>6.1f} {edge:>8.4f} {agree}")
 
@@ -169,7 +171,7 @@ def run(refresh_data: bool = True, target_date: str = None):
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         proj_path = f"outputs/projections_{today}_{ts}.csv"
         out.to_csv(proj_path, index=False)
-        print(f"✅ Saved {len(results)} projections → {proj_path}")
+        print(f" Saved {len(results)} projections  {proj_path}")
 
 
 if __name__ == "__main__":
