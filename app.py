@@ -71,8 +71,20 @@ def get_kenpom_data():
 
 @st.cache_data(ttl=900, show_spinner=False)
 def get_todays_games(today_str):
-    fm = fetch_fanmatch(today_str)
-    if fm.empty:
+    import os, pandas as pd
+    # Try live fanmatch API first
+    try:
+        fm = fetch_fanmatch(today_str)
+    except Exception as e:
+        # API failed (400 = date not available, past/future) — try saved CSV fallback
+        fanmatch_csv = f"data/fanmatch_{today_str}.csv"
+        if os.path.exists(fanmatch_csv):
+            fm = pd.read_csv(fanmatch_csv)
+            st.info(f"Using saved games from {today_str}")
+        else:
+            st.warning(f"KenPom fanmatch unavailable for {today_str}: {e}")
+            return []
+    if fm is None or (hasattr(fm, "empty") and fm.empty):
         return []
     games = []
     for _, row in fm.iterrows():
