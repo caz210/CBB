@@ -271,7 +271,7 @@ with tab1:
             differ_html = "<span class='meta-val meta-val-differ'>SIDES DIFFER</span>" if disagree else ""
             differ_block = '<div class="meta-item"><span class="meta-label">&nbsp;</span>' + differ_html + '</div>' if disagree else ""
 
-            st.markdown(f"""<div class="game-card">
+            card_html = f"""<div class="game-card">
                 <span class="edge-badge {badge_cls}">{badge_txt}</span>
                 {time_html}
                 <div class="team-row">
@@ -290,7 +290,8 @@ with tab1:
                     <div class="meta-item"><span class="meta-label">Swing</span><span class="meta-val">{swing_txt}</span></div>
                     {differ_block}
                 </div>
-            </div>""", unsafe_allow_html=True)
+            </div>"""
+    st.markdown(card_html.strip(), unsafe_allow_html=True)
 
     # --- Full Table ---
     st.markdown("<div class='section-title'>FULL TABLE</div>", unsafe_allow_html=True)
@@ -299,7 +300,10 @@ with tab1:
         s = r["spread"]
         czarp_t = f"{(r['team1'] if s>0 else r['team2'])[:18]} {-abs(s):+.1f}" if s != 0 else "EVEN"
         vs = r.get("vegas_spread")
-        vtxt_t = f"{(r['team1'] if vs>0 else r['team2'])[:18]} {-abs(vs):+.1f}" if vs else "-"
+        vtxt_t = (
+        f"{(r['team1'] if vs < 0 else r['team2'])[:18]} {(vs if vs < 0 else -vs):+.1f}"
+        if vs and vs != 0 else ("EVEN" if vs == 0 else "-")
+    )
         table_rows.append({
             "Time":         r.get("game_time") or "",
             "Away":         r["team2"],
