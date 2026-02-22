@@ -120,12 +120,25 @@ def run_projections(today_str):
 with st.sidebar:
     st.markdown("## CZarp CBB MODEL")
     st.markdown(f"**Season:** 2025-26")
-    st.markdown(f"**Date:** {date.today().strftime('%b %d, %Y')}")
     st.markdown("---")
     sort_by = st.selectbox("Sort games by", ["Edge Score", "Total", "Spread (biggest fav)", "Team Name A-Z"])
     min_edge = st.slider("Min Edge Score", 0.0, 0.20, 0.0, 0.01)
     show_only_vegas  = st.checkbox("Only games with Vegas lines", value=False)
     show_only_differ = st.checkbox("Only SIDES DIFFER games", value=False)
+    st.markdown("---")
+
+    # Date picker — default to today but let user override
+    # KenPom fanmatch only has games for the current game day
+    from datetime import timedelta
+    selected_date = st.date_input(
+        "Game Date",
+        value=date.today(),
+        min_value=date.today() - timedelta(days=7),
+        max_value=date.today() + timedelta(days=1),
+        help="If games aren't loading, try yesterday's date — KenPom updates around midnight ET"
+    )
+    today = str(selected_date)
+
     st.markdown("---")
     if st.button("Refresh Data", use_container_width=True):
         st.cache_data.clear()
@@ -133,12 +146,10 @@ with st.sidebar:
 
 # --- Header ---
 st.markdown("<h1 style='color:#f0b429; margin-bottom:4px;'>CZARP CBB MODEL</h1>", unsafe_allow_html=True)
-st.markdown(f"<p style='color:#555; margin-top:0;'>{date.today().strftime('%A, %B %d, %Y')} &nbsp; 2025-26 Season</p>", unsafe_allow_html=True)
+st.markdown(f"<p style='color:#555; margin-top:0;'>{selected_date.strftime('%A, %B %d, %Y')} &nbsp; 2025-26 Season</p>", unsafe_allow_html=True)
 
 if not MODULES_OK:
     st.stop()
-
-today = str(date.today())
 
 with st.spinner("Loading projections..."):
     try:
