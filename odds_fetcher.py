@@ -1,8 +1,7 @@
+# -*- coding: utf-8 -*-
 """
 odds_fetcher.py
-Fetches live Vegas lines (spread, total, moneyline) from The Odds API.
-Free tier: 500 credits/month — each NCAAB pull costs ~10 credits.
-Sign up at https://the-odds-api.com to get your free API key.
+Fetches live Vegas lines from The Odds API.
 """
 
 import os
@@ -21,18 +20,12 @@ def _get_secret(key: str) -> str:
 
 ODDS_API_KEY = _get_secret("ODDS_API_KEY")
 BASE_URL     = "https://api.the-odds-api.com/v4/sports/basketball_ncaab/odds"
-
-# Preferred books in priority order — first available line wins
 BOOK_PRIORITY = ["draftkings", "fanduel", "betmgm", "caesars", "bovada", "mybookieag"]
 
 
 def fetch_vegas_lines() -> pd.DataFrame:
-    """
-    Pulls current NCAAB spreads, totals, and moneylines from The Odds API.
-    Returns a DataFrame with one row per game, using consensus line from best available book.
-    """
     if not ODDS_API_KEY:
-        print("   ⚠️  ODDS_API_KEY not set in .env — skipping Vegas lines.")
+        print("     ODDS_API_KEY not set -- skipping Vegas lines.")
         return pd.DataFrame()
 
     params = {
@@ -48,42 +41,36 @@ def fetch_vegas_lines() -> pd.DataFrame:
 
     games = resp.json()
     remaining = resp.headers.get("x-requests-remaining", "?")
-    print(f"   ✅ Vegas lines fetched ({len(games)} games) | Credits remaining: {remaining}")
+    print(f"    Vegas lines fetched ({len(games)} games) | Credits remaining: {remaining}")
 
     rows = []
     for game in games:
         home = game["home_team"]
         away = game["away_team"]
-
         vegas_spread = None
         vegas_total  = None
         vegas_home_ml = None
         source_book  = None
 
-        # Try books in priority order until we get all three markets
         for book_key in BOOK_PRIORITY:
             book = next((b for b in game["bookmakers"] if b["key"] == book_key), None)
             if not book:
                 continue
-
             markets = {m["key"]: m["outcomes"] for m in book["markets"]}
 
-            # Spread (from home team perspective)
             if vegas_spread is None and "spreads" in markets:
                 for outcome in markets["spreads"]:
                     if outcome["name"] == home:
-                        vegas_spread = outcome["point"]
+                        vegas_spread = outcome["point"]  # negative = home favored
                         source_book  = book["title"]
                         break
 
-            # Total (O/U)
             if vegas_total is None and "totals" in markets:
                 for outcome in markets["totals"]:
                     if outcome["name"] == "Over":
                         vegas_total = outcome["point"]
                         break
 
-            # Moneyline (home team)
             if vegas_home_ml is None and "h2h" in markets:
                 for outcome in markets["h2h"]:
                     if outcome["name"] == home:
@@ -96,7 +83,7 @@ def fetch_vegas_lines() -> pd.DataFrame:
         rows.append({
             "vegas_home":    home,
             "vegas_away":    away,
-            "vegas_spread":  vegas_spread,   # negative = home favored
+            "vegas_spread":  vegas_spread,  # negative = home favored
             "vegas_total":   vegas_total,
             "vegas_home_ml": vegas_home_ml,
             "source_book":   source_book,
@@ -113,7 +100,7 @@ def normalize_name(name: str) -> str:
         " Volunteers", " Longhorns", " Aggies", " Seminoles", " Gators", " Hurricanes",
         " Demon Deacons", " Mountaineers", " Thunderbirds", " Red Hawks", " Zips",
         " Flyers", " Golden Flashes", " Chippewas", " Falcons", " Rockets",
-        " Rams", " Owls", " Flames", " Flames", " Hawks", " Norse",
+        " Rams", " Owls", " Flames", " Hawks", " Norse",
     ]
     for s in suffixes:
         if name.endswith(s):
@@ -121,93 +108,98 @@ def normalize_name(name: str) -> str:
     return name
 
 
+def _team_match_score(t: str, v: str) -> int:
+    """1 if names overlap, 0 otherwise."""
+    return 1 if (t.lower() in v.lower() or v.lower() in t.lower()) else 0
+
+
 def match_vegas_to_game(result: dict, vegas_df: pd.DataFrame) -> dict:
     """
-    Match a model game result to a Vegas line by fuzzy team name.
-    Adds vegas_spread, vegas_total, spread_edge, total_edge to the result dict.
+    Match model result to Vegas line. Handles both orientations:
+      - Normal:   model t1=home matches vegas_home, t2=away matches vegas_away
+      - Flipped:  Vegas lists the game with teams swapped vs KenPom
+    When flipped orientation detected, negate the spread so it's always
+    expressed from model's team1 (home) perspective.
     """
+    _null = lambda r: {**r,
+        "vegas_spread": None, "vegas_total": None, "vegas_home_ml": None,
+        "spread_edge": None, "total_edge": None, "edge_score": None,
+        "vegas_fav": None, "my_fav": None, "sides_agree": None, "source_book": None}
+
     if vegas_df.empty:
-        return result
+        return _null(result)
 
-    t1 = normalize_name(result["team1"])
-    t2 = normalize_name(result["team2"])
+    t1 = normalize_name(result["team1"])  # model home
+    t2 = normalize_name(result["team2"])  # model away
 
-    best_match = None
-    best_score = 0
+    best_score    = 0
+    best_match    = None
+    best_flipped  = False   # True if Vegas has teams in reverse order
 
     for _, row in vegas_df.iterrows():
         vh = normalize_name(row["vegas_home"])
         va = normalize_name(row["vegas_away"])
 
-        # Check both orientations
-        score = 0
-        if t1.lower() in vh.lower() or vh.lower() in t1.lower():
-            score += 1
-        if t2.lower() in va.lower() or va.lower() in t2.lower():
-            score += 1
+        # Normal orientation: t1=home matches vh, t2=away matches va
+        normal_score  = _team_match_score(t1, vh) + _team_match_score(t2, va)
+        # Flipped orientation: t1=home matches va, t2=away matches vh
+        flipped_score = _team_match_score(t1, va) + _team_match_score(t2, vh)
 
-        if score > best_score:
-            best_score = score
-            best_match = row
+        top_score  = max(normal_score, flipped_score)
+        is_flipped = flipped_score > normal_score
+
+        if top_score > best_score:
+            best_score   = top_score
+            best_match   = row
+            best_flipped = is_flipped
 
     if best_match is None or best_score < 1:
-        result["vegas_spread"]  = None
-        result["vegas_total"]   = None
-        result["vegas_home_ml"] = None
-        result["spread_edge"]   = None
-        result["total_edge"]    = None
-        result["source_book"]   = None
-        return result
+        return _null(result)
 
-    v_spread = best_match["vegas_spread"]   # e.g. -7.5 means home favored by 7.5
-    v_total  = best_match["vegas_total"]
-    my_spread = result["spread"]             # + = team1 (home) favored
+    v_total   = best_match["vegas_total"]
+    raw_vspread = best_match["vegas_spread"]  # negative = vegas_home favored
 
+    # If flipped: Vegas home is actually our away team, so negate to get
+    # spread from our team1 (home) perspective
+    if best_flipped and raw_vspread is not None:
+        v_spread = -raw_vspread
+    else:
+        v_spread = raw_vspread
+
+    # v_spread is now from model's team1 (home) perspective: negative = t1 favored
     result["vegas_spread"]  = v_spread
     result["vegas_total"]   = v_total
     result["vegas_home_ml"] = best_match["vegas_home_ml"]
     result["source_book"]   = best_match["source_book"]
 
-    # ── Edge score logic ──────────────────────────────────────────────────────
-    # Vegas spread convention: negative = home team favored (e.g. -7 means home -7)
-    # My spread convention:    positive = team1 (home) favored (e.g. +7 means home +7)
-    #
-    # To compare apples to apples:
-    #   Vegas favored team spread = v_spread (negative means home favored)
-    #   My favored team spread    = my_spread (positive means home favored)
-    #
-    # Example: Vegas has Georgia -2 (home favored by 2)
-    #          My model has Texas  +2 (away favored by 2, so home is -2 in my model)
-    #          Vegas home line = -2, My home line = +2
-    #          Swing = |-2 - 2| = 4 points ✓
-    #
-    # Both expressed from HOME team perspective, then take absolute difference.
-
     if v_spread is not None and v_total and v_total > 0:
-        # v_spread is already from home team perspective (negative = home favored)
-        # my_spread is positive when home favored — convert to same sign as vegas
-        my_spread_vegas_convention = -my_spread  # flip so negative = home favored
+        my_spread = result["spread"]  # positive = t1 (home) favored
 
-        # Raw point swing between the two lines
-        spread_diff = abs(v_spread - my_spread_vegas_convention)
+        # Both now from t1 perspective. Convert my_spread to same sign convention as v_spread.
+        # my_spread: positive = home favored
+        # v_spread:  negative = home favored
+        # So: my_spread_vs_convention = -my_spread
+        my_vs = -my_spread
 
-        # Who each side favors
-        vegas_fav  = result["team1"] if v_spread < 0 else (result["team2"] if v_spread > 0 else "Pick")
-        my_fav     = result["team1"] if my_spread > 0 else (result["team2"] if my_spread < 0 else "Pick")
-        sides_agree = vegas_fav == my_fav
+        spread_diff = abs(v_spread - my_vs)
 
-        result["spread_edge"]   = round(spread_diff, 2)
-        result["total_edge"]    = round(abs(result["total"] - v_total), 2)
-        result["edge_score"]    = round(spread_diff / v_total, 4)   # YOUR KEY METRIC
-        result["vegas_fav"]     = vegas_fav
-        result["my_fav"]        = my_fav
-        result["sides_agree"]   = sides_agree   # False = you disagree on WHO wins
+        # Who each side favors (using t1=home, t2=away)
+        # v_spread < 0 means home (t1) favored
+        vegas_fav = result["team1"] if v_spread < 0 else (result["team2"] if v_spread > 0 else "Pick")
+        my_fav    = result["team1"] if my_spread > 0 else (result["team2"] if my_spread < 0 else "Pick")
+
+        result["spread_edge"] = round(spread_diff, 2)
+        result["total_edge"]  = round(abs(result["total"] - v_total), 2)
+        result["edge_score"]  = round(spread_diff / v_total, 4)
+        result["vegas_fav"]   = vegas_fav
+        result["my_fav"]      = my_fav
+        result["sides_agree"] = (vegas_fav == my_fav)
     else:
-        result["spread_edge"]  = None
-        result["total_edge"]   = None
-        result["edge_score"]   = None
-        result["vegas_fav"]    = None
-        result["my_fav"]       = None
-        result["sides_agree"]  = None
+        result["spread_edge"] = None
+        result["total_edge"]  = None
+        result["edge_score"]  = None
+        result["vegas_fav"]   = None
+        result["my_fav"]      = None
+        result["sides_agree"] = None
 
     return result
