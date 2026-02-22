@@ -154,12 +154,16 @@ if not MODULES_OK:
 with st.spinner("Loading projections..."):
     try:
         results = run_projections(today)
+        if not results:
+            st.cache_data.clear()
+            results = run_projections(today)
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.cache_data.clear()
+        st.error(f"Error loading {today}: {e}")
         st.stop()
 
 if not results:
-    st.warning("No games found today.")
+    st.warning(f"No games found for {today}. Try a different date or hit Refresh Data.")
     st.stop()
 
 # --- Metrics ---
