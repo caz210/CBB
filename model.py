@@ -87,45 +87,27 @@ def compute_ncaa_averages(ratings: pd.DataFrame, ff: pd.DataFrame, height: pd.Da
 def compute_team_percentile(
     team_name: str,
     ratings: pd.DataFrame,
-    net: pd.DataFrame,
+    net: pd.DataFrame = None,   # kept for signature compat, no longer used
 ) -> tuple[float, dict]:
     """
-    Returns combined (KP + NET) / 2 percentile as a 0-1 decimal.
-    Matches sheet: Q2 = Adjusted %tile = average of KP and NET percentiles.
-    Rank 1 (best)  ~1.0, last rank  ~0.0
+    Percentile = (n_teams - KenPom_rank) / n_teams
+    Result is 0-1 where 1.0 = best team (#1), ~0.0 = worst.
+    n_teams is derived from the ratings DataFrame so it never needs hardcoding.
     """
-    t_kp  = get_team(ratings, team_name)
-    n_kp  = len(ratings)
+    t_kp    = get_team(ratings, team_name)
+    n_teams = len(ratings)          # e.g. 365 -- pulled live, never hardcoded
     kp_rank = float(t_kp["RankAdjEM"])
-    kp_pct  = (n_kp - kp_rank) / n_kp
-
-    if kp_rank > 300:
-        print(f"     {team_name} KP rank={int(kp_rank)}  check data/ratings.csv")
-
-    # NET percentile  fall back to KP-only if NET unavailable
-    net_rank = None
-    net_pct  = kp_pct   # default to KP if NET missing
-    if net is None or (hasattr(net, "empty") and net.empty):
-        pass  # NET data not loaded - silently use KP only
-    else:
-        try:
-            t_net    = get_team(net, team_name)
-            n_net    = len(net)
-            net_rank = float(t_net["Rank"])
-            net_pct  = (n_net - net_rank) / n_net
-        except Exception:
-            pass  # Team not in NET - silently use KP only
-
-    combined = (kp_pct + net_pct) / 2
+    pct     = (n_teams - kp_rank) / n_teams
 
     debug = {
         "kp_rank":  kp_rank,
-        "net_rank": net_rank,
-        "kp_pct":   kp_pct,
-        "net_pct":  net_pct if net_rank else None,
-        "combined": combined,
+        "net_rank": None,           # NET removed from formula
+        "kp_pct":   pct,
+        "net_pct":  None,
+        "combined": pct,
+        "n_teams":  n_teams,
     }
-    return combined, debug
+    return pct, debug
 
 
 def compute_game_adjustment(home_pct: float, away_pct: float) -> tuple[float, float]:
