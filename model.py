@@ -331,9 +331,11 @@ def project_game(
     # Game-level adjustment: (home_pct - away_pct)*0.5 and inverse
     # Matches sheet: U2_home=(Away_pct - Home_pct)*0.5, U2_away=(Home_pct - Away_pct)*0.5
     if team1_is_home is None:
-        adj1, adj2 = 0.0, 0.0   # neutral site - no adjustment
+        # Neutral site: no HCA, but quality-gap dampening still applies
+        # Treat as if team1 is "home" for adjustment purposes only
+        adj1, adj2 = compute_game_adjustment(t1_pct, t2_pct)
     elif team1_is_home:
-        # team1 is home, team2 is away - home gets home_adj, away gets away_adj
+        # team1 is home, team2 is away
         adj1, adj2 = compute_game_adjustment(t1_pct, t2_pct)
     else:
         # team1 is AWAY, team2 is HOME - swap so home team gets correct adjustment
