@@ -365,6 +365,7 @@ with tab2:
                     r = project_game(team_a, team_b, team1_is_home, sim_data)
                     st.session_state["sim_result"] = r
                     st.session_state["sim_labels"] = (home_label, away_label, site, team_a, team_b)
+                    st.session_state["sim_t1_is_home"] = team1_is_home
                 except Exception as e:
                     st.error(f"Projection error: {e}")
                     if "sim_result" in st.session_state:
@@ -374,21 +375,33 @@ with tab2:
                 r = st.session_state["sim_result"]
                 hl, al, sv, ta, tb = st.session_state["sim_labels"]
 
-                away_score = r["team2_score"]
-                home_score = r["team1_score"]
-                away_name  = r["team2"]
-                home_name  = r["team1"]
-                away_wins  = away_score > home_score
-                home_wins  = home_score > away_score
+                # team1 is always team_a, team2 is always team_b in the model
+                # When Team B Home: team1=team_a is AWAY, team2=team_b is HOME
+                # Determine which team is home for correct display orientation
+                t1_is_home = st.session_state.get("sim_t1_is_home", True)
 
-                # Spread text
-                s = r["spread"]
-                if s > 0:
-                    czarp_txt = f"{home_name} {-abs(s):+.1f}"
-                elif s < 0:
-                    czarp_txt = f"{away_name} {-abs(s):+.1f}"
+                if t1_is_home or t1_is_home is None:
+                    # Team A home or neutral: team1 on bottom (home), team2 on top (away)
+                    home_name  = r["team1"]; home_score = r["team1_score"]
+                    away_name  = r["team2"]; away_score = r["team2_score"]
                 else:
-                    czarp_txt = "EVEN"
+                    # Team B home: team2 is actually home → show team2 on bottom
+                    home_name  = r["team2"]; home_score = r["team2_score"]
+                    away_name  = r["team1"]; away_score = r["team1_score"]
+
+                away_wins = away_score > home_score
+                home_wins = home_score > away_score
+
+                # Spread: always express as favored team -X from home team perspective
+                s = r["spread"]  # positive = team1 favored
+                if t1_is_home is None:
+                    fav_name = r["team1"] if s > 0 else r["team2"]
+                elif t1_is_home:
+                    fav_name = r["team1"] if s > 0 else r["team2"]
+                else:
+                    fav_name = r["team2"] if s < 0 else r["team1"]  # team2 is home
+
+                czarp_txt = f"{fav_name} {-abs(s):+.1f}" if s != 0 else "EVEN"
 
                 away_sc = "team-score team-score-winner" if away_wins else "team-score"
                 home_sc = "team-score team-score-winner" if home_wins else "team-score"
@@ -423,13 +436,11 @@ with tab2:
                         st.markdown(f"KenPom Rank: **{int(d.get('kenpom_rank_t1',0))}**")
                         st.markdown(f"AdjOE: **{d.get('t1_adjoe',0):.1f}** / AdjDE: **{d.get('t1_adjde',0):.1f}**")
                         st.markdown(f"PPP: **{r.get('team1_ppp',0):.4f}**")
-                        st.markdown(f"Adj Metric: **{r.get('team1_adj_metric',0):.4f}**")
                     with bc2:
                         st.markdown(f"**{away_name}**")
                         st.markdown(f"KenPom Rank: **{int(d.get('kenpom_rank_t2',0))}**")
                         st.markdown(f"AdjOE: **{d.get('t2_adjoe',0):.1f}** / AdjDE: **{d.get('t2_adjde',0):.1f}**")
                         st.markdown(f"PPP: **{r.get('team2_ppp',0):.4f}**")
-                        st.markdown(f"Adj Metric: **{r.get('team2_adj_metric',0):.4f}**")
                     st.markdown(f"Projected Pace: **{r.get('projected_pace',0):.1f}** | Avg Pace used: **{d.get('avg_pace',0):.1f}**")
 
 st.markdown(f"<div style='margin-top:40px; padding-top:20px; border-top:1px solid #1e2535; font-size:0.75rem; color:#444; text-align:center;'>CZarp CBB Model &nbsp; 2025-26 &nbsp; Last updated {datetime.now().strftime('%I:%M %p')}</div>", unsafe_allow_html=True)
