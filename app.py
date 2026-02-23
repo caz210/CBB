@@ -364,8 +364,7 @@ with tab2:
                 try:
                     r = project_game(team_a, team_b, team1_is_home, sim_data)
                     st.session_state["sim_result"] = r
-                    st.session_state["sim_labels"] = (home_label, away_label, site, team_a, team_b)
-                    st.session_state["sim_t1_is_home"] = team1_is_home
+                    st.session_state["sim_labels"] = (home_label, away_label, site, team_a, team_b, team1_is_home)
                 except Exception as e:
                     st.error(f"Projection error: {e}")
                     if "sim_result" in st.session_state:
@@ -373,12 +372,7 @@ with tab2:
 
             if "sim_result" in st.session_state:
                 r = st.session_state["sim_result"]
-                hl, al, sv, ta, tb = st.session_state["sim_labels"]
-
-                # team1 is always team_a, team2 is always team_b in the model
-                # When Team B Home: team1=team_a is AWAY, team2=team_b is HOME
-                # Determine which team is home for correct display orientation
-                t1_is_home = st.session_state.get("sim_t1_is_home", True)
+                hl, al, sv, ta, tb, t1_is_home = st.session_state["sim_labels"]
 
                 if t1_is_home or t1_is_home is None:
                     # Team A home or neutral: team1 on bottom (home), team2 on top (away)
@@ -430,17 +424,24 @@ with tab2:
                 # Detail breakdown
                 with st.expander("Show full breakdown"):
                     d = r.get("debug", {})
+                    # When Team B is home, team2=home and team1=away — swap stat keys
+                    if not t1_is_home and t1_is_home is not None:
+                        hk, ak = "t2", "t1"   # home stats from t2, away stats from t1
+                        h_ppp, a_ppp = r.get("team2_ppp",0), r.get("team1_ppp",0)
+                    else:
+                        hk, ak = "t1", "t2"   # normal: home=t1, away=t2
+                        h_ppp, a_ppp = r.get("team1_ppp",0), r.get("team2_ppp",0)
                     bc1, bc2 = st.columns(2)
                     with bc1:
                         st.markdown(f"**{home_name}**")
-                        st.markdown(f"KenPom Rank: **{int(d.get('kenpom_rank_t1',0))}**")
-                        st.markdown(f"AdjOE: **{d.get('t1_adjoe',0):.1f}** / AdjDE: **{d.get('t1_adjde',0):.1f}**")
-                        st.markdown(f"PPP: **{r.get('team1_ppp',0):.4f}**")
+                        st.markdown(f"KenPom Rank: **{int(d.get(f'kenpom_rank_{hk}',0))}**")
+                        st.markdown(f"AdjOE: **{d.get(f'{hk}_adjoe',0):.1f}** / AdjDE: **{d.get(f'{hk}_adjde',0):.1f}**")
+                        st.markdown(f"PPP: **{h_ppp:.4f}**")
                     with bc2:
                         st.markdown(f"**{away_name}**")
-                        st.markdown(f"KenPom Rank: **{int(d.get('kenpom_rank_t2',0))}**")
-                        st.markdown(f"AdjOE: **{d.get('t2_adjoe',0):.1f}** / AdjDE: **{d.get('t2_adjde',0):.1f}**")
-                        st.markdown(f"PPP: **{r.get('team2_ppp',0):.4f}**")
+                        st.markdown(f"KenPom Rank: **{int(d.get(f'kenpom_rank_{ak}',0))}**")
+                        st.markdown(f"AdjOE: **{d.get(f'{ak}_adjoe',0):.1f}** / AdjDE: **{d.get(f'{ak}_adjde',0):.1f}**")
+                        st.markdown(f"PPP: **{a_ppp:.4f}**")
                     st.markdown(f"Projected Pace: **{r.get('projected_pace',0):.1f}** | Avg Pace used: **{d.get('avg_pace',0):.1f}**")
 
 st.markdown(f"<div style='margin-top:40px; padding-top:20px; border-top:1px solid #1e2535; font-size:0.75rem; color:#444; text-align:center;'>CZarp CBB Model &nbsp; 2025-26 &nbsp; Last updated {datetime.now().strftime('%I:%M %p')}</div>", unsafe_allow_html=True)
