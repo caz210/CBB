@@ -49,7 +49,6 @@ h1, h2, h3 { font-family: 'Bebas Neue', sans-serif; letter-spacing: 2px; }
 
 try:
     from kenpom_fetcher import fetch_all, fetch_fanmatch, save_data
-    from net_fetcher import fetch_net_rankings
     from model import load_data, project_game, mround
     from odds_fetcher import fetch_vegas_lines, match_vegas_to_game
     MODULES_OK = True
@@ -64,8 +63,6 @@ SEASON = 2026
 def get_kenpom_data():
     data = fetch_all(year=SEASON)
     save_data(data)
-    net = fetch_net_rankings()
-    net.to_csv("data/net.csv", index=False)
     return load_data()
 
 
@@ -424,14 +421,12 @@ with tab2:
                     with bc1:
                         st.markdown(f"**{home_name}**")
                         st.markdown(f"KenPom Rank: **{int(d.get('kenpom_rank_t1',0))}**")
-                        st.markdown(f"NET Rank: **{d.get('net_rank_t1') or 'N/A'}**")
                         st.markdown(f"AdjOE: **{d.get('t1_adjoe',0):.1f}** / AdjDE: **{d.get('t1_adjde',0):.1f}**")
                         st.markdown(f"PPP: **{r.get('team1_ppp',0):.4f}**")
                         st.markdown(f"Adj Metric: **{r.get('team1_adj_metric',0):.4f}**")
                     with bc2:
                         st.markdown(f"**{away_name}**")
                         st.markdown(f"KenPom Rank: **{int(d.get('kenpom_rank_t2',0))}**")
-                        st.markdown(f"NET Rank: **{d.get('net_rank_t2') or 'N/A'}**")
                         st.markdown(f"AdjOE: **{d.get('t2_adjoe',0):.1f}** / AdjDE: **{d.get('t2_adjde',0):.1f}**")
                         st.markdown(f"PPP: **{r.get('team2_ppp',0):.4f}**")
                         st.markdown(f"Adj Metric: **{r.get('team2_adj_metric',0):.4f}**")
