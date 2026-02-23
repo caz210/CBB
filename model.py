@@ -105,13 +105,16 @@ def compute_team_percentile(
     # NET percentile  fall back to KP-only if NET unavailable
     net_rank = None
     net_pct  = kp_pct   # default to KP if NET missing
-    try:
-        t_net    = get_team(net, team_name)
-        n_net    = len(net)
-        net_rank = float(t_net["Rank"])
-        net_pct  = (n_net - net_rank) / n_net
-    except Exception as e:
-        print(f"     {team_name} NET rank not found ({e}) -- using KP only")
+    if net is None or (hasattr(net, "empty") and net.empty):
+        pass  # NET data not loaded - silently use KP only
+    else:
+        try:
+            t_net    = get_team(net, team_name)
+            n_net    = len(net)
+            net_rank = float(t_net["Rank"])
+            net_pct  = (n_net - net_rank) / n_net
+        except Exception:
+            pass  # Team not in NET - silently use KP only
 
     combined = (kp_pct + net_pct) / 2
 
@@ -346,10 +349,13 @@ def project_game(
     # Game-level adjustment: (home_pct - away_pct)*0.5 and inverse
     # Matches sheet: U2_home=(Away_pct - Home_pct)*0.5, U2_away=(Home_pct - Away_pct)*0.5
     if team1_is_home is None:
-        adj1, adj2 = 0.0, 0.0   # neutral site  no adjustment
-    else:
-        # team1 is home, team2 is away
+        adj1, adj2 = 0.0, 0.0   # neutral site - no adjustment
+    elif team1_is_home:
+        # team1 is home, team2 is away - home gets home_adj, away gets away_adj
         adj1, adj2 = compute_game_adjustment(t1_pct, t2_pct)
+    else:
+        # team1 is AWAY, team2 is HOME - swap so home team gets correct adjustment
+        adj2, adj1 = compute_game_adjustment(t2_pct, t1_pct)
 
     # Pace
     pace = projected_pace(t1_r["AdjTempo"], t2_r["AdjTempo"], avgs["pace"])
@@ -431,7 +437,7 @@ def project_game(
         # Full debug breakdown for Excel logger
         "debug": {
             "kenpom_rank_t1": adj1_debug["kp_rank"],   "kenpom_rank_t2": adj2_debug["kp_rank"],
-            "net_rank_t1":    None,                      "net_rank_t2":    None,
+            "net_rank_t1":    adj1_debug["net_rank"],    "net_rank_t2":    adj2_debug["net_rank"],
             "kp_pct_t1":      adj1_debug["kp_pct"],     "kp_pct_t2":      adj2_debug["kp_pct"],
             "net_pct_t1":     None,                      "net_pct_t2":     None,
             "avg_pace":       round(avgs["pace"], 2),
