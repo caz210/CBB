@@ -7,6 +7,10 @@ import os
 import pandas as pd
 import streamlit as st
 from datetime import date, datetime
+try:
+    from zoneinfo import ZoneInfo          # Python 3.9+
+except ImportError:
+    from backports.zoneinfo import ZoneInfo  # fallback
 
 st.set_page_config(
     page_title="CZarp CBB Model",
@@ -97,7 +101,7 @@ def get_todays_games(today_str):
     return games
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_vegas_lines():
     return fetch_vegas_lines()
 
@@ -129,14 +133,12 @@ def run_projections(today_str):
     results = run_base_projections(today_str)
     if not results:
         return []
-    vegas_df = get_vegas_lines()
-    matched = [match_vegas_to_game(r, vegas_df) for r in results]
-    # Debug: print first game's vegas match to console
-    for m in matched[:3]:
-        if m.get("vegas_spread") is not None:
-            print(f"  VEGAS CHECK: {m['team1']} vs {m['team2']} | my_spread={m['spread']} v_spread={m.get('vegas_spread')} swing={m.get('spread_edge')} agree={m.get('sides_agree')}")
-            break
-    return matched
+    try:
+        vegas_df = get_vegas_lines()
+    except Exception as e:
+        print(f"  Vegas lines unavailable: {e}")
+        vegas_df = __import__('pandas').DataFrame()
+    return [match_vegas_to_game(r, vegas_df) for r in results]
 
 
 # --- Sidebar ---
@@ -150,15 +152,17 @@ with st.sidebar:
     show_only_differ = st.checkbox("Only SIDES DIFFER games", value=False, key="sb_differ")
     st.markdown("---")
 
-    # Date picker — default to today but let user override
-    # KenPom fanmatch only has games for the current game day
+    # Date picker — default to TODAY in Central time (avoids midnight ET rollover issue)
     from datetime import timedelta
+    _ct = datetime.now(ZoneInfo("America/Chicago"))
+    _today_ct = _ct.date()
     selected_date = st.date_input(
         "Game Date",
-        value=date.today(),
-        min_value=date.today() - timedelta(days=7),
-        max_value=date.today() + timedelta(days=1),
-        help="If games aren't loading, try yesterday's date — KenPom updates around midnight ET"
+        value=_today_ct,
+        min_value=_today_ct - timedelta(days=7),
+        max_value=_today_ct + timedelta(days=1),
+        help="Defaults to Central time — avoids date rollover issues after 11pm CT",
+        key="sb_date"
     )
     today = str(selected_date)
 
