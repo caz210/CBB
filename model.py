@@ -27,17 +27,23 @@ def load_data(data_dir: str = "data") -> dict[str, pd.DataFrame]:
 
 # KenPom name  model name mapping for common mismatches
 TEAM_NAME_MAP = {
-    "Miami OH":        "Miami (OH)",
-    "Miami FL":        "Miami (FL)",
-    "St. Mary's":      "Saint Mary's",
-    "UCSB":            "UC Santa Barbara",
-    "UNC":             "North Carolina",
-    "UNCW":            "UNC Wilmington",
-    "LIU":             "LIU Brooklyn",
-    "Detroit":         "Detroit Mercy",
-    "UTSA":            "UT San Antonio",
-    "Pitt":            "Pittsburgh",
-    "USC":             "Southern California",
+    "Miami OH":           "Miami (OH)",
+    "Miami FL":           "Miami (FL)",
+    "St. Mary's":         "Saint Mary's",
+    "UCSB":               "UC Santa Barbara",
+    "UNC":                "North Carolina",
+    "UNCW":               "UNC Wilmington",
+    "LIU":                "LIU Brooklyn",
+    "Detroit":            "Detroit Mercy",
+    "UTSA":               "UT San Antonio",
+    "Pitt":               "Pittsburgh",
+    "USC":                "Southern California",
+    "Southern Cal":       "Southern California",
+    "Ole Miss":           "Mississippi",
+    "SIUE":               "SIU Edwardsville",
+    "TAM C. Christi":     "Texas A&M Corpus Christi",
+    "Tex. A&M Corpus":    "Texas A&M Corpus Christi",
+    "Queens":             "Queens NC",
 }
 
 def get_team(df: pd.DataFrame, team_name: str) -> pd.Series:
