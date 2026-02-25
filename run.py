@@ -8,7 +8,8 @@ Main entry point.
 
 import os
 import pandas as pd
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from kenpom_fetcher import fetch_all, fetch_fanmatch, save_data
 from net_fetcher import fetch_net_rankings
 from model import load_data, project_game
@@ -16,6 +17,7 @@ from debug_logger import write_debug_excel
 from odds_fetcher import fetch_vegas_lines, match_vegas_to_game
 
 SEASON = 2026  # Current season (2025-26)
+CENTRAL = ZoneInfo("America/Chicago")
 
 
 #  Parse fanmatch into game dicts 
@@ -45,20 +47,47 @@ def is_neutral_site(row) -> bool:
 def games_from_fanmatch(today: str) -> list[dict]:
     """
     Pulls today's schedule from the KenPom fanmatch endpoint.
+    Also checks tomorrow's date when running after 8 PM CT — a 10 PM CT game
+    is 4 AM UTC the next day, so KenPom may store it under tomorrow's date.
     Detects neutral site games via HomeWP = 0.5 (KenPom convention).
     team1 = Home team, team2 = Visitor.
     team1_is_home = True (home game), False (away), None (neutral site).
     """
     print(f" Fetching today's games from fanmatch ({today})...")
-    fm = fetch_fanmatch(today)
 
-    if fm.empty:
+    frames = []
+    try:
+        fm = fetch_fanmatch(today)
+        if not fm.empty:
+            frames.append(fm)
+            fm.to_csv(f"data/fanmatch_{today}.csv", index=False)
+    except Exception as e:
+        print(f"    fanmatch fetch failed for {today}: {e}")
+
+    # After 8 PM CT, also check tomorrow — catches late games logged under UTC next day
+    now_ct = datetime.now(CENTRAL)
+    if now_ct.hour >= 20:
+        tomorrow = (date.fromisoformat(today) + timedelta(days=1)).isoformat()
+        print(f"    After 8 PM CT — also checking {tomorrow} for late-night games...")
+        try:
+            fm_tomorrow = fetch_fanmatch(tomorrow)
+            if not fm_tomorrow.empty:
+                frames.append(fm_tomorrow)
+                fm_tomorrow.to_csv(f"data/fanmatch_{tomorrow}.csv", index=False)
+        except Exception as e:
+            print(f"    fanmatch fetch failed for {tomorrow}: {e}")
+
+    if not frames:
         print("     No games found for today in fanmatch.")
         return []
 
+    combined = pd.concat(frames, ignore_index=True)
+    if "GameID" in combined.columns:
+        combined = combined.drop_duplicates(subset="GameID")
+
     games = []
     neutral_count = 0
-    for _, row in fm.iterrows():
+    for _, row in combined.iterrows():
         neutral = is_neutral_site(row)
         if neutral:
             neutral_count += 1
@@ -77,9 +106,6 @@ def games_from_fanmatch(today: str) -> list[dict]:
 
     home_count = len(games) - neutral_count
     print(f"    {len(games)} games found ({home_count} home/away, {neutral_count} neutral site)")
-    # Save fanmatch as CSV fallback for Streamlit (which may run on a different date)
-    if games:
-        fm.to_csv(f"data/fanmatch_{today}.csv", index=False)
     return games
 
 
