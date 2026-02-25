@@ -41,7 +41,7 @@ h1, h2, h3 { font-family: 'Bebas Neue', sans-serif; letter-spacing: 2px; }
 .meta-val { color: #ddd; font-weight: 600; font-size: 0.85rem; }
 .meta-val-hot { color: #f0b429; font-weight: 700; }
 .meta-val-differ { color: #e05c5c; font-weight: 700; }
-.edge-badge { position: absolute; top: 12px; right: 14px; padding: 3px 10px; border-radius: 20px; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.5px; }
+.edge-badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.5px; }
 .edge-hot  { background: #f0b42922; color: #f0b429; border: 1px solid #f0b42955; }
 .edge-good { background: #27a14822; color: #5ddc7a; border: 1px solid #27a14855; }
 .edge-low  { background: #1e253522; color: #666;    border: 1px solid #1e2535; }
@@ -237,15 +237,16 @@ with tab1:
             edge     = r.get("edge_score")
             disagree = r.get("sides_agree") is False
 
-            # Badge
+            # Badge — edge displayed as percentage (e.g. 9.16%)
+            epct = f"{edge*100:.2f}%" if edge else ""
             if disagree and edge and edge > 0.05:
-                badge_cls, badge_txt = "edge-diff", f"SIDES DIFFER  {edge:.4f}"
+                badge_cls, badge_txt = "edge-diff", f"SIDES DIFFER  {epct}"
             elif edge and edge > 0.08:
-                badge_cls, badge_txt = "edge-hot",  f"HOT EDGE  {edge:.4f}"
+                badge_cls, badge_txt = "edge-hot",  f"HOT EDGE  {epct}"
             elif edge and edge > 0.05:
-                badge_cls, badge_txt = "edge-good", f"EDGE  {edge:.4f}"
+                badge_cls, badge_txt = "edge-good", f"EDGE  {epct}"
             elif edge:
-                badge_cls, badge_txt = "edge-low",  f"EDGE {edge:.4f}"
+                badge_cls, badge_txt = "edge-low",  f"EDGE {epct}"
             else:
                 badge_cls, badge_txt = "edge-low",  "NO LINE"
 
@@ -277,14 +278,17 @@ with tab1:
                 vtxt, vttxt = "-", "-"
 
             swing_txt = f"{r['spread_edge']:+.1f}" if r.get("spread_edge") is not None else "-"
-            gtime = r.get("game_time") or ""
+            # Use KenPom time first, fall back to Odds API time (covers late-night games like USC/UCLA)
+            gtime = r.get("game_time") or r.get("odds_game_time") or ""
             time_html = f"<div class='game-time'>{gtime}</div>" if gtime else ""
             differ_html = "<span class='meta-val meta-val-differ'>SIDES DIFFER</span>" if disagree else ""
             differ_block = '<div class="meta-item"><span class="meta-label">&nbsp;</span>' + differ_html + '</div>' if disagree else ""
 
+            # Edge/differ shown as meta-item at end of meta row (no more overlap)
+            edge_block = f'<div class="meta-item"><span class="meta-label">Edge</span><span class="edge-badge {badge_cls}">{badge_txt}</span></div>'
+
             parts = [
                 f'<div class="game-card">',
-                f'<span class="edge-badge {badge_cls}">{badge_txt}</span>',
                 time_html,
                 f'<div class="team-row"><span class="team-name">{away_name} <span class="team-label">AWAY</span></span><span class="{away_cls}">{away_score:.1f}</span></div>',
                 f'<div class="team-row"><span class="team-name">{home_name} <span class="team-label">HOME</span></span><span class="{home_cls}">{home_score:.1f}</span></div>',
@@ -294,7 +298,7 @@ with tab1:
                 f'<div class="meta-item"><span class="meta-label">Vegas Spread</span><span class="meta-val">{vtxt}</span></div>',
                 f'<div class="meta-item"><span class="meta-label">Vegas Total</span><span class="meta-val">{vttxt}</span></div>',
                 f'<div class="meta-item"><span class="meta-label">Swing</span><span class="meta-val">{swing_txt}</span></div>',
-                differ_block,
+                edge_block,
                 '</div></div>',
             ]
             st.markdown("".join(parts), unsafe_allow_html=True)
