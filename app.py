@@ -60,7 +60,13 @@ h1, h2, h3 { font-family: 'Bebas Neue', sans-serif; letter-spacing: 2px; }
 try:
     from kenpom_fetcher import fetch_all, fetch_fanmatch, save_data
     from model import load_data, project_game, mround
-    from odds_fetcher import fetch_vegas_lines, match_vegas_to_game, get_odds_last_fetched, KENPOM_TO_ODDS, TEAM_MAP_PATH
+    from odds_fetcher import fetch_vegas_lines, match_vegas_to_game
+    try:
+        from odds_fetcher import get_odds_last_fetched, KENPOM_TO_ODDS, TEAM_MAP_PATH
+    except ImportError:
+        def get_odds_last_fetched(): return ""
+        KENPOM_TO_ODDS = {}
+        TEAM_MAP_PATH  = "data/team_map.csv"
     MODULES_OK = True
 except ImportError as e:
     MODULES_OK = False
