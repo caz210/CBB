@@ -114,6 +114,7 @@ def run_base_projections(today_str):
     if not games:
         return []
     results = []
+    errors  = []
     for game in games:
         try:
             r = project_game(game["team1"], game["team2"], True, data,
@@ -123,13 +124,17 @@ def run_base_projections(today_str):
             r["kp_home_wp"]    = game["kp_home_wp"]
             r["kp_tempo"]      = game["kp_tempo"]
             results.append(r)
-        except Exception:
-            pass
+        except Exception as e:
+            errors.append(f"{game['team1']} vs {game['team2']}: {e}")
+    if errors:
+        print(f"  WARNING — {len(errors)} games failed projection:")
+        for err in errors:
+            print(f"    {err}")
     return results
 
 
 def run_projections(today_str):
-    """Full projections with Vegas lines. Vegas refreshes every 15 min independently."""
+    """Full projections with Vegas lines. Vegas is a LEFT JOIN — all KenPom games show regardless."""
     results = run_base_projections(today_str)
     if not results:
         return []
@@ -137,7 +142,9 @@ def run_projections(today_str):
         vegas_df = get_vegas_lines()
     except Exception as e:
         print(f"  Vegas lines unavailable: {e}")
-        vegas_df = __import__('pandas').DataFrame()
+        import pandas as pd
+        vegas_df = pd.DataFrame()
+    # Left join: every KenPom game gets odds if available, None fields if not
     return [match_vegas_to_game(r, vegas_df) for r in results]
 
 
