@@ -202,7 +202,8 @@ with st.sidebar:
     st.markdown(f"**Season:** 2025-26")
     st.markdown("---")
     sort_by = st.selectbox("Sort games by", ["Edge Score", "Total", "Spread (biggest fav)", "Team Name A-Z"], key="sb_sort")
-    min_edge = st.slider("Min Edge Score", 0.0, 0.20, 0.0, 0.01, key="sb_edge")
+    min_edge_pct = st.slider("Min Edge Score", 0, 20, 0, 1, format="%d%%", key="sb_edge")
+    min_edge = min_edge_pct / 100
     show_only_vegas  = st.checkbox("Only games with Vegas lines", value=False, key="sb_vegas")
     show_only_differ = st.checkbox("Only SIDES DIFFER games", value=False, key="sb_differ")
     st.markdown("---")
