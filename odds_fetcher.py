@@ -22,8 +22,11 @@ def _get_secret(key: str) -> str:
 ODDS_API_KEY    = _get_secret("ODDS_API_KEY")
 BASE_URL        = "https://api.the-odds-api.com/v4/sports/basketball_ncaab/odds"
 BOOK_PRIORITY   = ["draftkings", "fanduel", "betmgm", "caesars", "bovada", "mybookieag"]
-MATCH_THRESHOLD = 0.75   # fallback fuzzy threshold (CSV lookup tried first)
+MATCH_THRESHOLD = 0.75
 TEAM_MAP_PATH   = "data/team_map.csv"
+
+# Tracks when odds were last successfully fetched — displayed in the UI
+_odds_last_fetched: str = ""
 
 
 def _load_team_map() -> dict:
@@ -32,14 +35,23 @@ def _load_team_map() -> dict:
     Run team_mapper.py once to generate this file.
     Returns empty dict if file not found yet.
     """
-    if not os.path.exists(TEAM_MAP_PATH):
-        return {}
-    try:
-        df = pd.read_csv(TEAM_MAP_PATH)
-        df = df[df["odds_name"].notna() & (df["odds_name"].str.strip() != "")]
-        return dict(zip(df["kenpom_name"], df["odds_name"]))
-    except Exception:
-        return {}
+    # Try relative path first, then path relative to this file
+    paths_to_try = [
+        TEAM_MAP_PATH,
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), TEAM_MAP_PATH),
+    ]
+    for path in paths_to_try:
+        if os.path.exists(path):
+            try:
+                df = pd.read_csv(path)
+                df = df[df["odds_name"].notna() & (df["odds_name"].str.strip() != "")]
+                mapping = dict(zip(df["kenpom_name"], df["odds_name"]))
+                print(f"    team_map loaded: {len(mapping)} entries from {path}")
+                return mapping
+            except Exception as e:
+                print(f"    team_map load error: {e}")
+    print(f"    WARNING: team_map.csv not found — run team_mapper.py locally and commit data/team_map.csv")
+    return {}
 
 
 # Loaded once at import; re-import or call _load_team_map() after editing the CSV
@@ -143,7 +155,16 @@ def fetch_vegas_lines() -> pd.DataFrame:
             "odds_game_time": game_time_ct,
         })
 
+    global _odds_last_fetched
+    from datetime import timezone, timedelta
+    _odds_last_fetched = datetime.now(timezone(timedelta(hours=-6))).strftime("%-I:%M %p CT")
+
     return pd.DataFrame(rows)
+
+
+def get_odds_last_fetched() -> str:
+    """Returns the time odds were last successfully fetched, or empty string."""
+    return _odds_last_fetched
 
 
 def normalize_name(name: str) -> str:
@@ -265,6 +286,7 @@ def match_vegas_to_game(result: dict, vegas_df: pd.DataFrame) -> dict:
             best_flipped = is_flipped
 
     if best_match is None:
+        print(f"    NO MATCH: {result['team1']} vs {result['team2']}  (normalized: '{t1}' vs '{t2}')")
         return _null(result)
 
     v_total     = best_match["vegas_total"]
