@@ -28,34 +28,176 @@ TEAM_MAP_PATH   = "data/team_map.csv"
 # Tracks when odds were last successfully fetched — displayed in the UI
 _odds_last_fetched: str = ""
 
+# ─────────────────────────────────────────────────────────────────────────────
+# HARDCODED SEED  — KenPom name → Odds API name
+# Always loaded as the base. data/team_map.csv layers on top as overrides.
+# Add new mismatches here whenever you spot them in the NO MATCH logs.
+# ─────────────────────────────────────────────────────────────────────────────
+_SEED: dict = {
+    # Abbreviations / acronyms
+    "UNLV":                       "Nevada Las Vegas",
+    "UConn":                      "Connecticut",
+    "UCF":                        "Central Florida",
+    "UCSB":                       "UC Santa Barbara",
+    "UTEP":                       "Texas El Paso",
+    "UTSA":                       "Texas San Antonio",
+    "UAB":                        "Alabama Birmingham",
+    "VCU":                        "Virginia Commonwealth",
+    "SMU":                        "Southern Methodist",
+    "TCU":                        "Texas Christian",
+    "LSU":                        "Louisiana State",
+    "BYU":                        "Brigham Young",
+    "ETSU":                       "East Tennessee State",
+    "FIU":                        "Florida International",
+    "FAU":                        "Florida Atlantic",
+    "FDU":                        "Fairleigh Dickinson",
+    "SFA":                        "Stephen F. Austin",
+    "SIU":                        "Southern Illinois",
+    "SIUE":                       "Southern Illinois Edwardsville",
+    "UIW":                        "Incarnate Word",
+    "UIC":                        "Illinois Chicago",
+    "ULM":                        "Louisiana Monroe",
+    "ULL":                        "Louisiana",
+    "UALR":                       "Arkansas Little Rock",
+    "UMBC":                       "Maryland Baltimore County",
+    "UMKC":                       "Missouri Kansas City",
+    "VMI":                        "Virginia Military Institute",
+    "NJIT":                       "New Jersey Institute of Technology",
+    "LIU":                        "Long Island University",
+    # Common name mismatches
+    "Pitt":                       "Pittsburgh",
+    "USC":                        "Southern California",
+    "UNC":                        "North Carolina",
+    "UNCW":                       "UNC Wilmington",
+    "Ole Miss":                   "Mississippi",
+    "Miami FL":                   "Miami (FL)",
+    "Miami OH":                   "Miami (OH)",
+    "NC State":                   "North Carolina State",
+    "Detroit":                    "Detroit Mercy",
+    "St. Mary's":                 "Saint Mary's",
+    "St. John's":                 "St. John's (NY)",
+    "St. Bonaventure":            "Saint Bonaventure",
+    "St. Francis PA":             "Saint Francis (PA)",
+    "St. Francis NY":             "Saint Francis Brooklyn",
+    "St. Peter's":                "Saint Peter's",
+    "St. Thomas":                 "Saint Thomas",
+    "Saint Mary's":               "Saint Mary's",
+    "Loyola Chicago":             "Loyola (IL)",
+    "Loyola MD":                  "Loyola Maryland",
+    "Loyola NO":                  "Loyola New Orleans",
+    "Texas A&M Corpus Chris":     "Texas A&M Corpus Christi",
+    "Army":                       "Army West Point",
+    "IU Indy":                    "IU Indianapolis",
+    "Omaha":                      "Nebraska Omaha",
+    "Kansas City":                "Missouri Kansas City",
+    "American":                   "American University",
+    "The Citadel":                "Citadel",
+    "Albany":                     "Albany (NY)",
+    "Central Connecticut":        "Central Connecticut State",
+    "Mount St. Mary's":           "Mount St. Mary's",
+    "William & Mary":             "William & Mary",
+    "Cal Poly":                   "California Polytechnic",
+    "Cal Baptist":                "California Baptist",
+    "Southern Miss":              "Southern Mississippi",
+    "UMass":                      "Massachusetts",
+    "UMass Lowell":               "Massachusetts Lowell",
+    "Queens":                     "Queens University",
+    "Prairie View":               "Prairie View A&M",
+    "Bethune-Cookman":            "Bethune Cookman",
+    "North Carolina A&T":         "NC A&T",
+    "North Carolina Central":     "NC Central",
+    "NC State":                   "North Carolina State",
+    "Gardner-Webb":               "Gardner Webb",
+    "UT Martin":                  "Tennessee Martin",
+    "UT Arlington":               "Texas Arlington",
+    # Abbreviated state names  (KenPom uses "St." — Odds API uses "State")
+    "Kansas St.":                 "Kansas State",
+    "Iowa St.":                   "Iowa State",
+    "Ohio St.":                   "Ohio State",
+    "Michigan St.":               "Michigan State",
+    "Penn St.":                   "Penn State",
+    "Arizona St.":                "Arizona State",
+    "Oregon St.":                 "Oregon State",
+    "Colorado St.":               "Colorado State",
+    "Utah St.":                   "Utah State",
+    "Boise St.":                  "Boise State",
+    "Fresno St.":                 "Fresno State",
+    "San Diego St.":              "San Diego State",
+    "Montana St.":                "Montana State",
+    "Idaho St.":                  "Idaho State",
+    "Weber St.":                  "Weber State",
+    "Portland St.":               "Portland State",
+    "Sacramento St.":             "Sacramento State",
+    "North Dakota St.":           "North Dakota State",
+    "South Dakota St.":           "South Dakota State",
+    "Indiana St.":                "Indiana State",
+    "Illinois St.":               "Illinois State",
+    "Missouri St.":               "Missouri State",
+    "Murray St.":                 "Murray State",
+    "Morehead St.":               "Morehead State",
+    "McNeese St.":                "McNeese State",
+    "McNeese":                    "McNeese State",
+    "Nicholls St.":               "Nicholls State",
+    "Nicholls":                   "Nicholls State",
+    "Tennessee St.":              "Tennessee State",
+    "Jackson St.":                "Jackson State",
+    "Alcorn St.":                 "Alcorn State",
+    "Grambling St.":              "Grambling State",
+    "Grambling":                  "Grambling State",
+    "Cleveland St.":              "Cleveland State",
+    "Kennesaw St.":               "Kennesaw State",
+    "Sam Houston St.":            "Sam Houston State",
+    "Sam Houston":                "Sam Houston State",
+    "Tarleton St.":               "Tarleton State",
+    "New Mexico St.":             "New Mexico State",
+    "SE Missouri St.":            "Southeast Missouri State",
+    "Appalachian St.":            "Appalachian State",
+    "Georgia St.":                "Georgia State",
+    "Wright St.":                 "Wright State",
+    "Youngstown St.":             "Youngstown State",
+    "Cal St. Fullerton":          "CS Fullerton",
+    "Cal St. Bakersfield":        "CS Bakersfield",
+    "Cal St. Northridge":         "CS Northridge",
+    "East Tennessee St.":         "East Tennessee State",
+    "SE Louisiana":               "Southeastern Louisiana",
+    "Tennessee Tech":             "Tennessee Technological",
+    "Middle Tennessee":           "Middle Tennessee State",
+}
+
 
 def _load_team_map() -> dict:
     """
-    Load kenpom_name → odds_name from data/team_map.csv.
-    Run team_mapper.py once to generate this file.
-    Returns empty dict if file not found yet.
+    Start with hardcoded seed, then layer in data/team_map.csv on top.
+    CSV entries override seed entries. Works even if CSV is missing.
+    Tries multiple path resolutions for Streamlit Cloud compatibility.
     """
-    # Try relative path first, then path relative to this file
+    mapping = dict(_SEED)  # seed is always the base
+
     paths_to_try = [
         TEAM_MAP_PATH,
         os.path.join(os.path.dirname(os.path.abspath(__file__)), TEAM_MAP_PATH),
+        os.path.join(os.getcwd(), TEAM_MAP_PATH),
     ]
     for path in paths_to_try:
         if os.path.exists(path):
             try:
                 df = pd.read_csv(path)
                 df = df[df["odds_name"].notna() & (df["odds_name"].str.strip() != "")]
-                mapping = dict(zip(df["kenpom_name"], df["odds_name"]))
-                print(f"    team_map loaded: {len(mapping)} entries from {path}")
+                csv_map = dict(zip(df["kenpom_name"], df["odds_name"]))
+                mapping.update(csv_map)  # CSV overrides seed
+                print(f"    team_map.csv loaded: {len(csv_map)} CSV + {len(_SEED)} seed = {len(mapping)} total")
                 return mapping
             except Exception as e:
-                print(f"    team_map load error: {e}")
-    print(f"    WARNING: team_map.csv not found — run team_mapper.py locally and commit data/team_map.csv")
-    return {}
+                print(f"    team_map.csv load error ({path}): {e}")
+
+    print(f"    team_map.csv not found — using hardcoded seed ({len(mapping)} entries)")
+    return mapping
 
 
-# Loaded once at import; re-import or call _load_team_map() after editing the CSV
+# Loaded once at import
 KENPOM_TO_ODDS = _load_team_map()
+
+
 
 
 def fetch_vegas_lines() -> pd.DataFrame:
