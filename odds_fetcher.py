@@ -37,6 +37,13 @@ def fetch_vegas_lines() -> pd.DataFrame:
     }
 
     resp = requests.get(BASE_URL, params=params)
+
+    if resp.status_code == 401:
+        print("    Odds API: 401 Unauthorized — API key invalid or credits exhausted. Skipping Vegas lines.")
+        return pd.DataFrame()
+    if resp.status_code == 429:
+        print("    Odds API: 429 Too Many Requests — rate limited. Skipping Vegas lines.")
+        return pd.DataFrame()
     resp.raise_for_status()
 
     games = resp.json()
