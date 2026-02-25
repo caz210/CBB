@@ -60,7 +60,7 @@ h1, h2, h3 { font-family: 'Bebas Neue', sans-serif; letter-spacing: 2px; }
 try:
     from kenpom_fetcher import fetch_all, fetch_fanmatch, save_data
     from model import load_data, project_game, mround
-    from odds_fetcher import fetch_vegas_lines, match_vegas_to_game
+    from odds_fetcher import fetch_vegas_lines, match_vegas_to_game, get_odds_last_fetched, KENPOM_TO_ODDS, TEAM_MAP_PATH
     MODULES_OK = True
 except ImportError as e:
     MODULES_OK = False
@@ -219,6 +219,20 @@ with st.sidebar:
         st.cache_data.clear()
         st.rerun()
 
+    # Odds status panel
+    st.markdown("---")
+    if MODULES_OK:
+        odds_time = get_odds_last_fetched()
+        if odds_time:
+            st.markdown(f"<span style='font-size:0.75rem; color:#4a6fa5;'>📡 Odds fetched: <b style='color:#f0b429'>{odds_time}</b></span>", unsafe_allow_html=True)
+        else:
+            st.markdown(f"<span style='font-size:0.75rem; color:#e05c5c;'>📡 Odds: not yet loaded</span>", unsafe_allow_html=True)
+        import os
+        map_exists = os.path.exists(TEAM_MAP_PATH)
+        map_color  = "#5ddc7a" if map_exists else "#e05c5c"
+        map_label  = f"✓ team_map.csv loaded ({len(KENPOM_TO_ODDS)} teams)" if map_exists else "✗ team_map.csv missing — run team_mapper.py"
+        st.markdown(f"<span style='font-size:0.72rem; color:{map_color};'>{map_label}</span>", unsafe_allow_html=True)
+
 # --- Header ---
 col_logo, col_title = st.columns([1, 6])
 with col_logo:
@@ -263,6 +277,14 @@ with tab1:
     c3.metric("High Edge (>0.07)", len(high_edge))
     c4.metric("Sides Differ", len(differ))
     c5.metric("Avg Total", avg_total)
+
+    if MODULES_OK:
+        odds_time = get_odds_last_fetched()
+        match_pct = f"{len(games_with_vegas)}/{len(results)}" 
+        if odds_time:
+            st.markdown(f"<p style='font-size:0.75rem; color:#4a6fa5; margin:4px 0 0 0;'>📡 Vegas lines last fetched <b style='color:#f0b429'>{odds_time}</b> &nbsp;·&nbsp; {match_pct} games matched</p>", unsafe_allow_html=True)
+        else:
+            st.markdown(f"<p style='font-size:0.75rem; color:#e05c5c; margin:4px 0 0 0;'>📡 Vegas lines not yet loaded — hit Refresh Data</p>", unsafe_allow_html=True)
     st.markdown("<hr class='divider'>", unsafe_allow_html=True)
 
     # Read search value from session state so filtering works before widget renders
