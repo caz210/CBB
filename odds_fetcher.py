@@ -19,27 +19,31 @@ def _get_secret(key: str) -> str:
     except Exception:
         return os.getenv(key)
 
-ODDS_API_KEY = _get_secret("ODDS_API_KEY")
-BASE_URL     = "https://api.the-odds-api.com/v4/sports/basketball_ncaab/odds"
-BOOK_PRIORITY = ["draftkings", "fanduel", "betmgm", "caesars", "bovada", "mybookieag"]
-MATCH_THRESHOLD = 0.75   # both teams must score >= this to be a valid match
+ODDS_API_KEY    = _get_secret("ODDS_API_KEY")
+BASE_URL        = "https://api.the-odds-api.com/v4/sports/basketball_ncaab/odds"
+BOOK_PRIORITY   = ["draftkings", "fanduel", "betmgm", "caesars", "bovada", "mybookieag"]
+MATCH_THRESHOLD = 0.75   # fallback fuzzy threshold (CSV lookup tried first)
+TEAM_MAP_PATH   = "data/team_map.csv"
 
-# KenPom name → Odds API name for known mismatches
-KENPOM_TO_ODDS = {
-    "Ole Miss":          "Mississippi",
-    "Miami FL":          "Miami (FL)",
-    "Miami OH":          "Miami (OH)",
-    "UConn":             "Connecticut",
-    "UNLV":              "Nevada Las Vegas",
-    "Pitt":              "Pittsburgh",
-    "USC":               "Southern California",
-    "Detroit":           "Detroit Mercy",
-    "St. Mary's":        "Saint Mary's",
-    "UCSB":              "UC Santa Barbara",
-    "UNC":               "North Carolina",
-    "UNCW":              "UNC Wilmington",
-    "Texas A&M Corpus Chris": "Texas A&M Corpus Christi",
-}
+
+def _load_team_map() -> dict:
+    """
+    Load kenpom_name → odds_name from data/team_map.csv.
+    Run team_mapper.py once to generate this file.
+    Returns empty dict if file not found yet.
+    """
+    if not os.path.exists(TEAM_MAP_PATH):
+        return {}
+    try:
+        df = pd.read_csv(TEAM_MAP_PATH)
+        df = df[df["odds_name"].notna() & (df["odds_name"].str.strip() != "")]
+        return dict(zip(df["kenpom_name"], df["odds_name"]))
+    except Exception:
+        return {}
+
+
+# Loaded once at import; re-import or call _load_team_map() after editing the CSV
+KENPOM_TO_ODDS = _load_team_map()
 
 
 def fetch_vegas_lines() -> pd.DataFrame:
@@ -143,20 +147,62 @@ def fetch_vegas_lines() -> pd.DataFrame:
 
 
 def normalize_name(name: str) -> str:
-    """Apply KenPom→OddsAPI name mapping, then strip common team name suffixes."""
+    """
+    Translate KenPom name → Odds API name via lookup table, then strip
+    team nicknames so fuzzy matching works on the school/city name only.
+    """
     name = KENPOM_TO_ODDS.get(name, name)
     suffixes = [
-        " Blue Devils", " Wildcats", " Bulldogs", " Tigers", " Bears", " Trojans",
-        " Cardinals", " Eagles", " Cougars", " Panthers", " Spartans", " Tar Heels",
-        " Volunteers", " Longhorns", " Aggies", " Seminoles", " Gators", " Hurricanes",
-        " Demon Deacons", " Mountaineers", " Thunderbirds", " Red Hawks", " Zips",
-        " Flyers", " Golden Flashes", " Chippewas", " Falcons", " Rockets",
-        " Rams", " Owls", " Flames", " Hawks", " Norse",
+        # Power conferences
+        " Blue Devils", " Tar Heels", " Wolfpack", " Wolf Pack", " Cavaliers",
+        " Hokies", " Fighting Irish", " Wildcats", " Boilermakers", " Hoosiers",
+        " Buckeyes", " Wolverines", " Spartans", " Badgers", " Hawkeyes",
+        " Cornhuskers", " Huskers", " Gophers", " Golden Gophers", " Illini",
+        " Fighting Illini", " Nittany Lions", " Scarlet Knights", " Terrapins",
+        " Terps", " Crimson Tide", " Tigers", " Bulldogs", " Gators",
+        " Seminoles", " Hurricanes", " Volunteers", " Razorbacks", " Gamecocks",
+        " Aggies", " Longhorns", " Red Raiders", " Horned Frogs", " Sooners",
+        " Cowboys", " Bears", " Mountaineers", " Cougars", " Utes",
+        " Sun Devils", " Ducks", " Beavers", " Huskies", " Bruins",
+        " Trojans", " Cardinal", " Golden Bears",
+        # Mid-major / misc
+        " Eagles", " Panthers", " Cardinals", " Hawks", " Owls", " Rams",
+        " Flames", " Falcons", " Ravens", " Blue Hens", " Retrievers",
+        " Musketeers", " Ramblers", " Bluejays", " Blue Jays", " Flyers",
+        " Pilots", " Zags", " Bulldogs", " Friars", " Hoyas", " Dons",
+        " Gaels", " Toreros", " Dons", " Matadors", " Anteaters",
+        " Tritons", " Gauchos", " Highlanders", " Roadrunners",
+        " Broncos", " Mustangs", " Hornets", " 49ers", " Spiders",
+        " Penguins", " Zips", " Rockets", " Chippewas", " Red Hawks",
+        " Golden Flashes", " Thunderbirds", " Lopes", " Skyhawks",
+        " Lions", " Monarchs", " Colonials", " Colonels", " Patriots",
+        " Golden Knights", " Rebels", " Wolf Pack", " Wolfpack",
+        " Jackrabbits", " Coyotes", " Bison", " Fighting Hawks",
+        " Lumberjacks", " Governors", " Red Wolves", " Warhawks",
+        " Red Storm", " Great Danes", " Seawolves", " Terriers",
+        " Crusaders", " Paladins", " Catamounts", " Minutemen",
+        " River Hawks", " Green Terror", " Jaguars", " Royals",
+        " Mavericks", " Ospreys", " Hatters", " Dolphins", " Corsairs",
+        " Blazers", " Billikens", " Braves", " Redhawks", " Mean Green",
+        " Chanticleers", " Thundering Herd", " Screaming Eagles",
+        " Fighting Eagles", " Prairie View", " Rainbow Warriors",
+        " Warriors", " Lobos", " Miners", " Bearkats", " Lumberjacks",
+        " Beacons", " Phoenix", " Penmen", " Mids", " Black Knights",
+        " Cadets", " Midshipmen", " Keydets", " Bonnies", " Green Wave",
+        " Golden Hurricane", " Shockers", " Runnin Rebels", " Seahawks",
+        " Demon Deacons", " Norse", " Flames", " Hilltoppers",
+        " Toppers", " Lady Toppers", " Running Eagles",
+        " Golden Eagles", " Blue Demons", " Explorers",
+        " Princes", " Leopards", " Mountain Hawks", " Raiders",
+        " Pride", " Big Green", " Scots", " Crimson",
+        " Ephs", " Mammoths", " Lord Jeffs", " Jeffs", " Little Giants",
+        " Judges", " Deacons", " Bald Eagles", " Comets",
+        " Privateers", " Warhawks", " Sand Sharks",
     ]
-    for s in suffixes:
+    for s in sorted(suffixes, key=len, reverse=True):  # longest first to avoid partial strip
         if name.endswith(s):
-            return name[:-len(s)]
-    return name
+            return name[:-len(s)].strip()
+    return name.strip()
 
 
 def _sim(a: str, b: str) -> float:
