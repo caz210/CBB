@@ -52,6 +52,8 @@ h1, h2, h3 { font-family: 'Bebas Neue', sans-serif; letter-spacing: 2px; }
 .section-title { font-family: 'Bebas Neue', sans-serif; font-size: 1.3rem; letter-spacing: 2px; color: #f0b429; margin: 24px 0 12px 0; }
 .sidebar-logo { display: flex; justify-content: center; padding: 10px 0 20px 0; }
 .sidebar-logo img { width: 140px; height: auto; }
+.meta-val-spread { color: #f0b429; font-weight: 700; font-size: 0.85rem; }
+.game-card-match { border-color: #f0b429 !important; box-shadow: 0 0 0 1px #f0b42966; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -198,6 +200,7 @@ with st.sidebar:
     show_only_vegas  = st.checkbox("Only games with Vegas lines", value=False, key="sb_vegas")
     show_only_differ = st.checkbox("Only SIDES DIFFER games", value=False, key="sb_differ")
     st.markdown("---")
+    team_search = st.text_input("🔍 Search team", placeholder="e.g. UCLA, Duke...", key="sb_search").strip().lower()
 
     # Date picker — default to TODAY in Central time
     _ct = datetime.now(CENTRAL)
@@ -279,6 +282,10 @@ with tab1:
         results = [r for r in results if (r.get("edge_score") or 0) >= min_edge]
     if show_only_differ:
         results = [r for r in results if r.get("sides_agree") is False]
+    if team_search:
+        results = [r for r in results if team_search in r["team1"].lower() or team_search in r["team2"].lower()]
+        if not results:
+            st.info(f"No games found matching '{team_search}'.")
 
     # --- Game Cards ---
     st.markdown("<div class='section-title'>TODAY'S PROJECTIONS</div>", unsafe_allow_html=True)
@@ -333,13 +340,17 @@ with tab1:
             differ_block = '<div class="meta-item"><span class="meta-label">&nbsp;</span>' + differ_html + '</div>' if disagree else ""
             edge_block = f'<div class="meta-item"><span class="meta-label">Edge</span><span class="edge-badge {badge_cls}">{badge_txt}</span></div>'
 
+            # Highlight card if it matches the search
+            is_match = bool(team_search and (team_search in away_name.lower() or team_search in home_name.lower()))
+            card_class = "game-card game-card-match" if is_match else "game-card"
+
             parts = [
-                f'<div class="game-card">',
+                f'<div class="{card_class}">',
                 time_html,
                 f'<div class="team-row"><span class="team-name">{away_name} <span class="team-label">AWAY</span></span><span class="{away_cls}">{away_score:.1f}</span></div>',
                 f'<div class="team-row"><span class="team-name">{home_name} <span class="team-label">HOME</span></span><span class="{home_cls}">{home_score:.1f}</span></div>',
                 f'<div class="game-meta">',
-                f'<div class="meta-item"><span class="meta-label">CZarp Spread</span><span class="meta-val meta-val-hot">{czarp_txt}</span></div>',
+                f'<div class="meta-item"><span class="meta-label">CZarp Spread</span><span class="meta-val-spread">{czarp_txt}</span></div>',
                 f'<div class="meta-item"><span class="meta-label">CZarp Total</span><span class="meta-val">{r["total"]:.1f}</span></div>',
                 f'<div class="meta-item"><span class="meta-label">Vegas Spread</span><span class="meta-val">{vtxt}</span></div>',
                 f'<div class="meta-item"><span class="meta-label">Vegas Total</span><span class="meta-val">{vttxt}</span></div>',
