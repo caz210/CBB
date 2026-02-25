@@ -47,12 +47,23 @@ def fetch_vegas_lines() -> pd.DataFrame:
         print("     ODDS_API_KEY not set -- skipping Vegas lines.")
         return pd.DataFrame()
 
+    from datetime import datetime, timezone, timedelta
+    # Only pull lines for TODAY's games (CT) — avoids completed games with no odds
+    # and prevents pulling tomorrow's lines
+    now_ct   = datetime.now(timezone(timedelta(hours=-6)))  # Central time
+    day_start = now_ct.replace(hour=0,  minute=0,  second=0,  microsecond=0)
+    day_end   = now_ct.replace(hour=23, minute=59, second=59, microsecond=0)
+    to_iso    = lambda dt: dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
     params = {
-        "apiKey":      ODDS_API_KEY,
-        "regions":     "us",
-        "markets":     "spreads,totals,h2h",
-        "oddsFormat":  "american",
-        "bookmakers":  ",".join(BOOK_PRIORITY),
+        "apiKey":             ODDS_API_KEY,
+        "regions":            "us",
+        "markets":            "spreads,totals,h2h",
+        "oddsFormat":         "american",
+        "bookmakers":         ",".join(BOOK_PRIORITY),
+        "commenceTimeFrom":   to_iso(day_start),
+        "commenceTimeTo":     to_iso(day_end),
+        "dateFormat":         "iso",
     }
 
     resp = requests.get(BASE_URL, params=params)
@@ -106,6 +117,18 @@ def fetch_vegas_lines() -> pd.DataFrame:
             if vegas_spread is not None and vegas_total is not None:
                 break
 
+        # Parse game time from ISO to Central time display
+        raw_time = game.get("commence_time", "")
+        game_time_ct = ""
+        if raw_time:
+            try:
+                from datetime import timezone, timedelta
+                utc_dt = datetime.strptime(raw_time, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+                ct_dt  = utc_dt.astimezone(timezone(timedelta(hours=-6)))
+                game_time_ct = ct_dt.strftime("%-I:%M %p CT").lstrip("0")
+            except Exception:
+                game_time_ct = ""
+
         rows.append({
             "vegas_home":    home,
             "vegas_away":    away,
@@ -113,6 +136,7 @@ def fetch_vegas_lines() -> pd.DataFrame:
             "vegas_total":   vegas_total,
             "vegas_home_ml": vegas_home_ml,
             "source_book":   source_book,
+            "odds_game_time": game_time_ct,
         })
 
     return pd.DataFrame(rows)
@@ -203,10 +227,11 @@ def match_vegas_to_game(result: dict, vegas_df: pd.DataFrame) -> dict:
     # Negate if flipped so spread is always from model's team1 perspective
     v_spread = (-raw_vspread if raw_vspread is not None else None) if best_flipped else raw_vspread
 
-    result["vegas_spread"]  = v_spread
-    result["vegas_total"]   = v_total
-    result["vegas_home_ml"] = best_match["vegas_home_ml"]
-    result["source_book"]   = best_match["source_book"]
+    result["vegas_spread"]   = v_spread
+    result["vegas_total"]    = v_total
+    result["vegas_home_ml"]  = best_match["vegas_home_ml"]
+    result["source_book"]    = best_match["source_book"]
+    result["odds_game_time"] = best_match.get("odds_game_time", "")
 
     if v_spread is not None and v_total and v_total > 0:
         my_spread = result["spread"]
