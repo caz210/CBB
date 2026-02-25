@@ -200,7 +200,6 @@ with st.sidebar:
     show_only_vegas  = st.checkbox("Only games with Vegas lines", value=False, key="sb_vegas")
     show_only_differ = st.checkbox("Only SIDES DIFFER games", value=False, key="sb_differ")
     st.markdown("---")
-    team_search = st.text_input("🔍 Search team", placeholder="e.g. UCLA, Duke...", key="sb_search").strip().lower()
 
     # Date picker — default to TODAY in Central time
     _ct = datetime.now(CENTRAL)
@@ -289,6 +288,7 @@ with tab1:
 
     # --- Game Cards ---
     st.markdown("<div class='section-title'>TODAY'S PROJECTIONS</div>", unsafe_allow_html=True)
+    team_search = st.text_input("", placeholder="🔍 Search by team name — filters as you type", key="team_search", label_visibility="collapsed").strip().lower()
 
     if not results:
         st.info("No games match your filters.")
