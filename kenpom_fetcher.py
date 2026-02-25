@@ -22,7 +22,7 @@ def _get_secret(key: str) -> str:
 
 API_KEY = _get_secret("KENPOM_API_KEY")
 BASE_URL = "https://kenpom.com/api.php"
-SEASON   = 2025  # Update each year
+SEASON   = 2026  # Update each year
 
 
 def _get(endpoint: str, params: dict = {}) -> list[dict]:
