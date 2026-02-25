@@ -265,6 +265,9 @@ with tab1:
     c5.metric("Avg Total", avg_total)
     st.markdown("<hr class='divider'>", unsafe_allow_html=True)
 
+    # Read search value from session state so filtering works before widget renders
+    team_search = st.session_state.get("team_search", "").strip().lower()
+
     # --- Sort & Filter ---
     if sort_by == "Edge Score":
         results = sorted(results, key=lambda r: r.get("edge_score") or 0, reverse=True)
@@ -288,7 +291,7 @@ with tab1:
 
     # --- Game Cards ---
     st.markdown("<div class='section-title'>TODAY'S PROJECTIONS</div>", unsafe_allow_html=True)
-    team_search = st.text_input("", placeholder="🔍 Search by team name — filters as you type", key="team_search", label_visibility="collapsed").strip().lower()
+    st.text_input("", placeholder="🔍 Search by team name — filters as you type", key="team_search", label_visibility="collapsed")
 
     if not results:
         st.info("No games match your filters.")
