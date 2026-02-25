@@ -8,6 +8,8 @@ import os
 import time
 import requests
 import pandas as pd
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -20,9 +22,17 @@ def _get_secret(key: str) -> str:
     except Exception:
         return os.getenv(key)
 
-API_KEY = _get_secret("KENPOM_API_KEY")
+API_KEY  = _get_secret("KENPOM_API_KEY")
 BASE_URL = "https://kenpom.com/api.php"
-SEASON   = 2026  # Update each year
+SEASON   = 2026  # Ending year of the current season (2025-26 → 2026)
+
+CENTRAL = ZoneInfo("America/Chicago")
+
+def _today_central() -> str:
+    """Return today's date in Central Time as YYYY-MM-DD.
+    Avoids UTC drift on cloud servers (e.g. Streamlit Cloud) where
+    date.today() would roll to the next date after 6 PM Central."""
+    return datetime.now(CENTRAL).strftime("%Y-%m-%d")
 
 
 def _get(endpoint: str, params: dict = {}) -> list[dict]:
@@ -64,7 +74,7 @@ def fetch_height(year: int = SEASON) -> pd.DataFrame:
 
 
 def fetch_teams(year: int = SEASON) -> pd.DataFrame:
-    """Team list with TeamID  for resolving team names to IDs."""
+    """Team list with TeamID for resolving team names to IDs."""
     return pd.DataFrame(_get("teams", {"y": year}))
 
 
@@ -73,29 +83,73 @@ def fetch_misc(year: int = SEASON) -> pd.DataFrame:
     return pd.DataFrame(_get("misc", {"y": year}))
 
 
-def fetch_fanmatch(date: str) -> pd.DataFrame:
-    """KenPom's own game predictions for a date (YYYY-MM-DD). Good sanity check."""
-    return pd.DataFrame(_get("fanmatch", {"d": date}))
+def fetch_fanmatch(game_date: str | None = None) -> pd.DataFrame:
+    """
+    KenPom game predictions for a given date.
+
+    Returns fields per the API spec:
+        Season, GameID, DateOfGame, Visitor, Home,
+        HomeRank, VisitorRank, HomePred, VisitorPred,
+        HomeWP, PredTempo, ThrillScore
+
+    Args:
+        game_date: Date string in YYYY-MM-DD format.
+                   Defaults to today. Only dates up to
+                   and including today are supported.
+    """
+    if game_date is None:
+        game_date = _today_central()
+
+    rows = _get("fanmatch", {"d": game_date})
+    df = pd.DataFrame(rows)
+
+    # Enforce expected types if columns are present
+    int_cols   = ["Season", "GameID", "HomeRank", "VisitorRank"]
+    float_cols = ["HomePred", "VisitorPred", "HomeWP", "PredTempo", "ThrillScore"]
+
+    for col in int_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
+    for col in float_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    return df
 
 
-def fetch_all(year: int = SEASON) -> dict[str, pd.DataFrame]:
+def fetch_all(year: int = SEASON, game_date: str | None = None) -> dict[str, pd.DataFrame]:
     """Pull every dataset the model needs."""
-    print(f" Fetching KenPom data for {year} season...")
+    if game_date is None:
+        game_date = _today_central()
+
+    print(f"Fetching KenPom data for {year} season (fanmatch date: {game_date})...")
+
     data = {
         "ratings":      fetch_ratings(year),
         "four_factors": fetch_four_factors(year),
         "height":       fetch_height(year),
         "teams":        fetch_teams(year),
     }
-    # misc is optional - not all KenPom API tiers include it
+
+    # misc is optional — not all KenPom API tiers include it
     try:
         data["misc"] = fetch_misc(year)
         print(f"    {'misc':<15} ({len(data['misc'])} teams)")
     except Exception:
         data["misc"] = None
+
+    # Fanmatch — game-level predictions for today
+    try:
+        data["fanmatch"] = fetch_fanmatch(game_date)
+        print(f"    {'fanmatch':<15} ({len(data['fanmatch'])} games on {game_date})")
+    except Exception as e:
+        print(f"    fanmatch fetch failed: {e}")
+        data["fanmatch"] = None
+
     for name, df in data.items():
-        if name != "misc" and df is not None:
+        if name not in ("misc", "fanmatch") and df is not None:
             print(f"    {name:<15} ({len(df)} teams)")
+
     return data
 
 
