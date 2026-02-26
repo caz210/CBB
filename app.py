@@ -424,7 +424,7 @@ with tab1:
 
 with tab2:
     st.markdown("<div class='section-title'>GAME SIMULATOR</div>", unsafe_allow_html=True)
-    st.markdown("<p style='color:#4a6fa5; font-size:0.85rem; margin-top:-8px;'>Project any matchup — perfect for March Madness bracket research</p>", unsafe_allow_html=True)
+    st.markdown("<p style='color:#4a6fa5; font-size:0.85rem; margin-top:-8px;'>Project any matchup using KenPom efficiency ratings</p>", unsafe_allow_html=True)
 
     try:
         sim_data = get_kenpom_data()
@@ -435,103 +435,205 @@ with tab2:
 
     if team_list:
         st.markdown("<hr class='divider'>", unsafe_allow_html=True)
-        sc1, sc2, sc3 = st.columns([2, 2, 1])
 
+        # ── Team selectors — use session_state defaults to prevent tab-switch reset ──
+        if "sim_team_a" not in st.session_state:
+            st.session_state["sim_team_a"] = "Duke" if "Duke" in team_list else team_list[0]
+        if "sim_team_b" not in st.session_state:
+            st.session_state["sim_team_b"] = "Kentucky" if "Kentucky" in team_list else team_list[1]
+        if "sim_site" not in st.session_state:
+            st.session_state["sim_site"] = "Neutral"
+
+        sc1, sc2, sc3 = st.columns([2, 2, 1])
         with sc1:
-            team_a = st.selectbox("Team A", team_list, index=team_list.index("Duke") if "Duke" in team_list else 0, key="sim_team_a")
+            team_a = st.selectbox("Team A", team_list, key="sim_team_a")
         with sc2:
-            team_b = st.selectbox("Team B", team_list, index=team_list.index("Kentucky") if "Kentucky" in team_list else 1, key="sim_team_b")
+            team_b = st.selectbox("Team B", team_list, key="sim_team_b")
         with sc3:
-            site = st.radio("Site", ["Neutral", "Team A Home", "Team B Home"], key="sim_site")
+            site = st.selectbox("Site", ["Neutral", "Team A Home", "Team B Home"], key="sim_site")
 
         if site == "Neutral":
             team1_is_home = None
-            home_label, away_label = "NEUTRAL", "NEUTRAL"
         elif site == "Team A Home":
             team1_is_home = True
-            home_label, away_label = "HOME", "AWAY"
         else:
             team1_is_home = False
-            home_label, away_label = "AWAY", "HOME"
 
-        run_sim = st.button("🏀 Run Projection", use_container_width=False, key="sim_run")
+        run_sim = st.button("🏀 Run Projection", key="sim_run")
 
-        if run_sim or "sim_result" in st.session_state:
-            if run_sim:
-                try:
-                    r = project_game(team_a, team_b, team1_is_home, sim_data)
-                    st.session_state["sim_result"] = r
-                    st.session_state["sim_labels"] = (home_label, away_label, site, team_a, team_b, team1_is_home)
-                except Exception as e:
-                    st.error(f"Projection error: {e}")
-                    if "sim_result" in st.session_state:
-                        del st.session_state["sim_result"]
+        if run_sim:
+            try:
+                r = project_game(team_a, team_b, team1_is_home, sim_data)
+                st.session_state["sim_result"] = r
+                st.session_state["sim_labels"] = (site, team_a, team_b, team1_is_home)
+            except Exception as e:
+                st.error(f"Projection error: {e}")
+                st.session_state.pop("sim_result", None)
 
-            if "sim_result" in st.session_state:
-                r = st.session_state["sim_result"]
-                hl, al, sv, ta, tb, t1_is_home = st.session_state["sim_labels"]
+        if "sim_result" in st.session_state:
+            r   = st.session_state["sim_result"]
+            sv, ta, tb, t1_is_home = st.session_state["sim_labels"]
+            d   = r.get("debug", {})
 
-                if t1_is_home or t1_is_home is None:
-                    home_name  = r["team1"]; home_score = r["team1_score"]
-                    away_name  = r["team2"]; away_score = r["team2_score"]
-                else:
-                    home_name  = r["team2"]; home_score = r["team2_score"]
-                    away_name  = r["team1"]; away_score = r["team1_score"]
+            # Orient home/away
+            if t1_is_home is False:
+                home_name,  away_name  = r["team2"], r["team1"]
+                home_score, away_score = r["team2_score"], r["team1_score"]
+                home_ppp,   away_ppp   = r.get("team2_ppp", 0), r.get("team1_ppp", 0)
+                hk, ak = "t2", "t1"
+            else:
+                home_name,  away_name  = r["team1"], r["team2"]
+                home_score, away_score = r["team1_score"], r["team2_score"]
+                home_ppp,   away_ppp   = r.get("team1_ppp", 0), r.get("team2_ppp", 0)
+                hk, ak = "t1", "t2"
 
-                away_wins = away_score > home_score
-                home_wins = home_score > away_score
+            away_wins = away_score > home_score
+            home_wins = home_score > away_score
 
-                s = r["spread"]
-                if t1_is_home is None:
-                    fav_name = r["team1"] if s > 0 else r["team2"]
-                elif t1_is_home:
-                    fav_name = r["team1"] if s > 0 else r["team2"]
-                else:
-                    fav_name = r["team2"] if s < 0 else r["team1"]
+            s        = r["spread"]
+            fav_name = r["team1"] if s > 0 else (r["team2"] if s < 0 else None)
+            czarp_txt = f"{fav_name} {-abs(s):+.1f}" if fav_name else "EVEN"
 
-                czarp_txt = f"{fav_name} {-abs(s):+.1f}" if s != 0 else "EVEN"
-                away_sc = "team-score team-score-winner" if away_wins else "team-score"
-                home_sc = "team-score team-score-winner" if home_wins else "team-score"
-                site_badge = f"<span style='background:#1e3a6e; color:#6688bb; font-size:0.7rem; padding:2px 8px; border-radius:10px; margin-bottom:8px; display:inline-block;'>{sv.upper()}</span>"
+            away_sc  = "team-score team-score-winner" if away_wins else "team-score"
+            home_sc  = "team-score team-score-winner" if home_wins else "team-score"
+            hl       = "HOME" if t1_is_home or t1_is_home is None else "AWAY"
+            al       = "AWAY" if t1_is_home or t1_is_home is None else "HOME"
+            if t1_is_home is None:
+                hl = al = "NEUTRAL"
+            site_badge = f"<span style='background:#1e3a6e; color:#6688bb; font-size:0.7rem; padding:2px 8px; border-radius:10px; margin-bottom:8px; display:inline-block;'>{sv.upper()}</span>"
 
-                st.markdown(f"""
-                <div class="game-card" style="max-width:520px; margin-top:20px;">
-                    {site_badge}
-                    <div class="team-row">
-                        <span class="team-name">{away_name} <span class="team-label">{al}</span></span>
-                        <span class="{away_sc}">{away_score:.1f}</span>
-                    </div>
-                    <div class="team-row">
-                        <span class="team-name">{home_name} <span class="team-label">{hl}</span></span>
-                        <span class="{home_sc}">{home_score:.1f}</span>
-                    </div>
-                    <div class="game-meta">
-                        <div class="meta-item"><span class="meta-label">CZarp Spread</span><span class="meta-val meta-val-hot">{czarp_txt}</span></div>
-                        <div class="meta-item"><span class="meta-label">CZarp Total</span><span class="meta-val">{r["total"]:.1f}</span></div>
-                        <div class="meta-item"><span class="meta-label">KenPom Proj</span><span class="meta-val">{r.get("kp_home_score") or "—"} / {r.get("kp_away_score") or "—"}</span></div>
-                    </div>
+            proj_poss = r.get("projected_pace", d.get("avg_pace", 0))
+            home_poss = d.get(f"{hk}_poss", proj_poss)
+            away_poss = d.get(f"{ak}_poss", proj_poss)
+
+            # ── Score card ──────────────────────────────────────────────────
+            st.markdown(f"""
+            <div class="game-card" style="max-width:560px; margin-top:20px;">
+                {site_badge}
+                <div class="team-row">
+                    <span class="team-name">{away_name} <span class="team-label">{al}</span></span>
+                    <span class="{away_sc}">{away_score:.1f}</span>
                 </div>
-                """, unsafe_allow_html=True)
+                <div class="team-row">
+                    <span class="team-name">{home_name} <span class="team-label">{hl}</span></span>
+                    <span class="{home_sc}">{home_score:.1f}</span>
+                </div>
+                <div class="game-meta">
+                    <div class="meta-item"><span class="meta-label">CZarp Spread</span><span class="meta-val-spread">{czarp_txt}</span></div>
+                    <div class="meta-item"><span class="meta-label">CZarp Total</span><span class="meta-val">{r["total"]:.1f}</span></div>
+                    <div class="meta-item"><span class="meta-label">Proj Possessions</span><span class="meta-val">{proj_poss:.1f}</span></div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
-                with st.expander("Show full breakdown"):
-                    d = r.get("debug", {})
-                    if not t1_is_home and t1_is_home is not None:
-                        hk, ak = "t2", "t1"
-                        h_ppp, a_ppp = r.get("team2_ppp",0), r.get("team1_ppp",0)
-                    else:
-                        hk, ak = "t1", "t2"
-                        h_ppp, a_ppp = r.get("team1_ppp",0), r.get("team2_ppp",0)
-                    bc1, bc2 = st.columns(2)
-                    with bc1:
-                        st.markdown(f"**{home_name}**")
-                        st.markdown(f"KenPom Rank: **{int(d.get(f'kenpom_rank_{hk}',0))}**")
-                        st.markdown(f"AdjOE: **{d.get(f'{hk}_adjoe',0):.1f}** / AdjDE: **{d.get(f'{hk}_adjde',0):.1f}**")
-                        st.markdown(f"PPP: **{h_ppp:.4f}**")
-                    with bc2:
-                        st.markdown(f"**{away_name}**")
-                        st.markdown(f"KenPom Rank: **{int(d.get(f'kenpom_rank_{ak}',0))}**")
-                        st.markdown(f"AdjOE: **{d.get(f'{ak}_adjoe',0):.1f}** / AdjDE: **{d.get(f'{ak}_adjde',0):.1f}**")
-                        st.markdown(f"PPP: **{a_ppp:.4f}**")
-                    st.markdown(f"Projected Pace: **{r.get('projected_pace',0):.1f}** | Avg Pace used: **{d.get('avg_pace',0):.1f}**")
+            st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+
+            # ── Helper: color a value relative to opponent ───────────────────
+            def _clr(val, opp, higher_is_better=True):
+                """Return gold if this side has the edge, muted blue otherwise."""
+                if val is None or opp is None: return "#6688bb"
+                return "#f0b429" if (val > opp) == higher_is_better else "#6688bb"
+
+            def _pct(v, decimals=1):
+                if v is None: return "—"
+                return f"{v*100:.{decimals}f}%" if v < 5 else f"{v:.{decimals}f}"
+
+            def _stat(v, fmt=".1f"):
+                return f"{v:{fmt}}" if v is not None else "—"
+
+            # Stat row template
+            def stat_row(label, hval, aval, higher_is_better=True, fmt=".1f", pct=False):
+                hv = hval if hval is not None else 0
+                av = aval if aval is not None else 0
+                hclr = _clr(hv, av, higher_is_better)
+                aclr = _clr(av, hv, higher_is_better)
+                hdisp = _pct(hval) if pct else _stat(hval, fmt)
+                adisp = _pct(aval) if pct else _stat(aval, fmt)
+                return f"""
+                <tr>
+                  <td style='color:{aclr}; text-align:right; font-weight:600; padding:4px 10px;'>{adisp}</td>
+                  <td style='color:#4a6fa5; font-size:0.75rem; text-align:center; padding:4px 6px; white-space:nowrap;'>{label}</td>
+                  <td style='color:{hclr}; text-align:left; font-weight:600; padding:4px 10px;'>{hdisp}</td>
+                </tr>"""
+
+            header_row = f"""
+                <tr>
+                  <th style='color:#f0b429; text-align:right; padding:6px 10px; font-size:0.85rem;'>{away_name}</th>
+                  <th style='color:#4a6fa5; text-align:center; padding:6px 6px; font-size:0.7rem;'></th>
+                  <th style='color:#f0b429; text-align:left; padding:6px 10px; font-size:0.85rem;'>{home_name}</th>
+                </tr>"""
+
+            def section_header(label):
+                return f"""<tr><td colspan='3' style='color:#f0b429; font-size:0.7rem; letter-spacing:2px; padding:10px 10px 4px; font-family: "Bebas Neue", sans-serif;'>{label}</td></tr>"""
+
+            # Pull all debug values, oriented to home/away
+            h_rank   = d.get(f"kenpom_rank_{hk}"); a_rank   = d.get(f"kenpom_rank_{ak}")
+            h_net    = d.get(f"net_rank_{hk}");    a_net    = d.get(f"net_rank_{ak}")
+            h_adjoe  = d.get(f"{hk}_adjoe");       a_adjoe  = d.get(f"{ak}_adjoe")
+            h_adjde  = d.get(f"{hk}_adjde");       a_adjde  = d.get(f"{ak}_adjde")
+            h_tempo  = d.get(f"{hk}_tempo");       a_tempo  = d.get(f"{ak}_tempo")
+
+            # Four Factors — Offense (lower TO% and higher OR%/FTR/adjOE = better)
+            h_to_pct  = d.get(f"{hk}_to_pct");    a_to_pct  = d.get(f"{ak}_to_pct")
+            h_dto_pct = d.get(f"{ak}_dto_pct");   a_dto_pct = d.get(f"{hk}_dto_pct")   # opponent forces TOs
+            h_or_pct  = d.get(f"{hk}_or_pct");    a_or_pct  = d.get(f"{ak}_or_pct")
+            h_dor_pct = d.get(f"{ak}_dor_pct");   a_dor_pct = d.get(f"{hk}_dor_pct")   # opp ORB allowed
+            h_ft_rate = d.get(f"{hk}_ft_rate");   a_ft_rate = d.get(f"{ak}_ft_rate")
+            h_dft_rt  = d.get(f"{ak}_dft_rate");  a_dft_rt  = d.get(f"{hk}_dft_rate")  # opp FTR allowed
+
+            # Projected game stats
+            h_poss_adj = d.get(f"{hk}_poss"); a_poss_adj = d.get(f"{ak}_poss")
+            h_to_proj  = d.get(f"{hk}_to");   a_to_proj  = d.get(f"{ak}_to")
+            h_reb_proj = d.get(f"{hk}_reb");  a_reb_proj = d.get(f"{ak}_reb")
+            h_ft_proj  = d.get(f"{hk}_ft");   a_ft_proj  = d.get(f"{ak}_ft")
+
+            # Unit score
+            h_hgt  = d.get(f"{hk}_hgt");   a_hgt  = d.get(f"{ak}_hgt")
+            h_exp  = d.get(f"{hk}_exp");    a_exp  = d.get(f"{ak}_exp")
+            h_unt  = r.get("team1_unit_score" if hk == "t1" else "team2_unit_score")
+            a_unt  = r.get("team1_unit_score" if ak == "t1" else "team2_unit_score")
+            h_hadj = d.get(f"h1_adj" if hk == "t1" else "h2_adj", 0)
+
+            table_html = f"""
+            <table style='width:100%; border-collapse:collapse; max-width:620px;'>
+              {header_row}
+              {section_header("RANKINGS & EFFICIENCY")}
+              {stat_row("KenPom Rank", h_rank, a_rank, higher_is_better=False, fmt=".0f")}
+              {stat_row("NET Rank", h_net, a_net, higher_is_better=False, fmt=".0f")}
+              {stat_row("Adj Off Efficiency", h_adjoe, a_adjoe, higher_is_better=True)}
+              {stat_row("Adj Def Efficiency", h_adjde, a_adjde, higher_is_better=False)}
+              {stat_row("PPP (projected)", home_ppp, away_ppp, higher_is_better=True, fmt=".4f")}
+
+              {section_header("PACE & POSSESSIONS")}
+              {stat_row("Adj Tempo (season)", h_tempo, a_tempo, higher_is_better=True)}
+              {stat_row("Proj Possessions (game)", h_poss_adj, a_poss_adj, higher_is_better=True, fmt=".1f")}
+
+              {section_header("FOUR FACTORS — OFFENSE")}
+              {stat_row("Adj Off Efficiency (AdjOE)", h_adjoe, a_adjoe, higher_is_better=True)}
+              {stat_row("Turnover %  (lower = better)", h_to_pct, a_to_pct, higher_is_better=False, pct=True)}
+              {stat_row("Off Reb %", h_or_pct, a_or_pct, higher_is_better=True, pct=True)}
+              {stat_row("FT Rate (FTA/FGA)", h_ft_rate, a_ft_rate, higher_is_better=True, pct=True)}
+              {stat_row("Proj Turnovers", h_to_proj, a_to_proj, higher_is_better=False, fmt=".1f")}
+              {stat_row("Proj Off Rebounds", h_reb_proj, a_reb_proj, higher_is_better=True, fmt=".1f")}
+              {stat_row("Proj FT Points", h_ft_proj, a_ft_proj, higher_is_better=True, fmt=".1f")}
+
+              {section_header("FOUR FACTORS — DEFENSE")}
+              {stat_row("Adj Def Efficiency (AdjDE)", h_adjde, a_adjde, higher_is_better=False)}
+              {stat_row("Opp TO% Forced", h_dto_pct, a_dto_pct, higher_is_better=True, pct=True)}
+              {stat_row("Opp ORB% Allowed", h_dor_pct, a_dor_pct, higher_is_better=False, pct=True)}
+              {stat_row("Opp FT Rate Allowed", h_dft_rt, a_dft_rt, higher_is_better=False, pct=True)}
+
+              {section_header("ROSTER FACTORS")}
+              {stat_row("Avg Height", h_hgt, a_hgt, higher_is_better=True, fmt=".1f")}
+              {stat_row("Experience", h_exp, a_exp, higher_is_better=True, fmt=".2f")}
+              {stat_row("Unit Score", h_unt, a_unt, higher_is_better=True, fmt=".2f")}
+            </table>
+            """
+            if h_hadj:
+                hca_html = f"<p style='font-size:0.75rem; color:#4a6fa5; margin-top:6px;'>🏠 Home court advantage applied: <b style='color:#f0b429'>+{abs(h_hadj):.1f} pts</b> to {home_name}</p>"
+            else:
+                hca_html = ""
+
+            st.markdown(table_html + hca_html, unsafe_allow_html=True)
 
 st.markdown(f"<div style='margin-top:40px; padding-top:20px; border-top:1px solid #1e3a6e; font-size:0.75rem; color:#2e4a7a; text-align:center;'>CZarp Analytics Club &nbsp;·&nbsp; CBB Model &nbsp;·&nbsp; 2025-26 &nbsp;·&nbsp; Last updated {datetime.now().strftime('%I:%M %p CT')}</div>", unsafe_allow_html=True)
