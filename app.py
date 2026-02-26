@@ -634,6 +634,18 @@ with tab2:
             else:
                 hca_html = ""
 
-            st.markdown(table_html + hca_html, unsafe_allow_html=True)
+            # Wrap in full HTML doc with matching styles — st.components renders reliably
+            import streamlit.components.v1 as components
+            components.html(f"""
+            <html><head><style>
+              body {{ background: transparent; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }}
+              table {{ width: 100%; border-collapse: collapse; }}
+              tr:hover td {{ background: rgba(255,255,255,0.03); }}
+            </style></head>
+            <body style="background:#152348; padding:12px; border-radius:10px; border:1px solid #1e3a6e;">
+              {table_html}
+              {hca_html}
+            </body></html>
+            """, height=820, scrolling=False)
 
 st.markdown(f"<div style='margin-top:40px; padding-top:20px; border-top:1px solid #1e3a6e; font-size:0.75rem; color:#2e4a7a; text-align:center;'>CZarp Analytics Club &nbsp;·&nbsp; CBB Model &nbsp;·&nbsp; 2025-26 &nbsp;·&nbsp; Last updated {datetime.now().strftime('%I:%M %p CT')}</div>", unsafe_allow_html=True)
