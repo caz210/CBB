@@ -392,6 +392,109 @@ with tab1:
             ]
             st.markdown("".join(parts), unsafe_allow_html=True)
 
+            # ── Collapsible four-factor breakdown ────────────────────────────
+            d = r.get("debug", {})
+            if d:
+                with st.expander(f"📊 {away_name} vs {home_name} — Full Breakdown", expanded=False):
+                    import streamlit.components.v1 as components
+
+                    hk, ak = "t1", "t2"   # team1 = home in daily projections
+
+                    h_rank  = d.get(f"kenpom_rank_{hk}"); a_rank  = d.get(f"kenpom_rank_{ak}")
+                    h_net   = d.get(f"net_rank_{hk}");    a_net   = d.get(f"net_rank_{ak}")
+                    h_adjoe = d.get(f"{hk}_adjoe");       a_adjoe = d.get(f"{ak}_adjoe")
+                    h_adjde = d.get(f"{hk}_adjde");       a_adjde = d.get(f"{ak}_adjde")
+                    h_tempo = d.get(f"{hk}_tempo");       a_tempo = d.get(f"{ak}_tempo")
+                    h_poss  = d.get(f"{hk}_poss");        a_poss  = d.get(f"{ak}_poss")
+                    proj_poss = r.get("projected_pace", d.get("avg_pace", 0))
+
+                    h_to_pct  = d.get(f"{hk}_to_pct");   a_to_pct  = d.get(f"{ak}_to_pct")
+                    h_or_pct  = d.get(f"{hk}_or_pct");   a_or_pct  = d.get(f"{ak}_or_pct")
+                    h_ft_rate = d.get(f"{hk}_ft_rate");  a_ft_rate = d.get(f"{ak}_ft_rate")
+                    h_dto_pct = d.get(f"{ak}_dto_pct");  a_dto_pct = d.get(f"{hk}_dto_pct")
+                    h_dor_pct = d.get(f"{ak}_dor_pct");  a_dor_pct = d.get(f"{hk}_dor_pct")
+                    h_dft_rt  = d.get(f"{ak}_dft_rate"); a_dft_rt  = d.get(f"{hk}_dft_rate")
+                    h_to_proj = d.get(f"{hk}_to");       a_to_proj = d.get(f"{ak}_to")
+                    h_reb     = d.get(f"{hk}_reb");       a_reb     = d.get(f"{ak}_reb")
+                    h_ft_proj = d.get(f"{hk}_ft");       a_ft_proj = d.get(f"{ak}_ft")
+                    h_hgt     = d.get(f"{hk}_hgt");       a_hgt     = d.get(f"{ak}_hgt")
+                    h_exp     = d.get(f"{hk}_exp");       a_exp     = d.get(f"{ak}_exp")
+                    h_unt     = r.get("team1_unit_score");a_unt     = r.get("team2_unit_score")
+                    h_ppp     = r.get("team1_ppp", 0);   a_ppp     = r.get("team2_ppp", 0)
+                    h_hadj    = d.get("h1_adj", 0)
+
+                    def _c(val, opp, hib=True):
+                        if val is None or opp is None: return "#6688bb"
+                        return "#f0b429" if (val > opp) == hib else "#6688bb"
+
+                    def _f(v, fmt=".1f"):
+                        return f"{v:{fmt}}" if v is not None else "—"
+
+                    def _p(v):
+                        if v is None: return "—"
+                        return f"{v*100:.1f}%" if v < 5 else f"{v:.1f}%"
+
+                    def sr(label, hv, av, hib=True, fmt=".1f", pct=False):
+                        hclr = _c(hv, av, hib); aclr = _c(av, hv, hib)
+                        hd = _p(hv) if pct else _f(hv, fmt)
+                        ad = _p(av) if pct else _f(av, fmt)
+                        return f"<tr><td style='color:{aclr};text-align:right;font-weight:600;padding:3px 10px;'>{ad}</td><td style='color:#4a6fa5;font-size:0.72rem;text-align:center;padding:3px 6px;white-space:nowrap;'>{label}</td><td style='color:{hclr};text-align:left;font-weight:600;padding:3px 10px;'>{hd}</td></tr>"
+
+                    def sh(label):
+                        return f"<tr><td colspan='3' style='color:#f0b429;font-size:0.68rem;letter-spacing:2px;padding:8px 10px 3px;font-weight:700;'>{label}</td></tr>"
+
+                    kp_proj = ""
+                    kp_h = r.get("kp_home_score"); kp_a = r.get("kp_away_score")
+                    if kp_h and kp_a:
+                        kp_proj = f"<tr><td colspan='3' style='color:#4a6fa5;font-size:0.72rem;text-align:center;padding:2px 10px;'>KenPom proj: {away_name} {kp_a} / {home_name} {kp_h}</td></tr>"
+
+                    table = f"""
+                    <table style='width:100%;border-collapse:collapse;font-family:Inter,sans-serif;font-size:0.82rem;'>
+                      <tr>
+                        <th style='color:#f0b429;text-align:right;padding:5px 10px;font-size:0.82rem;'>{away_name}</th>
+                        <th style='width:180px'></th>
+                        <th style='color:#f0b429;text-align:left;padding:5px 10px;font-size:0.82rem;'>{home_name}</th>
+                      </tr>
+                      {sh("RANKINGS & EFFICIENCY")}
+                      {sr("KenPom Rank", h_rank, a_rank, hib=False, fmt=".0f")}
+                      {sr("NET Rank", h_net, a_net, hib=False, fmt=".0f")}
+                      {sr("Adj Offensive Efficiency", h_adjoe, a_adjoe)}
+                      {sr("Adj Defensive Efficiency", h_adjde, a_adjde, hib=False)}
+                      {sr("PPP (projected)", h_ppp, a_ppp, fmt=".4f")}
+                      {kp_proj}
+                      {sh("PACE & POSSESSIONS")}
+                      {sr("Adj Tempo (season)", h_tempo, a_tempo)}
+                      {sr("Proj Possessions (this game)", h_poss, a_poss)}
+                      {sh("FOUR FACTORS — OFFENSE")}
+                      {sr("Turnover %  (lower = better)", h_to_pct, a_to_pct, hib=False, pct=True)}
+                      {sr("Off Rebound %", h_or_pct, a_or_pct, pct=True)}
+                      {sr("FT Rate  (FTA/FGA)", h_ft_rate, a_ft_rate, pct=True)}
+                      {sr("Proj Turnovers", h_to_proj, a_to_proj, hib=False)}
+                      {sr("Proj Off Rebounds", h_reb, a_reb)}
+                      {sr("Proj FT Points", h_ft_proj, a_ft_proj)}
+                      {sh("FOUR FACTORS — DEFENSE")}
+                      {sr("Adj Def Efficiency", h_adjde, a_adjde, hib=False)}
+                      {sr("Opp TO% Forced", h_dto_pct, a_dto_pct)}
+                      {sr("Opp ORB% Allowed", h_dor_pct, a_dor_pct, hib=False)}
+                      {sr("Opp FT Rate Allowed", h_dft_rt, a_dft_rt, hib=False)}
+                      {sh("ROSTER")}
+                      {sr("Avg Height", h_hgt, a_hgt)}
+                      {sr("Experience", h_exp, a_exp, fmt=".2f")}
+                      {sr("Unit Score", h_unt, a_unt, fmt=".2f")}
+                    </table>
+                    {"<p style='font-size:0.72rem;color:#4a6fa5;margin:6px 0 0 10px;'>🏠 HCA applied: <b style='color:#f0b429'>+" + f"{abs(h_hadj):.1f} pts</b> to {home_name}</p>" if h_hadj else ""}
+                    """
+
+                    components.html(f"""
+                    <html><head><style>
+                      body{{margin:0;padding:0;font-family:'Inter',sans-serif;background:transparent;}}
+                      tr:hover td{{background:rgba(255,255,255,0.03);}}
+                    </style></head>
+                    <body style="background:#0f1e3d;padding:10px;border-radius:8px;">
+                      {table}
+                    </body></html>
+                    """, height=560, scrolling=False)
+
     # --- Full Table ---
     st.markdown("<div class='section-title'>FULL TABLE</div>", unsafe_allow_html=True)
     table_rows = []
