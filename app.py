@@ -105,12 +105,12 @@ def get_todays_games(today_str):
     now_ct = datetime.now(CENTRAL)
     frames = [_fetch_date(today_str)]
 
-    # After 8 PM CT, also check tomorrow's date — catches late games logged under UTC next day
-    if now_ct.hour >= 20:
-        tomorrow_str = (date.fromisoformat(today_str) + timedelta(days=1)).isoformat()
-        tomorrow_fm = _fetch_date(tomorrow_str)
-        if tomorrow_fm is not None and not tomorrow_fm.empty:
-            frames.append(tomorrow_fm)
+    # Always fetch tomorrow too — 10pm CT games appear under UTC next day (4am UTC)
+    # Cheap call, guarantees late games are visible all day, deduped by GameID below
+    tomorrow_str = (date.fromisoformat(today_str) + timedelta(days=1)).isoformat()
+    tomorrow_fm  = _fetch_date(tomorrow_str)
+    if tomorrow_fm is not None and not tomorrow_fm.empty:
+        frames.append(tomorrow_fm)
 
     combined = pd.concat([f for f in frames if f is not None and not f.empty], ignore_index=True)
     if combined.empty:
