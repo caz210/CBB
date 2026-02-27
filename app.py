@@ -76,6 +76,157 @@ SEASON = 2026
 CENTRAL = ZoneInfo("America/Chicago")
 
 
+# ── Prediction blurb generator ────────────────────────────────────────────────
+def generate_prediction_blurb(r: dict, home_name: str, away_name: str) -> str:
+    """
+    Generate a plain-English prediction from project_game() output.
+    r      = full result dict from project_game()
+    home_name / away_name = display names (already oriented correctly)
+    """
+    s1 = r.get("team1_score", 0)
+    s2 = r.get("team2_score", 0)
+    # team1 is always home in daily projections
+    h_score, a_score = s1, s2
+    h_ppp = r.get("team1_ppp", 0)
+    a_ppp = r.get("team2_ppp", 0)
+    d = r.get("debug", {})
+    h_reb = d.get("t1_reb", 0) or 0
+    a_reb = d.get("t2_reb", 0) or 0
+    h_to  = d.get("t1_to",  0) or 0
+    a_to  = d.get("t2_to",  0) or 0
+    h_ft  = d.get("t1_ft",  0) or 0
+    a_ft  = d.get("t2_ft",  0) or 0
+    h_poss = d.get("t1_poss", 0) or 0
+    a_poss = d.get("t2_poss", 0) or 0
+    loc    = r.get("location", "neutral")
+
+    spread = abs(h_score - a_score)
+
+    # Determine winner
+    if h_score >= a_score:
+        winner, loser  = home_name, away_name
+        w_score, l_score = h_score, a_score
+        w_ppp,   l_ppp   = h_ppp, a_ppp
+        w_reb,   l_reb   = h_reb, a_reb
+        w_to,    l_to    = h_to,  a_to
+        w_ft,    l_ft    = h_ft,  a_ft
+        w_poss,  l_poss  = h_poss, a_poss
+        winner_is_home   = True
+    else:
+        winner, loser  = away_name, home_name
+        w_score, l_score = a_score, h_score
+        w_ppp,   l_ppp   = a_ppp, h_ppp
+        w_reb,   l_reb   = a_reb, h_reb
+        w_to,    l_to    = a_to,  h_to
+        w_ft,    l_ft    = a_ft,  h_ft
+        w_poss,  l_poss  = a_poss, h_poss
+        winner_is_home   = False
+
+    # Location phrase
+    if loc == "home" and winner_is_home:
+        loc_phrase = "at home"
+    elif loc == "away" and not winner_is_home:
+        loc_phrase = "on the road"
+    elif loc == "neutral":
+        loc_phrase = "on a neutral floor"
+    else:
+        loc_phrase = ""
+
+    # Identify advantages driving the win
+    advantages = []
+    if (w_ppp - l_ppp) > 0.004:
+        advantages.append("offensive efficiency")
+    if w_reb > 0.4:
+        advantages.append("crashing the offensive glass for extra possessions")
+    elif w_reb > 0.0:
+        advantages.append("a slight rebounding edge")
+    if w_to > 0.4:
+        advantages.append("forcing turnovers and protecting the ball")
+    elif w_to > 0.0:
+        advantages.append("a slight turnover margin edge")
+    if w_ft < -1.0:
+        advantages.append("getting to the free throw line")
+    if w_poss > l_poss + 0.5:
+        advantages.append("generating extra possessions")
+    if not advantages:
+        advantages = ["a small overall model edge"]
+
+    # Confidence language
+    if spread >= 10:
+        confidence = "comfortably"
+    elif spread >= 6:
+        confidence = "by a solid margin"
+    elif spread >= 3:
+        confidence = "in a competitive game"
+    else:
+        confidence = "in what projects to be a tight battle"
+
+    # Build adv text
+    if len(advantages) == 1:
+        adv_text = advantages[0]
+    elif len(advantages) == 2:
+        adv_text = f"{advantages[0]} and {advantages[1]}"
+    else:
+        adv_text = ", ".join(advantages[:-1]) + f", and {advantages[-1]}"
+
+    loc_suffix = f" {loc_phrase}" if loc_phrase else ""
+    headline = f"<b>{winner}</b> ({w_score:.0f}) over <b>{loser}</b> ({l_score:.0f}){loc_suffix}, {confidence}."
+    body = f"The model projects <b>{winner}</b> to win due to {adv_text}."
+
+    # Supporting details
+    details = []
+    eff_gap = w_ppp - l_ppp
+    if eff_gap > 0.004:
+        details.append(
+            f"Their offensive efficiency edge (PPP: {w_ppp:.4f} vs {l_ppp:.4f}) "
+            f"suggests they can score consistently in this matchup."
+        )
+    if w_reb > 0.0:
+        details.append(
+            f"On the boards, <b>{winner}</b> projects a positive rebounding margin "
+            f"(+{w_reb:.2f}), creating extra offensive opportunities."
+        )
+    if w_to > 0.0:
+        details.append(
+            f"The turnover picture also favors <b>{winner}</b> through ball security "
+            f"and defensive pressure (TO margin: +{w_to:.2f})."
+        )
+    if w_ft < -0.5:
+        details.append(
+            f"<b>{winner}</b> projects to draw more free throws than they allow "
+            f"(FT margin: {w_ft:.2f}), adding easy points at the line."
+        )
+
+    score_line = (
+        f"<b>Projected Final:</b> {away_name} {a_score:.0f} – {home_name} {h_score:.0f}"
+        f" &nbsp;|&nbsp; <b>Spread:</b> {winner} -{spread:.1f}"
+        f" &nbsp;|&nbsp; <b>Total:</b> {h_score + a_score:.0f}"
+    )
+
+    detail_html = " ".join(details)
+
+    return f"""
+<div style="
+  background: linear-gradient(135deg, #0f1923 0%, #152348 100%);
+  border-left: 4px solid #f0b429;
+  border-radius: 8px;
+  padding: 18px 22px;
+  font-family: 'DM Sans', 'Inter', sans-serif;
+  color: #e8e8e8;
+  line-height: 1.75;
+">
+  <div style="font-size:0.75rem; font-weight:700; color:#f0b429; letter-spacing:2px; margin-bottom:10px;">
+    🔮 MODEL PREDICTION
+  </div>
+  <div style="font-size:1.05em; margin-bottom:10px;">{headline}</div>
+  <div style="font-size:0.9em; color:#c8d8e8; margin-bottom:12px;">{body} {detail_html}</div>
+  <div style="font-size:0.82em; color:#4a6fa5; border-top:1px solid #1e3a6e; padding-top:10px; margin-top:6px;">
+    {score_line}
+  </div>
+</div>
+"""
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_kenpom_data():
     data = fetch_all(year=SEASON)
@@ -398,102 +549,110 @@ with tab1:
                 with st.expander(f"📊 {away_name} vs {home_name} — Full Breakdown", expanded=False):
                     import streamlit.components.v1 as components
 
-                    hk, ak = "t1", "t2"   # team1 = home in daily projections
+                    _tab_breakdown, _tab_prediction = st.tabs(["📊 Breakdown", "🔮 Prediction"])
 
-                    h_rank  = d.get(f"kenpom_rank_{hk}"); a_rank  = d.get(f"kenpom_rank_{ak}")
-                    h_net   = d.get(f"net_rank_{hk}");    a_net   = d.get(f"net_rank_{ak}")
-                    h_adjoe = d.get(f"{hk}_adjoe");       a_adjoe = d.get(f"{ak}_adjoe")
-                    h_adjde = d.get(f"{hk}_adjde");       a_adjde = d.get(f"{ak}_adjde")
-                    h_tempo = d.get(f"{hk}_tempo");       a_tempo = d.get(f"{ak}_tempo")
-                    h_poss  = d.get(f"{hk}_poss");        a_poss  = d.get(f"{ak}_poss")
-                    proj_poss = r.get("projected_pace", d.get("avg_pace", 0))
+                    with _tab_breakdown:
+                        hk, ak = "t1", "t2"   # team1 = home in daily projections
 
-                    h_to_pct  = d.get(f"{hk}_to_pct");   a_to_pct  = d.get(f"{ak}_to_pct")
-                    h_or_pct  = d.get(f"{hk}_or_pct");   a_or_pct  = d.get(f"{ak}_or_pct")
-                    h_ft_rate = d.get(f"{hk}_ft_rate");  a_ft_rate = d.get(f"{ak}_ft_rate")
-                    h_dto_pct = d.get(f"{ak}_dto_pct");  a_dto_pct = d.get(f"{hk}_dto_pct")
-                    h_dor_pct = d.get(f"{ak}_dor_pct");  a_dor_pct = d.get(f"{hk}_dor_pct")
-                    h_dft_rt  = d.get(f"{ak}_dft_rate"); a_dft_rt  = d.get(f"{hk}_dft_rate")
-                    h_to_proj = d.get(f"{hk}_to");       a_to_proj = d.get(f"{ak}_to")
-                    h_reb     = d.get(f"{hk}_reb");       a_reb     = d.get(f"{ak}_reb")
-                    h_ft_proj = d.get(f"{hk}_ft");       a_ft_proj = d.get(f"{ak}_ft")
-                    h_hgt     = d.get(f"{hk}_hgt");       a_hgt     = d.get(f"{ak}_hgt")
-                    h_exp     = d.get(f"{hk}_exp");       a_exp     = d.get(f"{ak}_exp")
-                    h_unt     = r.get("team1_unit_score");a_unt     = r.get("team2_unit_score")
-                    h_ppp     = r.get("team1_ppp", 0);   a_ppp     = r.get("team2_ppp", 0)
-                    h_hadj    = d.get("h1_adj", 0)
+                        h_rank  = d.get(f"kenpom_rank_{hk}"); a_rank  = d.get(f"kenpom_rank_{ak}")
+                        h_net   = d.get(f"net_rank_{hk}");    a_net   = d.get(f"net_rank_{ak}")
+                        h_adjoe = d.get(f"{hk}_adjoe");       a_adjoe = d.get(f"{ak}_adjoe")
+                        h_adjde = d.get(f"{hk}_adjde");       a_adjde = d.get(f"{ak}_adjde")
+                        h_tempo = d.get(f"{hk}_tempo");       a_tempo = d.get(f"{ak}_tempo")
+                        h_poss  = d.get(f"{hk}_poss");        a_poss  = d.get(f"{ak}_poss")
+                        proj_poss = r.get("projected_pace", d.get("avg_pace", 0))
 
-                    def _c(val, opp, hib=True):
-                        if val is None or opp is None: return "#6688bb"
-                        return "#f0b429" if (val > opp) == hib else "#6688bb"
+                        h_to_pct  = d.get(f"{hk}_to_pct");   a_to_pct  = d.get(f"{ak}_to_pct")
+                        h_or_pct  = d.get(f"{hk}_or_pct");   a_or_pct  = d.get(f"{ak}_or_pct")
+                        h_ft_rate = d.get(f"{hk}_ft_rate");  a_ft_rate = d.get(f"{ak}_ft_rate")
+                        # DEFENSE: each team's own defensive stats (not swapped)
+                        h_dto_pct = d.get(f"{hk}_dto_pct");  a_dto_pct = d.get(f"{ak}_dto_pct")   # TOs forced by THIS team
+                        h_dor_pct = d.get(f"{hk}_dor_pct");  a_dor_pct = d.get(f"{ak}_dor_pct")   # Opp ORB% THIS team allows
+                        h_dft_rt  = d.get(f"{hk}_dft_rate"); a_dft_rt  = d.get(f"{ak}_dft_rate")  # FT rate THIS team allows
+                        h_to_proj = d.get(f"{hk}_to");       a_to_proj = d.get(f"{ak}_to")
+                        h_reb     = d.get(f"{hk}_reb");       a_reb     = d.get(f"{ak}_reb")
+                        h_ft_proj = d.get(f"{hk}_ft");       a_ft_proj = d.get(f"{ak}_ft")
+                        h_hgt     = d.get(f"{hk}_hgt");       a_hgt     = d.get(f"{ak}_hgt")
+                        h_exp     = d.get(f"{hk}_exp");       a_exp     = d.get(f"{ak}_exp")
+                        h_unt     = r.get("team1_unit_score");a_unt     = r.get("team2_unit_score")
+                        h_ppp     = r.get("team1_ppp", 0);   a_ppp     = r.get("team2_ppp", 0)
+                        h_hadj    = d.get("h1_adj", 0)
 
-                    def _f(v, fmt=".1f"):
-                        return f"{v:{fmt}}" if v is not None else "—"
+                        def _c(val, opp, hib=True):
+                            if val is None or opp is None: return "#6688bb"
+                            return "#f0b429" if (val > opp) == hib else "#6688bb"
 
-                    def _p(v):
-                        if v is None: return "—"
-                        return f"{v*100:.1f}%" if v < 5 else f"{v:.1f}%"
+                        def _f(v, fmt=".1f"):
+                            return f"{v:{fmt}}" if v is not None else "—"
 
-                    def sr(label, hv, av, hib=True, fmt=".1f", pct=False):
-                        hclr = _c(hv, av, hib); aclr = _c(av, hv, hib)
-                        hd = _p(hv) if pct else _f(hv, fmt)
-                        ad = _p(av) if pct else _f(av, fmt)
-                        return f"<tr><td style='color:{aclr};text-align:right;font-weight:600;padding:3px 10px;'>{ad}</td><td style='color:#4a6fa5;font-size:0.72rem;text-align:center;padding:3px 6px;white-space:nowrap;'>{label}</td><td style='color:{hclr};text-align:left;font-weight:600;padding:3px 10px;'>{hd}</td></tr>"
+                        def _p(v):
+                            if v is None: return "—"
+                            return f"{v*100:.1f}%" if v < 5 else f"{v:.1f}%"
 
-                    def sh(label):
-                        return f"<tr><td colspan='3' style='color:#f0b429;font-size:0.68rem;letter-spacing:2px;padding:8px 10px 3px;font-weight:700;'>{label}</td></tr>"
+                        def sr(label, hv, av, hib=True, fmt=".1f", pct=False):
+                            hclr = _c(hv, av, hib); aclr = _c(av, hv, hib)
+                            hd = _p(hv) if pct else _f(hv, fmt)
+                            ad = _p(av) if pct else _f(av, fmt)
+                            return f"<tr><td style='color:{aclr};text-align:right;font-weight:600;padding:3px 10px;'>{ad}</td><td style='color:#4a6fa5;font-size:0.72rem;text-align:center;padding:3px 6px;white-space:nowrap;'>{label}</td><td style='color:{hclr};text-align:left;font-weight:600;padding:3px 10px;'>{hd}</td></tr>"
 
-                    kp_proj = ""
-                    kp_h = r.get("kp_home_score"); kp_a = r.get("kp_away_score")
-                    if kp_h and kp_a:
-                        kp_proj = f"<tr><td colspan='3' style='color:#4a6fa5;font-size:0.72rem;text-align:center;padding:2px 10px;'>KenPom proj: {away_name} {kp_a} / {home_name} {kp_h}</td></tr>"
+                        def sh(label):
+                            return f"<tr><td colspan='3' style='color:#f0b429;font-size:0.68rem;letter-spacing:2px;padding:8px 10px 3px;font-weight:700;'>{label}</td></tr>"
 
-                    table = f"""
-                    <table style='width:100%;border-collapse:collapse;font-family:Inter,sans-serif;font-size:0.82rem;'>
-                      <tr>
-                        <th style='color:#f0b429;text-align:right;padding:5px 10px;font-size:0.82rem;'>{away_name}</th>
-                        <th style='width:180px'></th>
-                        <th style='color:#f0b429;text-align:left;padding:5px 10px;font-size:0.82rem;'>{home_name}</th>
-                      </tr>
-                      {sh("RANKINGS & EFFICIENCY")}
-                      {sr("KenPom Rank", h_rank, a_rank, hib=False, fmt=".0f")}
-                      {sr("NET Rank", h_net, a_net, hib=False, fmt=".0f")}
-                      {sr("Adj Offensive Efficiency", h_adjoe, a_adjoe)}
-                      {sr("Adj Defensive Efficiency", h_adjde, a_adjde, hib=False)}
-                      {sr("PPP (projected)", h_ppp, a_ppp, fmt=".4f")}
-                      {kp_proj}
-                      {sh("PACE & POSSESSIONS")}
-                      {sr("Adj Tempo (season)", h_tempo, a_tempo)}
-                      {sr("Proj Possessions (this game)", h_poss, a_poss)}
-                      {sh("FOUR FACTORS — OFFENSE")}
-                      {sr("Turnover %  (lower = better)", h_to_pct, a_to_pct, hib=False, pct=True)}
-                      {sr("Off Rebound %", h_or_pct, a_or_pct, pct=True)}
-                      {sr("FT Rate  (FTA/FGA)", h_ft_rate, a_ft_rate, pct=True)}
-                      {sr("Proj Turnovers", h_to_proj, a_to_proj, hib=False)}
-                      {sr("Proj Off Rebounds", h_reb, a_reb)}
-                      {sr("Proj FT Points", h_ft_proj, a_ft_proj)}
-                      {sh("FOUR FACTORS — DEFENSE")}
-                      {sr("Adj Def Efficiency", h_adjde, a_adjde, hib=False)}
-                      {sr("Opp TO% Forced", h_dto_pct, a_dto_pct)}
-                      {sr("Opp ORB% Allowed", h_dor_pct, a_dor_pct, hib=False)}
-                      {sr("Opp FT Rate Allowed", h_dft_rt, a_dft_rt, hib=False)}
-                      {sh("ROSTER")}
-                      {sr("Avg Height", h_hgt, a_hgt)}
-                      {sr("Experience", h_exp, a_exp, fmt=".2f")}
-                      {sr("Unit Score", h_unt, a_unt, fmt=".2f")}
-                    </table>
-                    {"<p style='font-size:0.72rem;color:#4a6fa5;margin:6px 0 0 10px;'>🏠 HCA applied: <b style='color:#f0b429'>+" + f"{abs(h_hadj):.1f} pts</b> to {home_name}</p>" if h_hadj else ""}
-                    """
+                        kp_proj = ""
+                        kp_h = r.get("kp_home_score"); kp_a = r.get("kp_away_score")
+                        if kp_h and kp_a:
+                            kp_proj = f"<tr><td colspan='3' style='color:#4a6fa5;font-size:0.72rem;text-align:center;padding:2px 10px;'>KenPom proj: {away_name} {kp_a} / {home_name} {kp_h}</td></tr>"
 
-                    components.html(f"""
-                    <html><head><style>
-                      body{{margin:0;padding:0;font-family:'Inter',sans-serif;background:transparent;}}
-                      tr:hover td{{background:rgba(255,255,255,0.03);}}
-                    </style></head>
-                    <body style="background:#0f1e3d;padding:10px;border-radius:8px;">
-                      {table}
-                    </body></html>
-                    """, height=560, scrolling=False)
+                        table = f"""
+                        <table style='width:100%;border-collapse:collapse;font-family:Inter,sans-serif;font-size:0.82rem;'>
+                          <tr>
+                            <th style='color:#f0b429;text-align:right;padding:5px 10px;font-size:0.82rem;'>{away_name}</th>
+                            <th style='width:180px'></th>
+                            <th style='color:#f0b429;text-align:left;padding:5px 10px;font-size:0.82rem;'>{home_name}</th>
+                          </tr>
+                          {sh("RANKINGS & EFFICIENCY")}
+                          {sr("KenPom Rank", h_rank, a_rank, hib=False, fmt=".0f")}
+                          {sr("NET Rank", h_net, a_net, hib=False, fmt=".0f")}
+                          {sr("Adj Offensive Efficiency", h_adjoe, a_adjoe)}
+                          {sr("Adj Defensive Efficiency", h_adjde, a_adjde, hib=False)}
+                          {sr("PPP (projected)", h_ppp, a_ppp, fmt=".4f")}
+                          {kp_proj}
+                          {sh("PACE & POSSESSIONS")}
+                          {sr("Adj Tempo (season)", h_tempo, a_tempo)}
+                          {sr("Proj Possessions (this game)", h_poss, a_poss)}
+                          {sh("FOUR FACTORS — OFFENSE")}
+                          {sr("Turnover %  (lower = better)", h_to_pct, a_to_pct, hib=False, pct=True)}
+                          {sr("Off Rebound %", h_or_pct, a_or_pct, pct=True)}
+                          {sr("FT Rate  (FTA/FGA)", h_ft_rate, a_ft_rate, pct=True)}
+                          {sr("Proj TO Advantage", h_to_proj, a_to_proj, hib=False)}
+                          {sr("Proj Reb Advantage", h_reb, a_reb)}
+                          {sr("Proj FT Advantage", h_ft_proj, a_ft_proj)}
+                          {sh("FOUR FACTORS — DEFENSE")}
+                          {sr("Adj Def Efficiency (lower = better)", h_adjde, a_adjde, hib=False)}
+                          {sr("TOs Forced on Opponent %", h_dto_pct, a_dto_pct, hib=True, pct=True)}
+                          {sr("Opp Off Reb % Allowed (lower = better)", h_dor_pct, a_dor_pct, hib=False, pct=True)}
+                          {sr("FT Rate Allowed to Opp (lower = better)", h_dft_rt, a_dft_rt, hib=False, pct=True)}
+                          {sh("ROSTER")}
+                          {sr("Avg Height", h_hgt, a_hgt)}
+                          {sr("Experience", h_exp, a_exp, fmt=".2f")}
+                          {sr("Unit Score", h_unt, a_unt, fmt=".2f")}
+                        </table>
+                        {"<p style='font-size:0.72rem;color:#4a6fa5;margin:6px 0 0 10px;'>🏠 HCA applied: <b style='color:#f0b429'>+" + f"{abs(h_hadj):.1f} pts</b> to {home_name}</p>" if h_hadj else ""}
+                        """
+
+                        components.html(f"""
+                        <html><head><style>
+                          body{{margin:0;padding:0;font-family:'Inter',sans-serif;background:transparent;}}
+                          tr:hover td{{background:rgba(255,255,255,0.03);}}
+                        </style></head>
+                        <body style="background:#0f1e3d;padding:10px;border-radius:8px;">
+                          {table}
+                        </body></html>
+                        """, height=580, scrolling=False)
+
+                    with _tab_prediction:
+                        blurb = generate_prediction_blurb(r, home_name=home_name, away_name=away_name)
+                        st.markdown(blurb, unsafe_allow_html=True)
 
     # --- Full Table ---
     st.markdown("<div class='section-title'>FULL TABLE</div>", unsafe_allow_html=True)
@@ -678,11 +837,11 @@ with tab2:
 
             # Four Factors — Offense (lower TO% and higher OR%/FTR/adjOE = better)
             h_to_pct  = d.get(f"{hk}_to_pct");    a_to_pct  = d.get(f"{ak}_to_pct")
-            h_dto_pct = d.get(f"{ak}_dto_pct");   a_dto_pct = d.get(f"{hk}_dto_pct")   # opponent forces TOs
+            h_dto_pct = d.get(f"{hk}_dto_pct");   a_dto_pct = d.get(f"{ak}_dto_pct")   # TOs forced by THIS team's defense
             h_or_pct  = d.get(f"{hk}_or_pct");    a_or_pct  = d.get(f"{ak}_or_pct")
-            h_dor_pct = d.get(f"{ak}_dor_pct");   a_dor_pct = d.get(f"{hk}_dor_pct")   # opp ORB allowed
+            h_dor_pct = d.get(f"{hk}_dor_pct");   a_dor_pct = d.get(f"{ak}_dor_pct")   # Opp ORB% THIS team allows
             h_ft_rate = d.get(f"{hk}_ft_rate");   a_ft_rate = d.get(f"{ak}_ft_rate")
-            h_dft_rt  = d.get(f"{ak}_dft_rate");  a_dft_rt  = d.get(f"{hk}_dft_rate")  # opp FTR allowed
+            h_dft_rt  = d.get(f"{hk}_dft_rate");  a_dft_rt  = d.get(f"{ak}_dft_rate")  # FT rate THIS team allows
 
             # Projected game stats
             h_poss_adj = d.get(f"{hk}_poss"); a_poss_adj = d.get(f"{ak}_poss")
@@ -721,10 +880,10 @@ with tab2:
               {stat_row("Proj FT Points", h_ft_proj, a_ft_proj, higher_is_better=True, fmt=".1f")}
 
               {section_header("FOUR FACTORS — DEFENSE")}
-              {stat_row("Adj Def Efficiency (AdjDE)", h_adjde, a_adjde, higher_is_better=False)}
-              {stat_row("Opp TO% Forced", h_dto_pct, a_dto_pct, higher_is_better=True, pct=True)}
-              {stat_row("Opp ORB% Allowed", h_dor_pct, a_dor_pct, higher_is_better=False, pct=True)}
-              {stat_row("Opp FT Rate Allowed", h_dft_rt, a_dft_rt, higher_is_better=False, pct=True)}
+              {stat_row("Adj Def Efficiency (lower = better)", h_adjde, a_adjde, higher_is_better=False)}
+              {stat_row("TOs Forced on Opponent %", h_dto_pct, a_dto_pct, higher_is_better=True, pct=True)}
+              {stat_row("Opp Off Reb % Allowed (lower = better)", h_dor_pct, a_dor_pct, higher_is_better=False, pct=True)}
+              {stat_row("FT Rate Allowed to Opp (lower = better)", h_dft_rt, a_dft_rt, higher_is_better=False, pct=True)}
 
               {section_header("ROSTER FACTORS")}
               {stat_row("Avg Height", h_hgt, a_hgt, higher_is_better=True, fmt=".1f")}
