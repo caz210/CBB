@@ -149,18 +149,19 @@ def points_per_possession(off_eff: float, opp_def_eff: float) -> float:
 
 
 def projected_turnovers(
-    team_to_pct: float,   # Opponent offense TO_Pct (we want THEM to turn it over)
-    opp_dto_pct: float,   # Our defense DTO_Pct (turnovers we force)
+    team_to_pct: float,   # Team offense TO_Pct (their own ball security)
     avg_to: float,        # NCAA avg offense TO_Pct
-    avg_dto: float,       # NCAA avg defense DTO_Pct
-    adjustment: float,    # Game-level adj: small signed decimal e.g. +0.0103
+    adjustment: float,    # KenPom quality dampener: (opp_pct - team_pct) * 0.5
 ) -> float:
     """
-    Sheet formula: Raw = (Avg TO - Opp TO) - (Avg DTO - Team DTO)
+    Raw = (avg_TO - team_TO)
+    Positive = team turns it over less than average = more possessions kept.
+    Opponent quality is handled entirely by the KenPom adjustment term —
+    no need to double-count opp_DTO here. The adjustment scales the raw
+    edge up or down based on how good the opponent is.
     Adj = Raw + abs(Raw) * adjustment
-    Signed  positive means favorable TO matchup (they turn it over more, we force more).
     """
-    raw = (avg_to - team_to_pct) - (avg_dto - opp_dto_pct)
+    raw = avg_to - team_to_pct
     return raw + abs(raw) * adjustment
 
 
@@ -196,20 +197,19 @@ def projected_ft(
     return raw + abs(raw) * adjustment
 
 
-def adjusted_possessions(pace: float, proj_reb: float, proj_to: float, proj_ft: float) -> float:
+def adjusted_possessions(pace: float, proj_reb: float, proj_to: float) -> float:
     """
-    raw_delta = pace*(reb*0.01) + pace*(to*0.01) + pace*(ft*0.44*0.01)
-    adj_poss  = pace + raw_delta
+    adj_poss = pace + pace*(reb*0.01) + pace*(to*0.01)
 
-    raw_delta is already in possession units (pace x pct), so we add it
-    directly to pace. The previous formula applied pace*(raw_delta*0.01)
-    which double-scaled: treating possession units as a percentage again.
-    FTs were hit hardest because proj_ft values are largest in magnitude.
+    FT removed: drawing FTs is a scoring/PPP advantage, not a possession
+    count adjustment. FT mismatch was distorting possession totals badly
+    (e.g. draining 5+ possessions from a high-FT-drawing team).
+    TO sign fixed: both terms now ADD — team ball security + opp inability
+    to force TOs both increase your effective possession count.
     """
     raw_delta = (
         pace * (proj_reb * 0.01) +
-        pace * (proj_to  * 0.01) +
-        pace * (proj_ft  * 0.44 * 0.01)
+        pace * (proj_to  * 0.01)
     )
     return pace + raw_delta
 
@@ -358,8 +358,8 @@ def project_game(
     # "How much does opponent turn it over vs our defense forcing turnovers"
     # Home TO = (AVG_TO - Home_TO) - (AVG_DTO - Away_DTO)  [sheet: E2=home, D2=away]
     # Away TO = (AVG_TO - Away_TO) - (AVG_DTO - Home_DTO)
-    t1_to = projected_turnovers(t1_ff["TO_Pct"], t2_ff["DTO_Pct"], avgs["to_pct"], avgs["dto_pct"], adj1)
-    t2_to = projected_turnovers(t2_ff["TO_Pct"], t1_ff["DTO_Pct"], avgs["to_pct"], avgs["dto_pct"], adj2)
+    t1_to = projected_turnovers(t1_ff["TO_Pct"], avgs["to_pct"], adj1)
+    t2_to = projected_turnovers(t2_ff["TO_Pct"], avgs["to_pct"], adj2)
 
     # Rebounds  args: (team OR_Pct, opp DOR_Pct, avg_or, avg_dor, adj)
     t1_reb = projected_rebounds(t1_ff["OR_Pct"], t2_ff["DOR_Pct"], avgs["or_pct"], avgs["dor_pct"], adj1)
@@ -377,8 +377,8 @@ def project_game(
     t2_ft = projected_ft(t1_ff["DFT_Rate"], t2_ff["FT_Rate"], adj2)
 
     # Adjusted possessions
-    t1_poss = adjusted_possessions(pace, t1_reb, t1_to, t1_ft)
-    t2_poss = adjusted_possessions(pace, t2_reb, t2_to, t2_ft)
+    t1_poss = adjusted_possessions(pace, t1_reb, t1_to)
+    t2_poss = adjusted_possessions(pace, t2_reb, t2_to)
 
     # Base scores
     # t1_poss is already the full possession count (pace + adjustment)
