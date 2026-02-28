@@ -54,6 +54,21 @@ h1, h2, h3 { font-family: 'Bebas Neue', sans-serif; letter-spacing: 2px; }
 .sidebar-logo img { width: 140px; height: auto; }
 .meta-val-spread { color: #f0b429; font-weight: 700; font-size: 0.85rem; }
 .game-card-match { border-color: #f0b429 !important; box-shadow: 0 0 0 1px #f0b42966; }
+/* Tab styling */
+.stTabs [data-baseweb="tab-list"] { background: #091228; border-bottom: 2px solid #1e3a6e; gap: 4px; }
+.stTabs [data-baseweb="tab"] { background: #0d1a35; color: #4a6fa5 !important; border-radius: 6px 6px 0 0; padding: 8px 20px; font-family: 'Bebas Neue', sans-serif; font-size: 1rem; letter-spacing: 1.5px; border: 1px solid #1e3a6e; border-bottom: none; }
+.stTabs [aria-selected="true"] { background: #152348 !important; color: #f0b429 !important; border-color: #f0b429 !important; }
+.stTabs [data-baseweb="tab"]:hover { color: #f0b429 !important; }
+.stTabs [data-baseweb="tab-panel"] { background: #0b1630; padding-top: 16px; }
+/* Button styling */
+.stButton>button { background: #152348; color: #f0b429; border: 1px solid #f0b429; font-family: 'Bebas Neue', sans-serif; letter-spacing: 1.5px; font-size: 1rem; }
+.stButton>button:hover { background: #f0b429; color: #0b1630; }
+.stButton>button:active { background: #f0b429; color: #0b1630; }
+/* Metric cards */
+[data-testid="metric-container"] label { color: #4a6fa5 !important; }
+[data-testid="metric-container"] [data-testid="metric-value"] { color: #f0b429 !important; }
+/* Filter button metric style */
+.metric-btn button { background: #152348 !important; border: 1px solid #1e3a6e !important; color: #e8e8e8 !important; font-family: 'DM Sans', sans-serif !important; font-size: 0.85rem !important; letter-spacing: 0 !important; text-align: left !important; padding: 12px 16px !important; width: 100% !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -353,10 +368,12 @@ with st.sidebar:
     st.markdown(f"**Season:** 2025-26")
     st.markdown("---")
     sort_by = st.selectbox("Sort games by", ["Edge Score", "Total", "Spread (biggest fav)", "Team Name A-Z"], key="sb_sort")
-    min_edge_pct = st.slider("Min Edge Score", 0, 20, 0, 1, format="%d%%", key="sb_edge")
-    min_edge = min_edge_pct / 100
+    min_edge_raw = st.slider("Min Edge Score (0–10+)", 0, 10, 0, 1, key="sb_edge")
+    min_edge = min_edge_raw / 100  # 5 on slider = 0.05 threshold
     show_only_vegas  = st.checkbox("Only games with Vegas lines", value=False, key="sb_vegas")
     show_only_differ = st.checkbox("Only SIDES DIFFER games", value=False, key="sb_differ")
+    show_only_dawgs  = st.checkbox("🐶 Only Dawgs (+ points)", value=False, key="sb_dawgs")
+    show_only_favs   = st.checkbox("⭐ Only Favorites (- points)", value=False, key="sb_favs")
     st.markdown("---")
 
     # Date picker — default to TODAY in Central time
@@ -387,9 +404,10 @@ with st.sidebar:
             st.markdown(f"<span style='font-size:0.75rem; color:#e05c5c;'>📡 Odds: not yet loaded</span>", unsafe_allow_html=True)
         import os
         map_exists = os.path.exists(TEAM_MAP_PATH)
-        map_color  = "#5ddc7a" if map_exists else "#e05c5c"
-        map_label  = f"✓ team_map.csv loaded ({len(KENPOM_TO_ODDS)} teams)" if map_exists else "✗ team_map.csv missing — run team_mapper.py"
-        st.markdown(f"<span style='font-size:0.72rem; color:{map_color};'>{map_label}</span>", unsafe_allow_html=True)
+        if map_exists:
+            map_label = f"✓ team_map loaded ({len(KENPOM_TO_ODDS)} teams)"
+            st.markdown(f"<span style='font-size:0.72rem; color:#5ddc7a;'>{map_label}</span>", unsafe_allow_html=True)
+        # Silently skip if missing — not critical for end users
 
 # --- Header ---
 col_logo, col_title = st.columns([1, 6])
@@ -425,15 +443,21 @@ tab1, tab2 = st.tabs(['🏀 Daily Projections', '🔬 Simulator'])
 with tab1:
     # --- Metrics ---
     games_with_vegas = [r for r in results if r.get("vegas_spread") is not None]
-    high_edge  = [r for r in results if (r.get("edge_score") or 0) > 0.07]
-    differ     = [r for r in results if r.get("sides_agree") is False]
+    high_edge  = [r for r in results if (r.get("edge_score") or 0) >= 0.05]
     avg_total  = round(sum(r["total"] for r in results) / len(results), 1)
+    valid_edges = [r.get("edge_score") for r in results if r.get("edge_score") is not None]
+    avg_edge = round(sum(valid_edges) / len(valid_edges) * 100, 2) if valid_edges else 0.0
 
     c1,c2,c3,c4,c5 = st.columns(5)
     c1.metric("Games Today", len(results))
     c2.metric("With Vegas Lines", len(games_with_vegas))
-    c3.metric("High Edge (>0.07)", len(high_edge))
-    c4.metric("Sides Differ", len(differ))
+    # High Edge metric — clicking it filters the list
+    with c3:
+        if st.button(f"🔥 High Edge (≥5%)\n{len(high_edge)} games", key="btn_high_edge", use_container_width=True):
+            st.session_state["sb_edge"] = 5
+            st.rerun()
+        st.markdown(f"<div style='font-size:0.7rem;color:#4a6fa5;margin-top:-8px;text-align:center;'>click to filter</div>", unsafe_allow_html=True)
+    c4.metric("Avg Edge Score", f"{avg_edge:.2f}")
     c5.metric("Avg Total", avg_total)
 
     if MODULES_OK:
@@ -464,6 +488,30 @@ with tab1:
         results = [r for r in results if (r.get("edge_score") or 0) >= min_edge]
     if show_only_differ:
         results = [r for r in results if r.get("sides_agree") is False]
+    if show_only_dawgs:
+        # Dawgs = CZarp model favors the Vegas underdog (sides disagree AND model likes the dog)
+        def _is_dawg_play(r):
+            vs = r.get("vegas_spread")
+            vf = r.get("vegas_fav")
+            my_s = r.get("spread", 0)
+            if vs is None or vf is None: return False
+            # Vegas fav is team1 → model must favor team2 (spread < 0) = dog play
+            if vf == r.get("team1") and my_s < 0: return True
+            # Vegas fav is team2 → model must favor team1 (spread > 0) = dog play
+            if vf == r.get("team2") and my_s > 0: return True
+            return False
+        results = [r for r in results if _is_dawg_play(r)]
+    if show_only_favs:
+        # Favs = CZarp model agrees with Vegas favorite (or is higher on the favorite)
+        def _is_fav_play(r):
+            vs = r.get("vegas_spread")
+            vf = r.get("vegas_fav")
+            my_s = r.get("spread", 0)
+            if vs is None or vf is None: return False
+            if vf == r.get("team1") and my_s > 0: return True
+            if vf == r.get("team2") and my_s < 0: return True
+            return False
+        results = [r for r in results if _is_fav_play(r)]
     if team_search:
         results = [r for r in results if team_search in r["team1"].lower() or team_search in r["team2"].lower()]
         if not results:
@@ -481,13 +529,13 @@ with tab1:
             disagree = r.get("sides_agree") is False
 
             epct = f"{edge*100:.2f}%" if edge else ""
-            if disagree and edge and edge > 0.05:
+            if disagree and edge and edge >= 0.05:
                 badge_cls, badge_txt = "edge-diff", f"SIDES DIFFER  {epct}"
-            elif edge and edge > 0.08:
+            elif edge and edge >= 0.07:
                 badge_cls, badge_txt = "edge-hot",  f"HOT EDGE  {epct}"
-            elif edge and edge > 0.05:
+            elif edge and edge >= 0.05:
                 badge_cls, badge_txt = "edge-good", f"EDGE  {epct}"
-            elif edge:
+            elif edge and edge > 0:
                 badge_cls, badge_txt = "edge-low",  f"EDGE {epct}"
             else:
                 badge_cls, badge_txt = "edge-low",  "NO LINE"
@@ -501,11 +549,14 @@ with tab1:
 
             s = r["spread"]
             if s > 0:
-                czarp_txt = f"{home_name[:16]} {-abs(s):+.1f}"
+                czarp_txt  = f"{home_name[:16]} {-abs(s):+.1f}"
+                czarp_side = f"{home_name[:18]} - {abs(s):.1f}"
             elif s < 0:
-                czarp_txt = f"{away_name[:16]} {-abs(s):+.1f}"
+                czarp_txt  = f"{away_name[:16]} {-abs(s):+.1f}"
+                czarp_side = f"{away_name[:18]} - {abs(s):.1f}"
             else:
-                czarp_txt = "EVEN"
+                czarp_txt  = "EVEN"
+                czarp_side = "EVEN"
 
             vs   = r.get("vegas_spread")
             vt   = r.get("vegas_total")
@@ -533,6 +584,7 @@ with tab1:
                 f'<div class="team-row"><span class="team-name">{away_name} <span class="team-label">AWAY</span></span><span class="{away_cls}">{away_score:.1f}</span></div>',
                 f'<div class="team-row"><span class="team-name">{home_name} <span class="team-label">HOME</span></span><span class="{home_cls}">{home_score:.1f}</span></div>',
                 f'<div class="game-meta">',
+                f'<div class="meta-item"><span class="meta-label">CZarp Side</span><span class="meta-val-spread">{czarp_side}</span></div>',
                 f'<div class="meta-item"><span class="meta-label">CZarp Spread</span><span class="meta-val-spread">{czarp_txt}</span></div>',
                 f'<div class="meta-item"><span class="meta-label">CZarp Total</span><span class="meta-val">{r["total"]:.1f}</span></div>',
                 f'<div class="meta-item"><span class="meta-label">Vegas Spread</span><span class="meta-val">{vtxt}</span></div>',
@@ -612,7 +664,6 @@ with tab1:
                           </tr>
                           {sh("RANKINGS & EFFICIENCY")}
                           {sr("KenPom Rank", h_rank, a_rank, hib=False, fmt=".0f")}
-                          {sr("NET Rank", h_net, a_net, hib=False, fmt=".0f")}
                           {sr("Adj Offensive Efficiency", h_adjoe, a_adjoe)}
                           {sr("Adj Defensive Efficiency", h_adjde, a_adjde, hib=False)}
                           {sr("PPP (projected)", h_ppp, a_ppp, fmt=".4f")}
@@ -628,7 +679,6 @@ with tab1:
                           {sr("Proj Reb Advantage", h_reb, a_reb)}
                           {sr("Proj FT Advantage", h_ft_proj, a_ft_proj)}
                           {sh("FOUR FACTORS — DEFENSE")}
-                          {sr("Adj Def Efficiency (lower = better)", h_adjde, a_adjde, hib=False)}
                           {sr("TOs Forced on Opponent %", h_dto_pct, a_dto_pct, hib=True, pct=True)}
                           {sr("Opp Off Reb % Allowed (lower = better)", h_dor_pct, a_dor_pct, hib=False, pct=True)}
                           {sr("FT Rate Allowed to Opp (lower = better)", h_dft_rt, a_dft_rt, hib=False, pct=True)}
@@ -642,13 +692,14 @@ with tab1:
 
                         components.html(f"""
                         <html><head><style>
-                          body{{margin:0;padding:0;font-family:'Inter',sans-serif;background:transparent;}}
-                          tr:hover td{{background:rgba(255,255,255,0.03);}}
+                          body{{margin:0;padding:0;font-family:'Inter',sans-serif;background:#0f1e3d;}}
+                          table{{width:100%;border-collapse:collapse;color:#e8e8e8;}}
+                          tr:hover td{{background:rgba(255,255,255,0.04);}}
                         </style></head>
-                        <body style="background:#0f1e3d;padding:10px;border-radius:8px;">
+                        <body style="background:#0f1e3d;padding:12px;border-radius:10px;border:1px solid #1e3a6e;">
                           {table}
                         </body></html>
-                        """, height=580, scrolling=False)
+                        """, height=560, scrolling=False)
 
                     with _tab_prediction:
                         blurb = generate_prediction_blurb(r, home_name=home_name, away_name=away_name)
@@ -706,13 +757,25 @@ with tab2:
         if "sim_site" not in st.session_state:
             st.session_state["sim_site"] = "Neutral"
 
-        sc1, sc2, sc3 = st.columns([2, 2, 1])
-        with sc1:
-            team_a = st.selectbox("Team A", team_list, key="sim_team_a")
-        with sc2:
-            team_b = st.selectbox("Team B", team_list, key="sim_team_b")
-        with sc3:
-            site = st.selectbox("Site", ["Neutral", "Team A Home", "Team B Home"], key="sim_site")
+        # Use a form so team selections DON'T trigger reruns until "Run Projection" is pressed
+        # This prevents the app from bouncing back to tab1 on every dropdown change
+        with st.form("sim_form"):
+            sc1, sc2, sc3 = st.columns([2, 2, 1])
+            with sc1:
+                default_a = st.session_state.get("sim_team_a", "Duke" if "Duke" in team_list else team_list[0])
+                idx_a = team_list.index(default_a) if default_a in team_list else 0
+                team_a = st.selectbox("Team A", team_list, index=idx_a, key="sim_team_a_form")
+            with sc2:
+                default_b = st.session_state.get("sim_team_b", "Kentucky" if "Kentucky" in team_list else team_list[1])
+                idx_b = team_list.index(default_b) if default_b in team_list else 1
+                team_b = st.selectbox("Team B", team_list, index=idx_b, key="sim_team_b_form")
+            with sc3:
+                site_opts = ["Neutral", "Team A Home", "Team B Home"]
+                default_site = st.session_state.get("sim_site", "Neutral")
+                idx_s = site_opts.index(default_site) if default_site in site_opts else 0
+                site = st.selectbox("Site", site_opts, index=idx_s, key="sim_site_form")
+
+            run_sim = st.form_submit_button("🏀 RUN PROJECTION", use_container_width=False, type="primary")
 
         if site == "Neutral":
             team1_is_home = None
@@ -721,7 +784,11 @@ with tab2:
         else:
             team1_is_home = False
 
-        run_sim = st.button("🏀 Run Projection", key="sim_run")
+        if run_sim:
+            # Save selections to session state
+            st.session_state["sim_team_a"] = team_a
+            st.session_state["sim_team_b"] = team_b
+            st.session_state["sim_site"] = site
 
         if run_sim:
             try:
@@ -781,7 +848,7 @@ with tab2:
                     <span class="{home_sc}">{home_score:.1f}</span>
                 </div>
                 <div class="game-meta">
-                    <div class="meta-item"><span class="meta-label">CZarp Spread</span><span class="meta-val-spread">{czarp_txt}</span></div>
+                    <div class="meta-item"><span class="meta-label">CZarp Side</span><span class="meta-val-spread">{czarp_txt}</span></div>
                     <div class="meta-item"><span class="meta-label">CZarp Total</span><span class="meta-val">{r["total"]:.1f}</span></div>
                     <div class="meta-item"><span class="meta-label">Proj Possessions</span><span class="meta-val">{proj_poss:.1f}</span></div>
                 </div>
@@ -861,7 +928,6 @@ with tab2:
               {header_row}
               {section_header("RANKINGS & EFFICIENCY")}
               {stat_row("KenPom Rank", h_rank, a_rank, higher_is_better=False, fmt=".0f")}
-              {stat_row("NET Rank", h_net, a_net, higher_is_better=False, fmt=".0f")}
               {stat_row("Adj Off Efficiency", h_adjoe, a_adjoe, higher_is_better=True)}
               {stat_row("Adj Def Efficiency", h_adjde, a_adjde, higher_is_better=False)}
               {stat_row("PPP (projected)", home_ppp, away_ppp, higher_is_better=True, fmt=".4f")}
@@ -880,7 +946,6 @@ with tab2:
               {stat_row("Proj FT Points", h_ft_proj, a_ft_proj, higher_is_better=True, fmt=".1f")}
 
               {section_header("FOUR FACTORS — DEFENSE")}
-              {stat_row("Adj Def Efficiency (lower = better)", h_adjde, a_adjde, higher_is_better=False)}
               {stat_row("TOs Forced on Opponent %", h_dto_pct, a_dto_pct, higher_is_better=True, pct=True)}
               {stat_row("Opp Off Reb % Allowed (lower = better)", h_dor_pct, a_dor_pct, higher_is_better=False, pct=True)}
               {stat_row("FT Rate Allowed to Opp (lower = better)", h_dft_rt, a_dft_rt, higher_is_better=False, pct=True)}
