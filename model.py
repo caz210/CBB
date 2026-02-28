@@ -198,18 +198,20 @@ def projected_ft(
 
 def adjusted_possessions(pace: float, proj_reb: float, proj_to: float, proj_ft: float) -> float:
     """
-    Sheet formula:
-      AL2 (raw poss delta) = pace*(reb*0.01) + pace*(to*0.01) + pace*(ft*0.44*0.01)
-      AN2 (adj possessions) = pace + pace*(AL2*0.01)
+    raw_delta = pace*(reb*0.01) + pace*(to*0.01) + pace*(ft*0.44*0.01)
+    adj_poss  = pace + raw_delta
 
-    We return the FULL adjusted possessions (AN2)  the total possession count for the game.
+    raw_delta is already in possession units (pace x pct), so we add it
+    directly to pace. The previous formula applied pace*(raw_delta*0.01)
+    which double-scaled: treating possession units as a percentage again.
+    FTs were hit hardest because proj_ft values are largest in magnitude.
     """
     raw_delta = (
         pace * (proj_reb * 0.01) +
         pace * (proj_to  * 0.01) +
         pace * (proj_ft  * 0.44 * 0.01)
     )
-    return pace + pace * (raw_delta * 0.01)
+    return pace + raw_delta
 
 
 def unit_score(avg_hgt: float, exp: float, bench: float, avgs: dict, n_teams: float) -> float:
