@@ -142,18 +142,28 @@ def points_per_possession(off_eff: float, opp_def_eff: float) -> float:
 
 
 def projected_turnovers(
-    team_to_pct: float,   # Opponent offense TO_Pct (we want THEM to turn it over)
-    opp_dto_pct: float,   # Our defense DTO_Pct (turnovers we force)
+    team_to_pct: float,   # Team offense TO_Pct (own ball security)
+    opp_dto_pct: float,   # Opponent defense DTO_Pct (how often they force TOs)
     avg_to: float,        # NCAA avg offense TO_Pct
     avg_dto: float,       # NCAA avg defense DTO_Pct
-    adjustment: float,    # Game-level adj: small signed decimal e.g. +0.0103
+    adjustment: float,    # KenPom quality dampener
 ) -> float:
     """
-    Sheet formula: Raw = (Avg TO - Opp TO) - (Avg DTO - Team DTO)
+    Raw = average of two components:
+      term1 = avg_TO  - team_TO   : own ball security  (positive = turns over LESS than avg)
+      term2 = avg_DTO - opp_DTO   : opp forcing ability (positive = faces WORSE than avg forcing D)
+
+    The old formula used MINUS which inverted the DTO effect:
+      elite opp forcing D → avg_DTO - opp_DTO is NEGATIVE → subtracting it ADDED to your advantage
+      terrible opp forcing D → positive → subtracting it HURT you
+    Both completely backwards. Fix: ADD the terms and average to avoid double-counting.
+
+    Positive result = favorable TO battle (keep possession, face weak forcing D)
     Adj = Raw + abs(Raw) * adjustment
-    Signed  positive means favorable TO matchup (they turn it over more, we force more).
     """
-    raw = (avg_to - team_to_pct) - (avg_dto - opp_dto_pct)
+    term1 = avg_to  - team_to_pct   # own ball security vs avg
+    term2 = avg_dto - opp_dto_pct   # opp forcing ability vs avg
+    raw = (term1 + term2) / 2
     return raw + abs(raw) * adjustment
 
 
@@ -165,11 +175,21 @@ def projected_rebounds(
     adjustment: float,
 ) -> float:
     """
-    Sheet formula: Raw = (Opp DOR - Avg DOR) - (Avg OR - Team OR)
+    Raw = average of two components:
+      term1 = opp_DOR - avg_DOR  : how much WORSE than avg opp is at defending OReb
+                                   (positive = opp gives up more boards than avg)
+      term2 = team_OR - avg_OR   : how much BETTER than avg team is at OReb
+                                   (positive = team crashes harder than avg)
+
+    Both terms describe the same event (missed shot → OReb), so summing them
+    double-counts the magnitude. Averaging gives one clean possession-unit signal.
+
+    Positive = favorable rebounding matchup (more extra possessions from OReb).
     Adj = Raw + abs(Raw) * adjustment
-    Signed  positive means favorable rebound matchup.
     """
-    raw = (opp_dor_pct - avg_dor) - (avg_or - team_or_pct)
+    term1 = opp_dor_pct - avg_dor    # opp weakness at defending OReb
+    term2 = team_or_pct - avg_or     # team strength at OReb
+    raw = (term1 + term2) / 2
     return raw + abs(raw) * adjustment
 
 
