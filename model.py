@@ -116,24 +116,17 @@ def compute_team_percentile(
     return pct, debug
 
 
-def compute_game_adjustment(t1_pct: float, t2_pct: float) -> tuple[float, float]:
+def compute_game_adjustment(home_pct: float, away_pct: float) -> tuple[float, float]:
     """
-    Quality-gap dampener used in TO / REB / FT factor formulas.
-
-    adj1 = (t2_pct - t1_pct) * 0.5
-    adj2 = (t1_pct - t2_pct) * 0.5
-
-    Always team1 vs team2 — location is irrelevant here.
-    HCA is applied separately via hca_adjustments().
-
-    Sign meaning:
-      - If t1 is weaker  (lower pct): adj1 > 0 → nudges their raw factors upward
-      - If t1 is stronger (higher pct): adj1 < 0 → dampens their raw advantage
-    The math self-corrects regardless of who is home.
+    Computes the per-game adjustment metric used in TO/REB/FT formulas.
+    Matches sheet formula: U2_away = (Home_KP_pct - Away_KP_pct) * 0.5
+                           U2_home = (Away_KP_pct - Home_KP_pct) * 0.5
+    Result is a small signed decimal (e.g. +0.0103 for away, -0.0103 for home).
+    Positive = that team is the weaker team in this matchup (gets upward adjustment).
     """
-    adj1 = (t2_pct - t1_pct) * 0.5
-    adj2 = (t1_pct - t2_pct) * 0.5
-    return adj1, adj2
+    away_adj = (home_pct - away_pct) * 0.5
+    home_adj = (away_pct - home_pct) * 0.5
+    return home_adj, away_adj
 
 
 #  Core Model Formulas 
@@ -149,19 +142,18 @@ def points_per_possession(off_eff: float, opp_def_eff: float) -> float:
 
 
 def projected_turnovers(
-    team_to_pct: float,   # Team offense TO_Pct (their own ball security)
+    team_to_pct: float,   # Opponent offense TO_Pct (we want THEM to turn it over)
+    opp_dto_pct: float,   # Our defense DTO_Pct (turnovers we force)
     avg_to: float,        # NCAA avg offense TO_Pct
-    adjustment: float,    # KenPom quality dampener: (opp_pct - team_pct) * 0.5
+    avg_dto: float,       # NCAA avg defense DTO_Pct
+    adjustment: float,    # Game-level adj: small signed decimal e.g. +0.0103
 ) -> float:
     """
-    Raw = (avg_TO - team_TO)
-    Positive = team turns it over less than average = more possessions kept.
-    Opponent quality is handled entirely by the KenPom adjustment term —
-    no need to double-count opp_DTO here. The adjustment scales the raw
-    edge up or down based on how good the opponent is.
+    Sheet formula: Raw = (Avg TO - Opp TO) - (Avg DTO - Team DTO)
     Adj = Raw + abs(Raw) * adjustment
+    Signed  positive means favorable TO matchup (they turn it over more, we force more).
     """
-    raw = avg_to - team_to_pct
+    raw = (avg_to - team_to_pct) - (avg_dto - opp_dto_pct)
     return raw + abs(raw) * adjustment
 
 
@@ -201,11 +193,9 @@ def adjusted_possessions(pace: float, proj_reb: float, proj_to: float) -> float:
     """
     adj_poss = pace + pace*(reb*0.01) + pace*(to*0.01)
 
-    FT removed: drawing FTs is a scoring/PPP advantage, not a possession
-    count adjustment. FT mismatch was distorting possession totals badly
-    (e.g. draining 5+ possessions from a high-FT-drawing team).
-    TO sign fixed: both terms now ADD — team ball security + opp inability
-    to force TOs both increase your effective possession count.
+    FT is NOT included — drawing FTs is a scoring/efficiency edge,
+    not a possession count adjustment. It was distorting totals by
+    stripping 5+ possessions from high-FT-drawing teams like VCU.
     """
     raw_delta = (
         pace * (proj_reb * 0.01) +
@@ -343,9 +333,18 @@ def project_game(
     t1_pct, adj1_debug = compute_team_percentile(team1, ratings, net)
     t2_pct, adj2_debug = compute_team_percentile(team2, ratings, net)
 
-    # Quality-gap dampener — purely team1 vs team2, no location dependency.
-    # HCA is handled separately below via hca_adjustments().
-    adj1, adj2 = compute_game_adjustment(t1_pct, t2_pct)
+    # Game-level adjustment: (home_pct - away_pct)*0.5 and inverse
+    # Matches sheet: U2_home=(Away_pct - Home_pct)*0.5, U2_away=(Home_pct - Away_pct)*0.5
+    if team1_is_home is None:
+        # Neutral site: no HCA, but quality-gap dampening still applies
+        # Treat as if team1 is "home" for adjustment purposes only
+        adj1, adj2 = compute_game_adjustment(t1_pct, t2_pct)
+    elif team1_is_home:
+        # team1 is home, team2 is away
+        adj1, adj2 = compute_game_adjustment(t1_pct, t2_pct)
+    else:
+        # team1 is AWAY, team2 is HOME - swap so home team gets correct adjustment
+        adj2, adj1 = compute_game_adjustment(t2_pct, t1_pct)
 
     # Pace
     pace = projected_pace(t1_r["AdjTempo"], t2_r["AdjTempo"], avgs["pace"])
@@ -358,21 +357,17 @@ def project_game(
     # "How much does opponent turn it over vs our defense forcing turnovers"
     # Home TO = (AVG_TO - Home_TO) - (AVG_DTO - Away_DTO)  [sheet: E2=home, D2=away]
     # Away TO = (AVG_TO - Away_TO) - (AVG_DTO - Home_DTO)
-    t1_to = projected_turnovers(t1_ff["TO_Pct"], avgs["to_pct"], adj1)
-    t2_to = projected_turnovers(t2_ff["TO_Pct"], avgs["to_pct"], adj2)
+    t1_to = projected_turnovers(t1_ff["TO_Pct"], t2_ff["DTO_Pct"], avgs["to_pct"], avgs["dto_pct"], adj1)
+    t2_to = projected_turnovers(t2_ff["TO_Pct"], t1_ff["DTO_Pct"], avgs["to_pct"], avgs["dto_pct"], adj2)
 
     # Rebounds  args: (team OR_Pct, opp DOR_Pct, avg_or, avg_dor, adj)
     t1_reb = projected_rebounds(t1_ff["OR_Pct"], t2_ff["DOR_Pct"], avgs["or_pct"], avgs["dor_pct"], adj1)
     t2_reb = projected_rebounds(t2_ff["OR_Pct"], t1_ff["DOR_Pct"], avgs["or_pct"], avgs["dor_pct"], adj2)
 
-    print(f"DEBUG avgs:    or_pct={avgs['or_pct']:.4f}  dor_pct={avgs['dor_pct']:.4f}")
-    print(f"DEBUG t1 ({team1}):  OR={t1_ff['OR_Pct']:.4f}  opp_DOR={t2_ff['DOR_Pct']:.4f}  adj={adj1:.4f}  → reb={t1_reb:.4f}")
-    print(f"DEBUG t2 ({team2}):  OR={t2_ff['OR_Pct']:.4f}  opp_DOR={t1_ff['DOR_Pct']:.4f}  adj={adj2:.4f}  → reb={t2_reb:.4f}")
-
-    # Free throws  each team's own DFT_Rate - FT_Rate
-    # Measures FT possession imbalance for each team independently
-        # Free throws: OPP_DFT_Rate - team_FT_Rate (cross-team)
-    # WKU_DFT(45.59) - Liberty_FT(30.82) = +14.77 (sheet=15.09) checked and verified
+    # Free throws: OPP_DFT_Rate - team_FT_Rate (cross-team matchup)
+    # Result stored in debug/breakdown display ONLY — not used in possessions or score.
+    # Drawing FTs is a scoring/efficiency edge, not a possession count adjustment.
+    # WKU_DFT(45.59) - Liberty_FT(30.82) = +14.77 (sheet=15.09) verified
     t1_ft = projected_ft(t2_ff["DFT_Rate"], t1_ff["FT_Rate"], adj1)
     t2_ft = projected_ft(t1_ff["DFT_Rate"], t2_ff["FT_Rate"], adj2)
 
