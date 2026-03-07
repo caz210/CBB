@@ -1206,8 +1206,32 @@ with tab3:
                 result = run_snapshot(_r, force=True)
                 lined = len([x for x in _r if x.get("vegas_spread") is not None])
                 st.success(f"Inserted {result['inserted']} games ({lined} with Vegas lines) | Already saved {result['skipped']}")
+                if result.get("errors"):
+                    st.error(f"Errors: {result['errors'][:5]}")
             except Exception as e:
                 st.error(str(e))
+                import traceback
+                st.code(traceback.format_exc())
+        if st.button("🔬 Debug Supabase", use_container_width=True):
+            try:
+                from results_tracker import _get_supabase
+                db = _get_supabase()
+                # Try a simple insert of a test row
+                test = db.table("daily_snapshots").insert({
+                    "snapshot_date": "1999-01-01",
+                    "snapshot_time": "1999-01-01T00:00:00+00:00",
+                    "team1": "TEST_TEAM_A",
+                    "team2": "TEST_TEAM_B",
+                    "is_neutral": False,
+                }).execute()
+                st.success(f"Test insert OK — data: {test.data}")
+                # Clean it up
+                db.table("daily_snapshots").delete().eq("snapshot_date", "1999-01-01").execute()
+                st.info("Test row deleted")
+            except Exception as e:
+                st.error(f"Supabase error: {e}")
+                import traceback
+                st.code(traceback.format_exc())
     with col_b:
         grade_date = st.date_input("Grade date", value=datetime.now(CENTRAL).date() - timedelta(days=1), key="grade_date")
         if st.button("🎯 Grade Bets", use_container_width=True):
