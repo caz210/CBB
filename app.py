@@ -587,9 +587,10 @@ with tab1:
     c2.metric("With Vegas Lines", len(games_with_vegas))
     # High Edge metric — clicking it filters the list
     with c3:
-        if st.button(f"🔥 High Edge (≥5%)\n{len(high_edge)} games", key="btn_high_edge", use_container_width=True):
+        def _set_high_edge():
             st.session_state["sb_edge"] = 5
-            st.rerun()
+        if st.button(f"🔥 High Edge (≥5%)\n{len(high_edge)} games", key="btn_high_edge", use_container_width=True, on_click=_set_high_edge):
+            pass
         st.markdown(f"<div style='font-size:0.7rem;color:#4a6fa5;margin-top:-8px;text-align:center;'>click to filter</div>", unsafe_allow_html=True)
     c4.metric("Avg Edge Score", f"{avg_edge:.2f}")
     c5.metric("Avg Total", avg_total)
