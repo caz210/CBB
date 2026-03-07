@@ -294,21 +294,22 @@ def generate_prediction_blurb(r: dict, home_name: str, away_name: str) -> str:
 
 
 
+
 # ── Bet field computation ─────────────────────────────────────────────────────
 def compute_bet_fields(r: dict) -> dict:
     """
     Adds bet_type, bet_side, is_upset_pick, is_neutral to a result dict.
-    Orientation: team1 = home (or listed first on neutral).
-    vegas_spread: positive means team1 is favored by that many points (like -7.5 → stored as 7.5).
-    spread (model): positive means team1 projected to win by that margin.
+    team1 = home (or listed first on neutral site).
+    vegas_spread: raw value from odds_fetcher (may be signed or positive).
+    spread (model): team1_score - team2_score; positive = team1 projected to win.
     """
-    r = dict(r)  # shallow copy — never mutate input
-    vs   = r.get("vegas_spread")   # None if no line
-    vf   = r.get("vegas_fav")      # team name
-    my_s = r.get("spread", 0)      # model margin (t1 - t2), positive = t1 winning
+    r = dict(r)  # shallow copy
+    vs   = r.get("vegas_spread")
+    vf   = r.get("vegas_fav")
+    my_s = r.get("spread", 0)
 
-    # Neutral site flag — only trust location field set by project_game/run.py
-    # DO NOT use team1_is_home is None — that field is absent from most result dicts
+    # Neutral site: ONLY when KenPom explicitly marks HomeWP == 0.5
+    # (location field set to "neutral" by get_todays_games / project_game)
     r["is_neutral"] = (r.get("location") == "neutral")
 
     if vs is None or vf is None:
@@ -317,73 +318,20 @@ def compute_bet_fields(r: dict) -> dict:
         r["is_upset_pick"] = False
         return r
 
-    # ── Spread bet side ───────────────────────────────────────────────────────
-    # vegas_spread is stored as absolute value; vf tells us who's favored.
-    # Model picks whoever it projects to win ATS.
     t1, t2 = r["team1"], r["team2"]
+    vs_abs = abs(vs)  # always positive regardless of sign convention
 
-    # Convert model spread to ATS comparison
-    # If vf == t1: Vegas gives t1 -vs, so t1 covers if my_s > vs, t2 covers if my_s < vs
+    # Covers logic:
+    # If t1 is the Vegas fav: t1 covers if model margin > vs_abs
+    # If t2 is the Vegas fav: t2 covers if model margin < -vs_abs (t1 loses by more than line)
     if vf == t1:
-        covers_t1 = my_s > vs       # home/t1 covers
+        covers_t1 = my_s > vs_abs
     else:
-        covers_t1 = my_s > -vs      # t2 is fav; t1 covers if model margin > -vs
+        covers_t1 = my_s > -vs_abs
 
-    bet_side   = t1 if covers_t1 else t2
-    bet_type   = "fav_ats" if bet_side == vf else "dog_ats"
+    bet_side = t1 if covers_t1 else t2
+    bet_type = "fav_ats" if bet_side == vf else "dog_ats"
 
-    # ── Upset pick: model outright winner differs from Vegas favorite ──────────
-    model_winner = t1 if my_s >= 0 else t2
-    is_upset     = (model_winner != vf)
-
-    r["bet_type"]      = bet_type
-    r["bet_side"]      = bet_side
-    r["is_upset_pick"] = is_upset
-    return r
-
-
-
-# ── Bet field computation ─────────────────────────────────────────────────────
-def compute_bet_fields(r: dict) -> dict:
-    """
-    Adds bet_type, bet_side, is_upset_pick, is_neutral to a result dict.
-    Orientation: team1 = home (or listed first on neutral).
-    vegas_spread: positive means team1 is favored by that many points (like -7.5 → stored as 7.5).
-    spread (model): positive means team1 projected to win by that margin.
-    """
-    r = dict(r)  # shallow copy — never mutate input
-    vs   = r.get("vegas_spread")   # None if no line
-    vf   = r.get("vegas_fav")      # team name
-    my_s = r.get("spread", 0)      # model margin (t1 - t2), positive = t1 winning
-
-    # Neutral site flag
-    r["is_neutral"] = (r.get("location") == "neutral" or
-                       r.get("team1_is_home") is None)
-
-    if vs is None or vf is None:
-        r["bet_type"]      = None
-        r["bet_side"]      = None
-        r["is_upset_pick"] = False
-        return r
-
-    # ── Spread bet side ───────────────────────────────────────────────────────
-    # vegas_spread may be signed (negative when home is favored) or positive.
-    # Always use abs() so the sign convention doesn't matter.
-    t1, t2 = r["team1"], r["team2"]
-    vs_abs = abs(vs)  # guaranteed positive margin
-
-    # my_s = model margin (t1 score - t2 score); positive = t1 projected to win
-    # If vf == t1: t1 covers if model margin > vegas margin
-    # If vf == t2: t1 (dog) covers if model margin > -(vegas margin), i.e. loses by less
-    if vf == t1:
-        covers_t1 = my_s > vs_abs      # t1 is fav; covers if model projects bigger win
-    else:
-        covers_t1 = my_s > -vs_abs     # t2 is fav; t1 (dog) covers if model loss < line
-
-    bet_side   = t1 if covers_t1 else t2
-    bet_type   = "fav_ats" if bet_side == vf else "dog_ats"
-
-    # ── Upset pick: model outright winner differs from Vegas favorite ──────────
     model_winner = t1 if my_s >= 0 else t2
     is_upset     = (model_winner != vf)
 
@@ -585,9 +533,6 @@ with st.spinner("Loading projections..."):
         st.cache_data.clear()
         st.error(f"Error loading {today}: {e}")
         st.stop()
-
-# Apply bet fields to every game result
-results = [compute_bet_fields(r) for r in results]
 
 # Apply bet fields to every game result
 results = [compute_bet_fields(r) for r in results]
