@@ -1172,3 +1172,4 @@ with st.expander("🧪 KenPom Scraper Test", expanded=False):
             st.error(f"Scraper failed: {e}")
             import traceback
             st.code(traceback.format_exc())
+
