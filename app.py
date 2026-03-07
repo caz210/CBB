@@ -396,13 +396,12 @@ def get_todays_games(today_str):
         neutral = False
         try:
             hwp = float(row.get("HomeWP", 0))
-            # Only flag as neutral when KenPom explicitly marks HomeWP = exactly 0.5.
-            # A fuzzy threshold like abs(hwp-0.5)<0.01 catches lopsided home games
-            # (e.g. Kansas -17.5 at home) and falsely labels them neutral.
-            # KenPom returns floats — use tight tolerance (0.005) around 0.5
-            # to catch true neutral games. This is narrow enough to exclude
-            # lopsided home games (e.g. Kansas -17.5 has HomeWP ~0.85+).
-            if abs(hwp - 0.5) <= 0.005:
+            # KenPom marks true neutral sites with HomeWP = 0.5 exactly, but
+            # conference tournament games often get a small seed/proximity boost
+            # (HomeWP ~0.51-0.54). Threshold of 0.06 catches those while safely
+            # excluding genuine home games (Kansas at home vs unranked = ~0.80+).
+            print(f"  [neutral-debug] {row.get('Home')} vs {row.get('Visitor')} | HomeWP={hwp:.4f} | neutral={abs(hwp-0.5)<=0.06}")
+            if abs(hwp - 0.5) <= 0.06:
                 neutral = True
         except (TypeError, ValueError):
             pass
