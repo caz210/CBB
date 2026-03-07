@@ -163,7 +163,7 @@ def generate_prediction_blurb(r: dict, home_name: str, away_name: str) -> str:
     a_ft  = d.get("t2_ft",  0) or 0
     h_poss = d.get("t1_poss", 0) or 0
     a_poss = d.get("t2_poss", 0) or 0
-    loc    = r.get("location", "neutral")
+    loc    = r.get("location", "home")
 
     spread = abs(h_score - a_score)
 
@@ -294,7 +294,6 @@ def generate_prediction_blurb(r: dict, home_name: str, away_name: str) -> str:
 
 
 
-# ── Bet field computation ─────────────────────────────────────────────────────
 def compute_bet_fields(r: dict) -> dict:
     """
     Adds bet_type, bet_side, is_upset_pick, is_neutral to a result dict.
@@ -307,58 +306,9 @@ def compute_bet_fields(r: dict) -> dict:
     vf   = r.get("vegas_fav")      # team name
     my_s = r.get("spread", 0)      # model margin (t1 - t2), positive = t1 winning
 
-    # Neutral site flag — only trust location field set by project_game/run.py
-    # DO NOT use team1_is_home is None — that field is absent from most result dicts
+    # Neutral site flag — only trust the location field set by project_game
+    # team1_is_home is NOT stored in result dicts, never use it here
     r["is_neutral"] = (r.get("location") == "neutral")
-
-    if vs is None or vf is None:
-        r["bet_type"]      = None
-        r["bet_side"]      = None
-        r["is_upset_pick"] = False
-        return r
-
-    # ── Spread bet side ───────────────────────────────────────────────────────
-    # vegas_spread is stored as absolute value; vf tells us who's favored.
-    # Model picks whoever it projects to win ATS.
-    t1, t2 = r["team1"], r["team2"]
-
-    # Convert model spread to ATS comparison
-    # If vf == t1: Vegas gives t1 -vs, so t1 covers if my_s > vs, t2 covers if my_s < vs
-    if vf == t1:
-        covers_t1 = my_s > vs       # home/t1 covers
-    else:
-        covers_t1 = my_s > -vs      # t2 is fav; t1 covers if model margin > -vs
-
-    bet_side   = t1 if covers_t1 else t2
-    bet_type   = "fav_ats" if bet_side == vf else "dog_ats"
-
-    # ── Upset pick: model outright winner differs from Vegas favorite ──────────
-    model_winner = t1 if my_s >= 0 else t2
-    is_upset     = (model_winner != vf)
-
-    r["bet_type"]      = bet_type
-    r["bet_side"]      = bet_side
-    r["is_upset_pick"] = is_upset
-    return r
-
-
-
-# ── Bet field computation ─────────────────────────────────────────────────────
-def compute_bet_fields(r: dict) -> dict:
-    """
-    Adds bet_type, bet_side, is_upset_pick, is_neutral to a result dict.
-    Orientation: team1 = home (or listed first on neutral).
-    vegas_spread: positive means team1 is favored by that many points (like -7.5 → stored as 7.5).
-    spread (model): positive means team1 projected to win by that margin.
-    """
-    r = dict(r)  # shallow copy — never mutate input
-    vs   = r.get("vegas_spread")   # None if no line
-    vf   = r.get("vegas_fav")      # team name
-    my_s = r.get("spread", 0)      # model margin (t1 - t2), positive = t1 winning
-
-    # Neutral site flag
-    r["is_neutral"] = (r.get("location") == "neutral" or
-                       r.get("team1_is_home") is None)
 
     if vs is None or vf is None:
         r["bet_type"]      = None
@@ -475,6 +425,14 @@ def run_base_projections(today_str):
             r["kp_away_score"] = game["kp_away_score"]
             r["kp_home_wp"]    = game["kp_home_wp"]
             r["kp_tempo"]      = game["kp_tempo"]
+            # Always set location explicitly so compute_bet_fields and narrative are correct
+            t1_is_home = game["team1_is_home"]
+            if t1_is_home is None:
+                r["location"] = "neutral"
+            elif t1_is_home is True:
+                r["location"] = "home"
+            else:
+                r["location"] = "away"
             results.append(r)
         except Exception as e:
             errors.append(f"{game['team1']} vs {game['team2']}: {e}")
