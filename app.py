@@ -307,10 +307,9 @@ def compute_bet_fields(r: dict) -> dict:
     vf   = r.get("vegas_fav")      # team name
     my_s = r.get("spread", 0)      # model margin (t1 - t2), positive = t1 winning
 
-    # Neutral site: team1_is_home is None = KenPom marked HomeWP == 0.5 (now
-    # reliably stored in result dict by run_base_projections). Also check
-    # location as fallback in case model.py sets it directly.
-    r["is_neutral"] = (r.get("team1_is_home") is None or r.get("location") == "neutral")
+    # Neutral site flag — only trust location field set by project_game/run.py
+    # DO NOT use team1_is_home is None — that field is absent from most result dicts
+    r["is_neutral"] = (r.get("location") == "neutral")
 
     if vs is None or vf is None:
         r["bet_type"]      = None
@@ -319,17 +318,16 @@ def compute_bet_fields(r: dict) -> dict:
         return r
 
     # ── Spread bet side ───────────────────────────────────────────────────────
-    # vegas_spread can be signed or unsigned depending on source — always use abs().
-    # my_s = team1_score - team2_score (positive = team1 wins)
-    # If team1 is the Vegas fav: team1 covers if model margin > line
-    # If team2 is the Vegas fav: team1 (dog) covers if model margin > -line (loses by less)
+    # vegas_spread is stored as absolute value; vf tells us who's favored.
+    # Model picks whoever it projects to win ATS.
     t1, t2 = r["team1"], r["team2"]
-    vs_abs = abs(vs)
 
+    # Convert model spread to ATS comparison
+    # If vf == t1: Vegas gives t1 -vs, so t1 covers if my_s > vs, t2 covers if my_s < vs
     if vf == t1:
-        covers_t1 = my_s > vs_abs
+        covers_t1 = my_s > vs       # home/t1 covers
     else:
-        covers_t1 = my_s > -vs_abs
+        covers_t1 = my_s > -vs      # t2 is fav; t1 covers if model margin > -vs
 
     bet_side   = t1 if covers_t1 else t2
     bet_type   = "fav_ats" if bet_side == vf else "dog_ats"
@@ -346,6 +344,53 @@ def compute_bet_fields(r: dict) -> dict:
 
 
 # ── Bet field computation ─────────────────────────────────────────────────────
+def compute_bet_fields(r: dict) -> dict:
+    """
+    Adds bet_type, bet_side, is_upset_pick, is_neutral to a result dict.
+    Orientation: team1 = home (or listed first on neutral).
+    vegas_spread: positive means team1 is favored by that many points (like -7.5 → stored as 7.5).
+    spread (model): positive means team1 projected to win by that margin.
+    """
+    r = dict(r)  # shallow copy — never mutate input
+    vs   = r.get("vegas_spread")   # None if no line
+    vf   = r.get("vegas_fav")      # team name
+    my_s = r.get("spread", 0)      # model margin (t1 - t2), positive = t1 winning
+
+    # Neutral site flag
+    r["is_neutral"] = (r.get("location") == "neutral" or
+                       r.get("team1_is_home") is None)
+
+    if vs is None or vf is None:
+        r["bet_type"]      = None
+        r["bet_side"]      = None
+        r["is_upset_pick"] = False
+        return r
+
+    # ── Spread bet side ───────────────────────────────────────────────────────
+    # vegas_spread may be signed (negative when home is favored) or positive.
+    # Always use abs() so the sign convention doesn't matter.
+    t1, t2 = r["team1"], r["team2"]
+    vs_abs = abs(vs)  # guaranteed positive margin
+
+    # my_s = model margin (t1 score - t2 score); positive = t1 projected to win
+    # If vf == t1: t1 covers if model margin > vegas margin
+    # If vf == t2: t1 (dog) covers if model margin > -(vegas margin), i.e. loses by less
+    if vf == t1:
+        covers_t1 = my_s > vs_abs      # t1 is fav; covers if model projects bigger win
+    else:
+        covers_t1 = my_s > -vs_abs     # t2 is fav; t1 (dog) covers if model loss < line
+
+    bet_side   = t1 if covers_t1 else t2
+    bet_type   = "fav_ats" if bet_side == vf else "dog_ats"
+
+    # ── Upset pick: model outright winner differs from Vegas favorite ──────────
+    model_winner = t1 if my_s >= 0 else t2
+    is_upset     = (model_winner != vf)
+
+    r["bet_type"]      = bet_type
+    r["bet_side"]      = bet_side
+    r["is_upset_pick"] = is_upset
+    return r
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_kenpom_data():
@@ -393,18 +438,7 @@ def get_todays_games(today_str):
 
     games = []
     for _, row in combined.iterrows():
-        neutral = False
-        try:
-            hwp = float(row.get("HomeWP", 0))
-            # KenPom marks true neutral sites with HomeWP = 0.5 exactly, but
-            # conference tournament games often get a small seed/proximity boost
-            # (HomeWP ~0.51-0.54). Threshold of 0.06 catches those while safely
-            # excluding genuine home games (Kansas at home vs unranked = ~0.80+).
-            print(f"  [neutral-debug] {row.get('Home')} vs {row.get('Visitor')} | HomeWP={hwp:.4f} | neutral={abs(hwp-0.5)<=0.06}")
-            if abs(hwp - 0.5) <= 0.06:
-                neutral = True
-        except (TypeError, ValueError):
-            pass
+        neutral = False  # determined by scraper ("vs" vs "at") or manual CSV only
 
         games.append({
             "team1":         row["Home"],
@@ -437,12 +471,10 @@ def run_base_projections(today_str):
         try:
             r = project_game(game["team1"], game["team2"], game["team1_is_home"], data,
                              game_time=game.get("game_time"))
-            r["kp_home_score"]  = game["kp_home_score"]
-            r["kp_away_score"]  = game["kp_away_score"]
-            r["kp_home_wp"]     = game["kp_home_wp"]
-            r["kp_tempo"]       = game["kp_tempo"]
-            # Store neutral flag so compute_bet_fields and card display can use it
-            r["team1_is_home"]  = game["team1_is_home"]
+            r["kp_home_score"] = game["kp_home_score"]
+            r["kp_away_score"] = game["kp_away_score"]
+            r["kp_home_wp"]    = game["kp_home_wp"]
+            r["kp_tempo"]      = game["kp_tempo"]
             results.append(r)
         except Exception as e:
             errors.append(f"{game['team1']} vs {game['team2']}: {e}")
@@ -885,7 +917,7 @@ with tab1:
             "CZarp Spread": czarp_t,
             "CZarp Total":  r["total"],
             "Vegas Spread": vtxt_t,
-            "Vegas Total":  r.get("vegas_total") or "",
+            "Vegas Total":  r.get("vegas_total") if r.get("vegas_total") else None,
             "Swing":        r.get("spread_edge") or "",
             "Edge":         round(r.get("edge_score") or 0, 4),
             "Differ":       "YES" if r.get("sides_agree") is False else "",
@@ -1140,17 +1172,33 @@ with tab2:
               {hca_html}
             </body></html>
             """, height=820, scrolling=False)
-#
-if st.button("🧪 Test KenPom Scraper"):
-    from kenpom_scraper import scrape_fanmatch_games
-    with st.spinner("Logging into KenPom..."):
-        try:
-            games = scrape_fanmatch_games()
-            st.success(f"✅ Found {len(games)} games")
-            for g in games:
-                label = "🏟 NEUTRAL" if g["neutral"] else f"🏠 {g['home_team']}"
-                st.write(f"**{g['team1']}** {g['connector']} **{g['team2']}** — {label}")
-        except Exception as e:
-            st.error(f"❌ {e}")
-#
+
 st.markdown(f"<div style='margin-top:40px; padding-top:20px; border-top:1px solid #1e3a6e; font-size:0.75rem; color:#2e4a7a; text-align:center;'>CZarp Analytics Club &nbsp;·&nbsp; CBB Model &nbsp;·&nbsp; 2025-26 &nbsp;·&nbsp; Last updated {datetime.now().strftime('%I:%M %p CT')}</div>", unsafe_allow_html=True)
+
+# ── KenPom Scraper Test ───────────────────────────────────────────────────────
+with st.expander("🧪 KenPom Scraper Test", expanded=False):
+    st.caption("Tests direct login + fanmatch scraping to detect neutral sites via 'at' vs 'vs' notation.")
+    test_date = st.text_input("Date to test (YYYY-MM-DD, blank = today)", value="", key="scraper_test_date")
+    if st.button("Run Scraper Test", key="run_scraper_test"):
+        try:
+            from kenpom_scraper import scrape_fanmatch_games
+            with st.spinner("Logging into KenPom and scraping FanMatch..."):
+                target = test_date.strip() or None
+                games = scrape_fanmatch_games(target)
+            neutrals = [g for g in games if g["neutral"]]
+            homes    = [g for g in games if not g["neutral"]]
+            st.success(f"Found {len(games)} games — {len(neutrals)} neutral, {len(homes)} home")
+            if neutrals:
+                st.markdown("**Neutral Site Games:**")
+                for g in neutrals:
+                    st.markdown(f"- **{g['team1']}** vs **{g['team2']}**")
+            if homes:
+                st.markdown("**Home Games (first 8):**")
+                for g in homes[:8]:
+                    st.markdown(f"- {g['away_team']} at {g['home_team']}")
+                if len(homes) > 8:
+                    st.caption(f"...and {len(homes)-8} more")
+        except Exception as e:
+            st.error(f"Scraper failed: {e}")
+            import traceback
+            st.code(traceback.format_exc())
