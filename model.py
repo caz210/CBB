@@ -27,6 +27,8 @@ def load_data(data_dir: str = "data") -> dict[str, pd.DataFrame]:
 
 # KenPom name  model name mapping for common mismatches
 TEAM_NAME_MAP = {
+    "Southern California":  "USC",
+    "UT San Antonio":      "UTSA",
     "Miami OH":           "Miami (OH)",
     "Miami FL":           "Miami (FL)",
     "St. Mary's":         "Saint Mary's",
@@ -35,10 +37,7 @@ TEAM_NAME_MAP = {
     "UNCW":               "UNC Wilmington",
     "LIU":                "LIU Brooklyn",
     "Detroit":            "Detroit Mercy",
-    "UTSA":               "UT San Antonio",
     "Pitt":               "Pittsburgh",
-    "USC":                "Southern California",
-    "Southern Cal":       "Southern California",
     "Ole Miss":           "Mississippi",
     "SIUE":               "SIU Edwardsville",
     "TAM C. Christi":     "Texas A&M Corpus Christi",
@@ -154,8 +153,8 @@ def projected_turnovers(
       term2 = avg_DTO - opp_DTO   : opp forcing ability (positive = faces WORSE than avg forcing D)
 
     The old formula used MINUS which inverted the DTO effect:
-      elite opp forcing D â†’ avg_DTO - opp_DTO is NEGATIVE â†’ subtracting it ADDED to your advantage
-      terrible opp forcing D â†’ positive â†’ subtracting it HURT you
+      elite opp forcing D → avg_DTO - opp_DTO is NEGATIVE → subtracting it ADDED to your advantage
+      terrible opp forcing D → positive → subtracting it HURT you
     Both completely backwards. Fix: ADD the terms and average to avoid double-counting.
 
     Positive result = favorable TO battle (keep possession, face weak forcing D)
@@ -181,7 +180,7 @@ def projected_rebounds(
       term2 = team_OR - avg_OR   : how much BETTER than avg team is at OReb
                                    (positive = team crashes harder than avg)
 
-    Both terms describe the same event (missed shot â†’ OReb), so summing them
+    Both terms describe the same event (missed shot → OReb), so summing them
     double-counts the magnitude. Averaging gives one clean possession-unit signal.
 
     Positive = favorable rebounding matchup (more extra possessions from OReb).
@@ -213,7 +212,7 @@ def adjusted_possessions(pace: float, proj_reb: float, proj_to: float) -> float:
     """
     adj_poss = pace + pace*(reb*0.01) + pace*(to*0.01)
 
-    FT is NOT included â€” drawing FTs is a scoring/efficiency edge,
+    FT is NOT included — drawing FTs is a scoring/efficiency edge,
     not a possession count adjustment. It was distorting totals by
     stripping 5+ possessions from high-FT-drawing teams like VCU.
     """
@@ -385,7 +384,7 @@ def project_game(
     t2_reb = projected_rebounds(t2_ff["OR_Pct"], t1_ff["DOR_Pct"], avgs["or_pct"], avgs["dor_pct"], adj2)
 
     # Free throws: OPP_DFT_Rate - team_FT_Rate (cross-team matchup)
-    # Result stored in debug/breakdown display ONLY â€” not used in possessions or score.
+    # Result stored in debug/breakdown display ONLY — not used in possessions or score.
     # Drawing FTs is a scoring/efficiency edge, not a possession count adjustment.
     # WKU_DFT(45.59) - Liberty_FT(30.82) = +14.77 (sheet=15.09) verified
     t1_ft = projected_ft(t2_ff["DFT_Rate"], t1_ff["FT_Rate"], adj1)
