@@ -294,23 +294,23 @@ def generate_prediction_blurb(r: dict, home_name: str, away_name: str) -> str:
 
 
 
-
 # ── Bet field computation ─────────────────────────────────────────────────────
 def compute_bet_fields(r: dict) -> dict:
     """
     Adds bet_type, bet_side, is_upset_pick, is_neutral to a result dict.
-    team1 = home (or listed first on neutral site).
-    vegas_spread: raw value from odds_fetcher (may be signed or positive).
-    spread (model): team1_score - team2_score; positive = team1 projected to win.
+    Orientation: team1 = home (or listed first on neutral).
+    vegas_spread: positive means team1 is favored by that many points (like -7.5 → stored as 7.5).
+    spread (model): positive means team1 projected to win by that margin.
     """
-    r = dict(r)  # shallow copy
-    vs   = r.get("vegas_spread")
-    vf   = r.get("vegas_fav")
-    my_s = r.get("spread", 0)
+    r = dict(r)  # shallow copy — never mutate input
+    vs   = r.get("vegas_spread")   # None if no line
+    vf   = r.get("vegas_fav")      # team name
+    my_s = r.get("spread", 0)      # model margin (t1 - t2), positive = t1 winning
 
-    # Neutral site: ONLY when KenPom explicitly marks HomeWP == 0.5
-    # (location field set to "neutral" by get_todays_games / project_game)
-    r["is_neutral"] = (r.get("location") == "neutral")
+    # Neutral site: team1_is_home is None = KenPom marked HomeWP == 0.5 (now
+    # reliably stored in result dict by run_base_projections). Also check
+    # location as fallback in case model.py sets it directly.
+    r["is_neutral"] = (r.get("team1_is_home") is None or r.get("location") == "neutral")
 
     if vs is None or vf is None:
         r["bet_type"]      = None
@@ -318,20 +318,22 @@ def compute_bet_fields(r: dict) -> dict:
         r["is_upset_pick"] = False
         return r
 
+    # ── Spread bet side ───────────────────────────────────────────────────────
+    # vegas_spread is stored as absolute value; vf tells us who's favored.
+    # Model picks whoever it projects to win ATS.
     t1, t2 = r["team1"], r["team2"]
-    vs_abs = abs(vs)  # always positive regardless of sign convention
 
-    # Covers logic:
-    # If t1 is the Vegas fav: t1 covers if model margin > vs_abs
-    # If t2 is the Vegas fav: t2 covers if model margin < -vs_abs (t1 loses by more than line)
+    # Convert model spread to ATS comparison
+    # If vf == t1: Vegas gives t1 -vs, so t1 covers if my_s > vs, t2 covers if my_s < vs
     if vf == t1:
-        covers_t1 = my_s > vs_abs
+        covers_t1 = my_s > vs       # home/t1 covers
     else:
-        covers_t1 = my_s > -vs_abs
+        covers_t1 = my_s > -vs      # t2 is fav; t1 covers if model margin > -vs
 
-    bet_side = t1 if covers_t1 else t2
-    bet_type = "fav_ats" if bet_side == vf else "dog_ats"
+    bet_side   = t1 if covers_t1 else t2
+    bet_type   = "fav_ats" if bet_side == vf else "dog_ats"
 
+    # ── Upset pick: model outright winner differs from Vegas favorite ──────────
     model_winner = t1 if my_s >= 0 else t2
     is_upset     = (model_winner != vf)
 
@@ -339,6 +341,10 @@ def compute_bet_fields(r: dict) -> dict:
     r["bet_side"]      = bet_side
     r["is_upset_pick"] = is_upset
     return r
+
+
+
+# ── Bet field computation ─────────────────────────────────────────────────────
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_kenpom_data():
@@ -428,10 +434,12 @@ def run_base_projections(today_str):
         try:
             r = project_game(game["team1"], game["team2"], game["team1_is_home"], data,
                              game_time=game.get("game_time"))
-            r["kp_home_score"] = game["kp_home_score"]
-            r["kp_away_score"] = game["kp_away_score"]
-            r["kp_home_wp"]    = game["kp_home_wp"]
-            r["kp_tempo"]      = game["kp_tempo"]
+            r["kp_home_score"]  = game["kp_home_score"]
+            r["kp_away_score"]  = game["kp_away_score"]
+            r["kp_home_wp"]     = game["kp_home_wp"]
+            r["kp_tempo"]       = game["kp_tempo"]
+            # Store neutral flag so compute_bet_fields and card display can use it
+            r["team1_is_home"]  = game["team1_is_home"]
             results.append(r)
         except Exception as e:
             errors.append(f"{game['team1']} vs {game['team2']}: {e}")
@@ -533,6 +541,9 @@ with st.spinner("Loading projections..."):
         st.cache_data.clear()
         st.error(f"Error loading {today}: {e}")
         st.stop()
+
+# Apply bet fields to every game result
+results = [compute_bet_fields(r) for r in results]
 
 # Apply bet fields to every game result
 results = [compute_bet_fields(r) for r in results]
