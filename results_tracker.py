@@ -22,8 +22,9 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-CENTRAL  = ZoneInfo("America/Chicago")
-SCORES_URL = "https://api.the-odds-api.com/v4/sports/basketball_ncaab/scores"
+CENTRAL       = ZoneInfo("America/Chicago")
+SCORES_URL    = "https://api.the-odds-api.com/v4/sports/basketball_ncaab/scores"
+HIST_ODDS_URL = "https://api.the-odds-api.com/v4/historical/sports/basketball_ncaab/odds"
 
 
 # ── Supabase client ───────────────────────────────────────────────────────────
