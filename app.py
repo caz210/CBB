@@ -1314,7 +1314,7 @@ with tab4:
         vs = r.get("vegas_spread")
         vfav_t = r.get("vegas_fav")
         vtxt_t = f"{vfav_t[:18]} {-abs(vs):+.1f}" if (vs and vs != 0 and vfav_t) else ("EVEN" if vs == 0 else "-")
-        gtime = r.get("game_time") or ""
+        gtime = r.get("game_time") or r.get("odds_game_time") or ""
         table_rows.append({
             "_sort_key":    _parse_time(gtime),
             "Time":         gtime,
