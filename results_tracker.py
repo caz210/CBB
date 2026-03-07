@@ -377,3 +377,4 @@ def get_performance_data() -> dict:
         return {"df": df, "total": len(df)}
     except Exception as e:
         return {"df": __import__("pandas").DataFrame(), "total": 0, "error": str(e)}
+
