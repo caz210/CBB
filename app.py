@@ -319,16 +319,17 @@ def compute_bet_fields(r: dict) -> dict:
         return r
 
     # ── Spread bet side ───────────────────────────────────────────────────────
-    # vegas_spread is stored as absolute value; vf tells us who's favored.
-    # Model picks whoever it projects to win ATS.
+    # vegas_spread can be signed or unsigned depending on source — always use abs().
+    # my_s = team1_score - team2_score (positive = team1 wins)
+    # If team1 is the Vegas fav: team1 covers if model margin > line
+    # If team2 is the Vegas fav: team1 (dog) covers if model margin > -line (loses by less)
     t1, t2 = r["team1"], r["team2"]
+    vs_abs = abs(vs)
 
-    # Convert model spread to ATS comparison
-    # If vf == t1: Vegas gives t1 -vs, so t1 covers if my_s > vs, t2 covers if my_s < vs
     if vf == t1:
-        covers_t1 = my_s > vs       # home/t1 covers
+        covers_t1 = my_s > vs_abs
     else:
-        covers_t1 = my_s > -vs      # t2 is fav; t1 covers if model margin > -vs
+        covers_t1 = my_s > -vs_abs
 
     bet_side   = t1 if covers_t1 else t2
     bet_type   = "fav_ats" if bet_side == vf else "dog_ats"
@@ -398,7 +399,10 @@ def get_todays_games(today_str):
             # Only flag as neutral when KenPom explicitly marks HomeWP = exactly 0.5.
             # A fuzzy threshold like abs(hwp-0.5)<0.01 catches lopsided home games
             # (e.g. Kansas -17.5 at home) and falsely labels them neutral.
-            if hwp == 0.5:
+            # KenPom returns floats — use tight tolerance (0.005) around 0.5
+            # to catch true neutral games. This is narrow enough to exclude
+            # lopsided home games (e.g. Kansas -17.5 has HomeWP ~0.85+).
+            if abs(hwp - 0.5) <= 0.005:
                 neutral = True
         except (TypeError, ValueError):
             pass
