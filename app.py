@@ -140,6 +140,16 @@ except ImportError as e:
 SEASON = 2026
 CENTRAL = ZoneInfo("America/Chicago")
 
+# ── Inject KenPom credentials into env vars at startup ───────────────────────
+# st.secrets is NOT accessible inside @st.cache_data (background thread).
+# Reading here (top level) and writing to os.environ lets kenpom_scraper
+# pick them up via its env var fallback from any context.
+try:
+    os.environ["KENPOM_EMAIL"]    = st.secrets["kenpom"]["email"]
+    os.environ["KENPOM_PASSWORD"] = st.secrets["kenpom"]["password"]
+except Exception:
+    pass  # secrets not configured — scraper will log the error when called
+
 
 # ── Prediction blurb generator ────────────────────────────────────────────────
 def generate_prediction_blurb(r: dict, home_name: str, away_name: str) -> str:
