@@ -573,7 +573,7 @@ if not results:
     st.warning(f"No games found for {today}. Try a different date or hit Refresh Data.")
     st.stop()
 
-tab1, tab2, tab3 = st.tabs(['🏀 Daily Projections', '🔬 Simulator', '📊 Performance'])
+tab1, tab2, tab3, tab4 = st.tabs(['🏀 Daily Projections', '🔬 Simulator', '📊 Performance', '📋 Table'])
 
 with tab1:
     # --- Metrics ---
@@ -865,42 +865,6 @@ with tab1:
                     with _tab_prediction:
                         blurb = generate_prediction_blurb(r, home_name=home_name, away_name=away_name)
                         st.markdown(blurb, unsafe_allow_html=True)
-
-    # --- Full Table ---
-    st.markdown("<div class='section-title'>FULL TABLE</div>", unsafe_allow_html=True)
-    table_rows = []
-    for r in results:
-        s = r["spread"]
-        czarp_t = f"{(r['team1'] if s>0 else r['team2'])[:18]} {-abs(s):+.1f}" if s != 0 else "EVEN"
-        vs = r.get("vegas_spread")
-        vfav_t = r.get("vegas_fav")
-        vtxt_t = f"{vfav_t[:18]} {-abs(vs):+.1f}" if (vs and vs != 0 and vfav_t) else ("EVEN" if vs == 0 else "-")
-        table_rows.append({
-            "Time":         r.get("game_time") or "",
-            "Away":         r["team2"],
-            "Home":         r["team1"],
-            "Away Score":   r["team2_score"],
-            "Home Score":   r["team1_score"],
-            "CZarp Spread": czarp_t,
-            "CZarp Total":  r["total"],
-            "Vegas Spread": vtxt_t,
-            "Vegas Total":  r.get("vegas_total") if r.get("vegas_total") else None,
-            "Swing":        r.get("spread_edge") if r.get("spread_edge") is not None else None,
-            "Edge":         round(r.get("edge_score") or 0, 4),
-            "Differ":       "YES" if r.get("sides_agree") is False else "",
-            "Bet Type":     r.get("bet_type") or "",
-            "Bet Side":     r.get("bet_side") or "",
-            "Upset Pick":   "🚨" if r.get("is_upset_pick") else "",
-            "Neutral":      "🏟️" if r.get("is_neutral") else "",
-            "KP Away":      r.get("kp_away_score") if r.get("kp_away_score") is not None else None,
-            "KP Home":      r.get("kp_home_score") if r.get("kp_home_score") is not None else None,
-        })
-    df = pd.DataFrame(table_rows)
-    # Force numeric columns to float so PyArrow doesn't choke on mixed str/number
-    for _col in ["Vegas Total", "Swing", "Edge", "KP Away", "KP Home"]:
-        if _col in df.columns:
-            df[_col] = pd.to_numeric(df[_col], errors="coerce")
-    st.dataframe(df, use_container_width=True, hide_index=True)
 
     st.markdown(f"<div style='margin-top:40px; padding-top:20px; border-top:1px solid #1e3a6e; font-size:0.75rem; color:#2e4a7a; text-align:center;'>CZarp CBB Model &nbsp; 2025-26 &nbsp; Last updated {datetime.now().strftime('%I:%M %p')}</div>", unsafe_allow_html=True)
 
@@ -1319,3 +1283,63 @@ with tab3:
         st.error(f"Performance data error: {e}")
         import traceback
         st.code(traceback.format_exc())
+
+# ── Table Tab ─────────────────────────────────────────────────────────────────
+with tab4:
+    st.markdown("<div class='section-title'>📋 FULL TABLE</div>", unsafe_allow_html=True)
+
+    def _parse_time(t: str) -> str:
+        """Convert game time string to sortable 24h key e.g. '7:00 PM CT' → '19:00'"""
+        if not t:
+            return "99:99"
+        import re
+        m = re.search(r'(\d+):(\d+)\s*(AM|PM)', t.upper())
+        if not m:
+            return "99:99"
+        h, mn, period = int(m.group(1)), int(m.group(2)), m.group(3)
+        if period == "PM" and h != 12:
+            h += 12
+        if period == "AM" and h == 12:
+            h = 0
+        return f"{h:02d}:{mn:02d}"
+
+    _all_results = run_projections(today_str)
+    for _r in _all_results:
+        compute_bet_fields(_r)
+
+    table_rows = []
+    for r in _all_results:
+        s = r["spread"]
+        czarp_t = f"{(r['team1'] if s>0 else r['team2'])[:18]} {-abs(s):+.1f}" if s != 0 else "EVEN"
+        vs = r.get("vegas_spread")
+        vfav_t = r.get("vegas_fav")
+        vtxt_t = f"{vfav_t[:18]} {-abs(vs):+.1f}" if (vs and vs != 0 and vfav_t) else ("EVEN" if vs == 0 else "-")
+        gtime = r.get("game_time") or ""
+        table_rows.append({
+            "_sort_key":    _parse_time(gtime),
+            "Time":         gtime,
+            "Away":         r["team2"],
+            "Home":         r["team1"],
+            "Away Score":   r["team2_score"],
+            "Home Score":   r["team1_score"],
+            "CZarp Spread": czarp_t,
+            "CZarp Total":  r["total"],
+            "Vegas Spread": vtxt_t,
+            "Vegas Total":  r.get("vegas_total") if r.get("vegas_total") else None,
+            "Swing":        r.get("spread_edge") if r.get("spread_edge") is not None else None,
+            "Edge":         round(r.get("edge_score") or 0, 4),
+            "Bet Type":     r.get("bet_type") or "",
+            "Bet Side":     r.get("bet_side") or "",
+            "Upset":        "🚨" if r.get("is_upset_pick") else "",
+            "Neutral":      "🏟️" if r.get("is_neutral") else "",
+            "KP Away":      r.get("kp_away_score") if r.get("kp_away_score") is not None else None,
+            "KP Home":      r.get("kp_home_score") if r.get("kp_home_score") is not None else None,
+        })
+
+    df_table = pd.DataFrame(table_rows)
+    df_table = df_table.sort_values("_sort_key").drop(columns=["_sort_key"])
+    for _col in ["Vegas Total", "Swing", "Edge", "KP Away", "KP Home"]:
+        if _col in df_table.columns:
+            df_table[_col] = pd.to_numeric(df_table[_col], errors="coerce")
+
+    st.dataframe(df_table, use_container_width=True, hide_index=True)
