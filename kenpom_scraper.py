@@ -209,12 +209,19 @@ def scrape_fanmatch_games(date_str: str | None = None) -> list[dict]:
             def _strip_rank(name: str) -> str:
                 name = re.sub(r"^\(?\d{1,3}\)?\s*", "", name)
                 name = re.sub(r"^#\d{1,3}\s*", "", name)
+                # Strip trailing conference tournament suffix like " sb-t", " wcc-t", " mvc-t"
+                # KenPom appends these to team names on the fanmatch page
+                name = re.sub(r"\s+[a-z]{2,6}-t$", "", name, flags=re.IGNORECASE)
                 return name.strip()
 
             team1 = _strip_rank(raw_t1)
             team2 = _strip_rank(raw_t2)
 
-            if not team1 or not team2:
+            # Skip junk rows (stats blurbs, headers) — real team names are short
+            if not team1 or not team2 or len(team1) > 40 or len(team2) > 40:
+                continue
+            # Skip if either "team" contains digits (stats rows like "73.4")
+            if re.search(r'\d', team1) or re.search(r'\d', team2):
                 continue
 
             neutral   = (connector == "vs")
