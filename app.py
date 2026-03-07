@@ -394,33 +394,12 @@ def get_todays_games(today_str):
     if "GameID" in combined.columns:
         combined = combined.drop_duplicates(subset="GameID")
 
-    # ── Neutral site detection ────────────────────────────────────────────────
-    # Primary: scrape KenPom FanMatch — "Team A vs Team B" = neutral,
-    #          "Team A at Team B" = home game. Same logic used in manual model.
-    # Fallback: data/neutral_sites.csv for any scraper failures.
-    neutral_pairs = set()
-
-    try:
-        from kenpom_scraper import get_neutral_pairs
-        scraped = get_neutral_pairs(today_str)
-        neutral_pairs.update(scraped)
-        print(f"  [neutral] Scraper found {len(scraped)} neutral game(s) today")
-    except Exception as e:
-        import traceback
-        print(f"  [neutral] Scraper FAILED: {e}")
-        print(traceback.format_exc())
-
     games = []
     for _, row in combined.iterrows():
-        home    = str(row.get("Home", "")).strip()
-        visitor = str(row.get("Visitor", "")).strip()
-        pair    = frozenset([home.lower(), visitor.lower()])
-        neutral = pair in neutral_pairs
-
         games.append({
-            "team1":         home,
-            "team2":         visitor,
-            "team1_is_home": None if neutral else True,
+            "team1":         str(row.get("Home", "")).strip(),
+            "team2":         str(row.get("Visitor", "")).strip(),
+            "team1_is_home": True,  # neutral detection happens in run_base_projections
             "kp_home_score": row.get("HomePred"),
             "kp_away_score": row.get("VisitorPred"),
             "kp_home_wp":    row.get("HomeWP"),
@@ -434,16 +413,33 @@ def get_vegas_lines():
     return fetch_vegas_lines()
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=900, show_spinner=False)
 def run_base_projections(today_str):
     """KenPom projections only - cached 1hr. Vegas matching done separately so it can refresh."""
     data = get_kenpom_data()
     games = get_todays_games(today_str)
     if not games:
         return []
+    # ── Neutral site detection (runs here so scraper + project_game are in same cache scope)
+    neutral_pairs = set()
+    try:
+        from kenpom_scraper import get_neutral_pairs
+        scraped = get_neutral_pairs(today_str)
+        neutral_pairs.update(scraped)
+        print(f"  [neutral] Scraper found {len(scraped)} neutral game(s) today")
+    except Exception as e:
+        import traceback
+        print(f"  [neutral] Scraper FAILED: {e}")
+        print(traceback.format_exc())
+
     results = []
     errors  = []
     for game in games:
+        # Apply neutral flag: override team1_is_home before project_game runs
+        pair = frozenset([game["team1"].lower(), game["team2"].lower()])
+        if pair in neutral_pairs:
+            game = dict(game)  # don't mutate cached list
+            game["team1_is_home"] = None
         try:
             r = project_game(game["team1"], game["team2"], game["team1_is_home"], data,
                              game_time=game.get("game_time"))
