@@ -1140,5 +1140,17 @@ with tab2:
               {hca_html}
             </body></html>
             """, height=820, scrolling=False)
-
+#
+if st.button("🧪 Test KenPom Scraper"):
+    from kenpom_scraper import scrape_fanmatch_games
+    with st.spinner("Logging into KenPom..."):
+        try:
+            games = scrape_fanmatch_games()
+            st.success(f"✅ Found {len(games)} games")
+            for g in games:
+                label = "🏟 NEUTRAL" if g["neutral"] else f"🏠 {g['home_team']}"
+                st.write(f"**{g['team1']}** {g['connector']} **{g['team2']}** — {label}")
+        except Exception as e:
+            st.error(f"❌ {e}")
+#
 st.markdown(f"<div style='margin-top:40px; padding-top:20px; border-top:1px solid #1e3a6e; font-size:0.75rem; color:#2e4a7a; text-align:center;'>CZarp Analytics Club &nbsp;·&nbsp; CBB Model &nbsp;·&nbsp; 2025-26 &nbsp;·&nbsp; Last updated {datetime.now().strftime('%I:%M %p CT')}</div>", unsafe_allow_html=True)
