@@ -372,7 +372,6 @@ def get_todays_games(today_str):
     frames = [_fetch_date(today_str)]
 
     # Always fetch tomorrow too — 10pm CT games appear under UTC next day (4am UTC)
-    # Cheap call, guarantees late games are visible all day, deduped by GameID below
     tomorrow_str = (date.fromisoformat(today_str) + timedelta(days=1)).isoformat()
     tomorrow_fm  = _fetch_date(tomorrow_str)
     if tomorrow_fm is not None and not tomorrow_fm.empty:
@@ -382,17 +381,47 @@ def get_todays_games(today_str):
     if combined.empty:
         return []
 
-    # Drop duplicates (same GameID may appear in both fetches)
     if "GameID" in combined.columns:
         combined = combined.drop_duplicates(subset="GameID")
 
+    # ── Neutral site detection ────────────────────────────────────────────────
+    # Primary: scrape KenPom FanMatch — "Team A vs Team B" = neutral,
+    #          "Team A at Team B" = home game. Same logic used in manual model.
+    # Fallback: data/neutral_sites.csv for any scraper failures.
+    neutral_pairs = set()   # set of frozenset({team_lower, team_lower})
+
+    try:
+        from kenpom_scraper import get_neutral_pairs
+        scraped = get_neutral_pairs(today_str)
+        neutral_pairs.update(scraped)
+        print(f"  [neutral] Scraper found {len(scraped)} neutral game(s) today")
+    except Exception as e:
+        print(f"  [neutral] Scraper unavailable ({e}) — falling back to CSV")
+
+    # CSV fallback / manual overrides always apply on top
+    _neutral_csv = "data/neutral_sites.csv"
+    if os.path.exists(_neutral_csv):
+        try:
+            _ndf = pd.read_csv(_neutral_csv)
+            for _, _nr in _ndf.iterrows():
+                _d  = str(_nr.get("date", "")).strip()
+                _t1 = str(_nr.get("team1", "")).strip().lower()
+                _t2 = str(_nr.get("team2", "")).strip().lower()
+                if _d == today_str:
+                    neutral_pairs.add(frozenset([_t1, _t2]))
+        except Exception:
+            pass
+
     games = []
     for _, row in combined.iterrows():
-        neutral = False  # determined by scraper ("vs" vs "at") or manual CSV only
+        home    = str(row.get("Home", "")).strip()
+        visitor = str(row.get("Visitor", "")).strip()
+        pair    = frozenset([home.lower(), visitor.lower()])
+        neutral = pair in neutral_pairs
 
         games.append({
-            "team1":         row["Home"],
-            "team2":         row["Visitor"],
+            "team1":         home,
+            "team2":         visitor,
             "team1_is_home": None if neutral else True,
             "kp_home_score": row.get("HomePred"),
             "kp_away_score": row.get("VisitorPred"),
@@ -401,7 +430,6 @@ def get_todays_games(today_str):
             "game_time":     row.get("GameTime", row.get("Time", None)),
         })
     return games
-
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_vegas_lines():
