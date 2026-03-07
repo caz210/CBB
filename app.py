@@ -388,7 +388,7 @@ def get_todays_games(today_str):
     # Primary: scrape KenPom FanMatch — "Team A vs Team B" = neutral,
     #          "Team A at Team B" = home game. Same logic used in manual model.
     # Fallback: data/neutral_sites.csv for any scraper failures.
-    neutral_pairs = set()   # set of frozenset({team_lower, team_lower})
+    neutral_pairs = set()
 
     try:
         from kenpom_scraper import get_neutral_pairs
@@ -396,21 +396,9 @@ def get_todays_games(today_str):
         neutral_pairs.update(scraped)
         print(f"  [neutral] Scraper found {len(scraped)} neutral game(s) today")
     except Exception as e:
-        print(f"  [neutral] Scraper unavailable ({e}) — falling back to CSV")
-
-    # CSV fallback / manual overrides always apply on top
-    _neutral_csv = "data/neutral_sites.csv"
-    if os.path.exists(_neutral_csv):
-        try:
-            _ndf = pd.read_csv(_neutral_csv)
-            for _, _nr in _ndf.iterrows():
-                _d  = str(_nr.get("date", "")).strip()
-                _t1 = str(_nr.get("team1", "")).strip().lower()
-                _t2 = str(_nr.get("team2", "")).strip().lower()
-                if _d == today_str:
-                    neutral_pairs.add(frozenset([_t1, _t2]))
-        except Exception:
-            pass
+        import traceback
+        print(f"  [neutral] Scraper FAILED: {e}")
+        print(traceback.format_exc())
 
     games = []
     for _, row in combined.iterrows():
@@ -656,7 +644,7 @@ with tab1:
 
     # --- Game Cards ---
     st.markdown("<div class='section-title'>TODAY'S PROJECTIONS</div>", unsafe_allow_html=True)
-    st.text_input("", placeholder="🔍 Search by team name — filters as you type", key="team_search", label_visibility="collapsed")
+    st.text_input("Search", placeholder="🔍 Search by team name — filters as you type", key="team_search", label_visibility="collapsed")
 
     if not results:
         st.info("No games match your filters.")
@@ -904,17 +892,21 @@ with tab1:
             "CZarp Total":  r["total"],
             "Vegas Spread": vtxt_t,
             "Vegas Total":  r.get("vegas_total") if r.get("vegas_total") else None,
-            "Swing":        r.get("spread_edge") or "",
+            "Swing":        r.get("spread_edge") if r.get("spread_edge") is not None else None,
             "Edge":         round(r.get("edge_score") or 0, 4),
             "Differ":       "YES" if r.get("sides_agree") is False else "",
             "Bet Type":     r.get("bet_type") or "",
             "Bet Side":     r.get("bet_side") or "",
             "Upset Pick":   "🚨" if r.get("is_upset_pick") else "",
             "Neutral":      "🏟️" if r.get("is_neutral") else "",
-            "KP Away":      r.get("kp_away_score") or "",
-            "KP Home":      r.get("kp_home_score") or "",
+            "KP Away":      r.get("kp_away_score") if r.get("kp_away_score") is not None else None,
+            "KP Home":      r.get("kp_home_score") if r.get("kp_home_score") is not None else None,
         })
     df = pd.DataFrame(table_rows)
+    # Force numeric columns to float so PyArrow doesn't choke on mixed str/number
+    for _col in ["Vegas Total", "Swing", "Edge", "KP Away", "KP Home"]:
+        if _col in df.columns:
+            df[_col] = pd.to_numeric(df[_col], errors="coerce")
     st.dataframe(df, use_container_width=True, hide_index=True)
 
     st.markdown(f"<div style='margin-top:40px; padding-top:20px; border-top:1px solid #1e3a6e; font-size:0.75rem; color:#2e4a7a; text-align:center;'>CZarp CBB Model &nbsp; 2025-26 &nbsp; Last updated {datetime.now().strftime('%I:%M %p')}</div>", unsafe_allow_html=True)
