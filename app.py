@@ -141,14 +141,26 @@ SEASON = 2026
 CENTRAL = ZoneInfo("America/Chicago")
 
 # ── Inject KenPom credentials into env vars at startup ───────────────────────
-# st.secrets is NOT accessible inside @st.cache_data (background thread).
-# Reading here (top level) and writing to os.environ lets kenpom_scraper
-# pick them up via its env var fallback from any context.
 try:
     os.environ["KENPOM_EMAIL"]    = st.secrets["kenpom"]["email"]
     os.environ["KENPOM_PASSWORD"] = st.secrets["kenpom"]["password"]
 except Exception:
-    pass  # secrets not configured — scraper will log the error when called
+    pass
+
+# ── Scrape neutral pairs at startup (module level — runs every reboot/deploy) ─
+# Stored in a module-level variable so cached functions can read it freely.
+_today_str_startup = datetime.now(ZoneInfo("America/Chicago")).date().isoformat()
+_NEUTRAL_PAIRS: set = set()
+try:
+    from kenpom_scraper import get_neutral_pairs as _get_neutral_pairs
+    _NEUTRAL_PAIRS = _get_neutral_pairs(_today_str_startup)
+    print(f"  [neutral] Startup scraper: {len(_NEUTRAL_PAIRS)} neutral game(s) on {_today_str_startup}")
+    for _p in _NEUTRAL_PAIRS:
+        print(f"    ↳ {' vs '.join(_p)}")
+except Exception as _e:
+    import traceback as _tb
+    print(f"  [neutral] Startup scraper FAILED: {_e}")
+    print(_tb.format_exc())
 
 
 # ── Prediction blurb generator ────────────────────────────────────────────────
@@ -420,17 +432,8 @@ def run_base_projections(today_str):
     games = get_todays_games(today_str)
     if not games:
         return []
-    # ── Neutral site detection (runs here so scraper + project_game are in same cache scope)
-    neutral_pairs = set()
-    try:
-        from kenpom_scraper import get_neutral_pairs
-        scraped = get_neutral_pairs(today_str)
-        neutral_pairs.update(scraped)
-        print(f"  [neutral] Scraper found {len(scraped)} neutral game(s) today")
-    except Exception as e:
-        import traceback
-        print(f"  [neutral] Scraper FAILED: {e}")
-        print(traceback.format_exc())
+    # ── Neutral site detection — use pairs scraped at startup ────────────────
+    neutral_pairs = _NEUTRAL_PAIRS  # populated at module level on every boot
 
     results = []
     errors  = []
