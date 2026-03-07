@@ -1186,8 +1186,7 @@ with tab3:
         # Auto-snapshot during noon window (11am–3pm CT)
         if 11 <= _now_ct.hour < 15:
             _todays_results = run_projections(today_str)
-            _lined = [r for r in _todays_results if r.get("vegas_spread") is not None]
-            _snap = run_snapshot(_lined)
+            _snap = run_snapshot(_todays_results)
             if _snap.get("inserted", 0) > 0:
                 st.toast(f"📸 Locked {_snap['inserted']} game projections for today", icon="📸")
 
@@ -1204,9 +1203,9 @@ with tab3:
         if st.button("📸 Snapshot Today's Lines", use_container_width=True):
             try:
                 _r = run_projections(today_str)
-                _lined = [r for r in _r if r.get("vegas_spread") is not None]
-                result = run_snapshot(_lined, force=True)
-                st.success(f"Inserted {result['inserted']} games with lines | Already saved {result['skipped']}")
+                result = run_snapshot(_r, force=True)
+                lined = len([x for x in _r if x.get("vegas_spread") is not None])
+                st.success(f"Inserted {result['inserted']} games ({lined} with Vegas lines) | Already saved {result['skipped']}")
             except Exception as e:
                 st.error(str(e))
     with col_b:
