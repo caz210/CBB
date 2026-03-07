@@ -572,7 +572,7 @@ if not results:
     st.warning(f"No games found for {today}. Try a different date or hit Refresh Data.")
     st.stop()
 
-tab1, tab2 = st.tabs(['🏀 Daily Projections', '🔬 Simulator'])
+tab1, tab2, tab3 = st.tabs(['🏀 Daily Projections', '🔬 Simulator', '📊 Performance'])
 
 with tab1:
     # --- Metrics ---
@@ -1173,3 +1173,114 @@ with st.expander("🧪 KenPom Scraper Test", expanded=False):
             import traceback
             st.code(traceback.format_exc())
 
+# ── Performance Tab ───────────────────────────────────────────────────────────
+with tab3:
+    st.markdown("<div class='section-title'>📊 CZARP PERFORMANCE</div>", unsafe_allow_html=True)
+
+    # ── Snapshot trigger (noon window) ────────────────────────────────────────
+    try:
+        from results_tracker import run_snapshot, run_results, get_performance_data
+        _now_ct = datetime.now(CENTRAL)
+
+        # Auto-snapshot during noon window (11am–3pm CT)
+        if 11 <= _now_ct.hour < 15:
+            _todays_results = run_projections(today_str)
+            _snap = run_snapshot(_todays_results)
+            if _snap.get("inserted", 0) > 0:
+                st.toast(f"📸 Locked {_snap['inserted']} game projections for today", icon="📸")
+
+        # Auto-grade yesterday's games at startup
+        if _now_ct.hour >= 8:
+            run_results()
+
+    except Exception as _tracker_err:
+        st.warning(f"Tracker unavailable: {_tracker_err}")
+
+    # ── Manual controls ───────────────────────────────────────────────────────
+    col_a, col_b, col_c = st.columns(3)
+    with col_a:
+        if st.button("📸 Snapshot Today's Lines", use_container_width=True):
+            try:
+                _r = run_projections(today_str)
+                result = run_snapshot(_r, force=True)
+                st.success(f"Inserted {result['inserted']} | Already saved {result['skipped']}")
+            except Exception as e:
+                st.error(str(e))
+    with col_b:
+        grade_date = st.date_input("Grade date", value=datetime.now(CENTRAL).date() - timedelta(days=1), key="grade_date")
+        if st.button("🎯 Grade Bets", use_container_width=True):
+            try:
+                result = run_results(grade_date.isoformat())
+                st.success(f"Graded {result['graded']} | Skipped {result['skipped']}")
+                if result.get("errors"):
+                    st.warning(f"Errors: {result['errors'][:3]}")
+            except Exception as e:
+                st.error(str(e))
+    with col_c:
+        st.markdown("<br>", unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # ── Analytics ─────────────────────────────────────────────────────────────
+    try:
+        import pandas as pd
+        perf = get_performance_data()
+        df   = perf.get("df", pd.DataFrame())
+
+        if df.empty:
+            st.info("No results yet — projections are being tracked starting today. Check back after tonight's games complete.")
+        else:
+            # Summary metrics
+            has_line  = df[df["vegas_spread"].notna() & df["czarp_covers"].notna() & ~df["push"].fillna(False)]
+            total_bets = len(has_line)
+            wins       = has_line["czarp_covers"].sum()
+            losses     = total_bets - wins
+            win_pct    = (wins / total_bets * 100) if total_bets > 0 else 0
+
+            ml_df      = df[df["czarp_ml_correct"].notna()]
+            ml_correct = ml_df["czarz_ml_correct"].sum() if not ml_df.empty else 0
+            ml_pct     = (ml_correct / len(ml_df) * 100) if len(ml_df) > 0 else 0
+
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("ATS Record", f"{int(wins)}-{int(losses)}")
+            m2.metric("ATS Win %", f"{win_pct:.1f}%")
+            m3.metric("ML Correct %", f"{ml_pct:.1f}%")
+            m4.metric("Games Tracked", total_bets)
+
+            st.markdown("---")
+
+            # Breakdown by bet type
+            st.markdown("**ATS by Bet Type**")
+            bt_cols = ["bet_type", "czarp_covers"]
+            if all(c in df.columns for c in bt_cols):
+                bt_df = has_line.groupby("bet_type")["czarp_covers"].agg(["sum","count"])
+                bt_df.columns = ["Wins", "Total"]
+                bt_df["Win %"] = (bt_df["Wins"] / bt_df["Total"] * 100).round(1).astype(str) + "%"
+                bt_df["Record"] = bt_df["Wins"].astype(int).astype(str) + "-" + (bt_df["Total"] - bt_df["Wins"]).astype(int).astype(str)
+                st.dataframe(bt_df[["Record", "Win %", "Total"]], use_container_width=True)
+
+            # Upset picks record
+            upsets = has_line[has_line["is_upset_pick"] == True]
+            if not upsets.empty:
+                u_wins = upsets["czarp_covers"].sum()
+                st.markdown(f"**🚨 Upset Picks:** {int(u_wins)}-{len(upsets)-int(u_wins)} ATS ({u_wins/len(upsets)*100:.1f}%)")
+
+            # Neutral site record
+            neutrals_df = has_line[has_line["is_neutral"] == True]
+            if not neutrals_df.empty:
+                n_wins = neutrals_df["czarp_covers"].sum()
+                st.markdown(f"**🏟️ Neutral Site:** {int(n_wins)}-{len(neutrals_df)-int(n_wins)} ATS ({n_wins/len(neutrals_df)*100:.1f}%)")
+
+            st.markdown("---")
+
+            # Recent results table
+            st.markdown("**Recent Results**")
+            display_cols = ["game_date","team1","team2","czarp_side","bet_type",
+                            "vegas_spread","actual_spread","czarp_covers","edge_score"]
+            show_cols = [c for c in display_cols if c in df.columns]
+            st.dataframe(df[show_cols].head(50), use_container_width=True, hide_index=True)
+
+    except Exception as e:
+        st.error(f"Performance data error: {e}")
+        import traceback
+        st.code(traceback.format_exc())
