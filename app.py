@@ -1180,7 +1180,7 @@ with tab3:
 
     # ── Snapshot trigger (noon window) ────────────────────────────────────────
     try:
-        from results_tracker import run_snapshot, run_results, get_performance_data
+        from results_tracker import run_snapshot, run_results, get_performance_data, backfill_closing_lines
         _now_ct = datetime.now(CENTRAL)
 
         # Auto-snapshot during noon window (11am–3pm CT)
@@ -1219,7 +1219,16 @@ with tab3:
             except Exception as e:
                 st.error(str(e))
     with col_c:
-        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("Grade date applies here too", unsafe_allow_html=False)
+        if st.button("🔍 Backfill Closing Lines", use_container_width=True, help="Fetches closing lines from historical Odds API for games missing Vegas spreads. Costs ~20 API credits."):
+            try:
+                from results_tracker import backfill_closing_lines
+                result = backfill_closing_lines(str(grade_date))
+                st.success(f"Updated {result['updated']} | No match {result['no_match']} | ~{result['credits_used']} credits used")
+                if result.get("errors"):
+                    st.warning(f"Errors: {result['errors'][:3]}")
+            except Exception as e:
+                st.error(str(e))
 
     st.markdown("---")
 
