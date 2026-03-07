@@ -307,9 +307,9 @@ def compute_bet_fields(r: dict) -> dict:
     vf   = r.get("vegas_fav")      # team name
     my_s = r.get("spread", 0)      # model margin (t1 - t2), positive = t1 winning
 
-    # Neutral site flag
-    r["is_neutral"] = (r.get("location") == "neutral" or
-                       r.get("team1_is_home") is None)
+    # Neutral site flag — only trust location field set by project_game/run.py
+    # DO NOT use team1_is_home is None — that field is absent from most result dicts
+    r["is_neutral"] = (r.get("location") == "neutral")
 
     if vs is None or vf is None:
         r["bet_type"]      = None
