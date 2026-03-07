@@ -25,9 +25,9 @@ _DEFAULTS = {
     "sb_sort":          "Edge Score",
     "sb_edge":          0,
     "sb_vegas":         False,
-    "sb_differ":        False,
     "sb_dawgs":         False,
     "sb_favs":          False,
+    "sb_upset":         False,
     "sb_neutral":       False,
     "team_search":      "",
     "sim_team_a":       "Duke",
@@ -44,9 +44,9 @@ _DEFAULTS = {
     "sb_sort":          "Edge Score",
     "sb_edge":          0,
     "sb_vegas":         False,
-    "sb_differ":        False,
     "sb_dawgs":         False,
     "sb_favs":          False,
+    "sb_upset":         False,
     "sb_neutral":       False,
     "team_search":      "",
     "sim_team_a":       "Duke",
@@ -494,11 +494,13 @@ with st.sidebar:
     st.markdown("---")
     sort_by = st.selectbox("Sort games by", ["Edge Score", "Total", "Spread (biggest fav)", "Team Name A-Z"], key="sb_sort")
     min_edge_raw = st.slider("Min Edge Score (0–10+)", 0, 10, 0, 1, key="sb_edge")
-    min_edge = min_edge_raw / 100  # 5 on slider = 0.05 threshold
-    show_only_vegas  = st.checkbox("Only games with Vegas lines", value=False, key="sb_vegas")
-    show_only_differ = st.checkbox("Only SIDES DIFFER games", value=False, key="sb_differ")
+    min_edge = min_edge_raw / 100
+    st.text_input("Search", placeholder="🔍 Search team...", key="team_search", label_visibility="collapsed")
+    st.markdown("---")  # 5 on slider = 0.05 threshold
+    show_only_missing_lines = st.checkbox("Missing Lines", value=False, key="sb_vegas")
     show_only_dawgs  = st.checkbox("🐶 Only Dawgs (+ points)", value=False, key="sb_dawgs")
-    show_only_favs    = st.checkbox("⭐ Only Favorites (- points)", value=False, key="sb_favs")
+    show_only_favs   = st.checkbox("⭐ Only Favorites (- points)", value=False, key="sb_favs")
+    show_only_upset  = st.checkbox("🚨 Only Upset Picks", value=False, key="sb_upset")
     show_only_neutral = st.checkbox("🏟️ Only Neutral Site", value=False, key="sb_neutral")
     st.markdown("---")
 
@@ -614,38 +616,19 @@ with tab1:
     else:
         results = sorted(results, key=lambda r: r["team1"])
 
-    if show_only_vegas:
-        results = [r for r in results if r.get("vegas_spread") is not None]
+    if show_only_missing_lines:
+        results = [r for r in results if r.get("vegas_spread") is None]
     if min_edge > 0:
         results = [r for r in results if (r.get("edge_score") or 0) >= min_edge]
-    if show_only_differ:
-        results = [r for r in results if r.get("sides_agree") is False]
     show_only_neutral = st.session_state.get("sb_neutral", False)
-
     if show_only_neutral:
         results = [r for r in results if r.get("is_neutral")]
     if show_only_dawgs:
-        # Dawgs = CZarp model favors the Vegas underdog
-        def _is_dawg_play(r):
-            vs = r.get("vegas_spread")
-            vf = r.get("vegas_fav")
-            my_s = r.get("spread", 0)
-            if vs is None or vf is None: return False
-            if vf == r.get("team1") and my_s < 0: return True
-            if vf == r.get("team2") and my_s > 0: return True
-            return False
-        results = [r for r in results if _is_dawg_play(r)]
+        results = [r for r in results if r.get("bet_type") == "dog_ats"]
     if show_only_favs:
-        # Favs = CZarp model agrees with Vegas favorite (or is higher on the favorite)
-        def _is_fav_play(r):
-            vs = r.get("vegas_spread")
-            vf = r.get("vegas_fav")
-            my_s = r.get("spread", 0)
-            if vs is None or vf is None: return False
-            if vf == r.get("team1") and my_s > 0: return True
-            if vf == r.get("team2") and my_s < 0: return True
-            return False
-        results = [r for r in results if _is_fav_play(r)]
+        results = [r for r in results if r.get("bet_type") == "fav_ats"]
+    if st.session_state.get("sb_upset", False):
+        results = [r for r in results if r.get("is_upset_pick")]
     if team_search:
         results = [r for r in results if team_search in r["team1"].lower() or team_search in r["team2"].lower()]
         if not results:
@@ -653,7 +636,6 @@ with tab1:
 
     # --- Game Cards ---
     st.markdown("<div class='section-title'>TODAY'S PROJECTIONS</div>", unsafe_allow_html=True)
-    st.text_input("Search", placeholder="🔍 Search by team name — filters as you type", key="team_search", label_visibility="collapsed")
 
     if not results:
         st.info("No games match your filters.")
