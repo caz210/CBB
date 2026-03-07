@@ -110,17 +110,18 @@ def run_snapshot(results: list[dict], force: bool = False) -> dict:
         }
 
         try:
-            # upsert with ignore_duplicates so re-runs don't overwrite
-            resp = db.table("daily_snapshots").upsert(
-                row, on_conflict="snapshot_date,team1,team2", ignore_duplicates=True
-            ).execute()
-            # Supabase returns empty data array when ignored
+            # Try plain insert — if duplicate it throws a unique violation
+            resp = db.table("daily_snapshots").insert(row).execute()
             if resp.data:
                 inserted += 1
             else:
-                skipped += 1
+                errors.append(f"{team1} vs {team2}: no data returned")
         except Exception as e:
-            errors.append(f"{team1} vs {team2}: {e}")
+            err_str = str(e)
+            if "duplicate" in err_str.lower() or "unique" in err_str.lower() or "23505" in err_str:
+                skipped += 1   # already saved today — expected, not an error
+            else:
+                errors.append(f"{team1} vs {team2}: {e}")
 
     print(f"  [snapshot] {inserted} inserted, {skipped} already existed, {len(errors)} errors")
     return {"inserted": inserted, "skipped": skipped, "errors": errors}
