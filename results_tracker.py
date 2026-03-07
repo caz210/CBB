@@ -378,3 +378,145 @@ def get_performance_data() -> dict:
     except Exception as e:
         return {"df": __import__("pandas").DataFrame(), "total": 0, "error": str(e)}
 
+
+# ── 6. Backfill closing lines from historical Odds API ────────────────────────
+
+def backfill_closing_lines(date_str: str | None = None) -> dict:
+    """
+    For snapshots on date_str that are missing vegas_spread, fetch the closing
+    line from the Odds API historical endpoint using an 11am CT timestamp.
+    ONE call = all NCAAB games = ~20 credits total.
+    """
+    api_key = _get_odds_key()
+    if not api_key:
+        return {"updated": 0, "no_match": 0, "errors": ["ODDS_API_KEY not set"], "credits_used": 0}
+
+    if date_str is None:
+        date_str = datetime.now(CENTRAL).date().isoformat()
+
+    try:
+        db = _get_supabase()
+    except Exception as e:
+        return {"updated": 0, "no_match": 0, "errors": [str(e)], "credits_used": 0}
+
+    # Find snapshots missing Vegas lines
+    try:
+        resp = db.table("daily_snapshots").select("*") \
+            .eq("snapshot_date", date_str) \
+            .is_("vegas_spread", "null") \
+            .execute()
+        missing = resp.data or []
+    except Exception as e:
+        return {"updated": 0, "no_match": 0, "errors": [f"DB fetch: {e}"], "credits_used": 0}
+
+    if not missing:
+        return {"updated": 0, "no_match": 0, "errors": [],
+                "credits_used": 0, "message": "No snapshots missing lines"}
+
+    # 11am CT = 17:00 UTC — lines are stable by then, before most games tip
+    try:
+        from datetime import date as date_type
+        d = date_type.fromisoformat(date_str)
+        date_iso = f"{d.isoformat()}T17:00:00Z"
+    except Exception as e:
+        return {"updated": 0, "no_match": 0, "errors": [f"Date parse: {e}"], "credits_used": 0}
+
+    BOOK_PRIORITY = ["pinnacle", "draftkings", "fanduel", "betmgm",
+                     "caesars", "williamhill_us", "pointsbetus"]
+
+    params = {
+        "apiKey":     api_key,
+        "regions":    "us",
+        "markets":    "spreads,totals",
+        "oddsFormat": "american",
+        "bookmakers": ",".join(BOOK_PRIORITY),
+        "date":       date_iso,
+        "dateFormat": "iso",
+    }
+
+    HIST_ODDS_URL = "https://api.the-odds-api.com/v4/historical/sports/basketball_ncaab/odds"
+
+    try:
+        resp_api = requests.get(HIST_ODDS_URL, params=params, timeout=15)
+        resp_api.raise_for_status()
+        payload  = resp_api.json()
+        games    = payload.get("data", [])
+        remaining = resp_api.headers.get("x-requests-remaining", "?")
+        print(f"  [backfill] {len(games)} games in snapshot | Credits remaining: {remaining}")
+    except Exception as e:
+        return {"updated": 0, "no_match": 0, "errors": [f"Historical API: {e}"], "credits_used": 20}
+
+    # Parse each game's best line
+    def _parse_line(g):
+        home = g.get("home_team", "")
+        away = g.get("away_team", "")
+        spread_val, spread_fav, total_val = None, None, None
+        for bk in BOOK_PRIORITY:
+            bm = next((b for b in g.get("bookmakers", []) if b["key"] == bk), None)
+            if not bm:
+                continue
+            for mkt in bm.get("markets", []):
+                if mkt["key"] == "spreads" and spread_val is None:
+                    for o in mkt.get("outcomes", []):
+                        if o.get("point") is not None and o["point"] < 0:
+                            spread_fav = o["name"]
+                            spread_val = abs(o["point"])
+                            break
+                if mkt["key"] == "totals" and total_val is None:
+                    for o in mkt.get("outcomes", []):
+                        if o.get("name") == "Over":
+                            total_val = o.get("point")
+                            break
+            if spread_val and total_val:
+                break
+        if spread_val is None:
+            return None
+        return {"home": home, "away": away,
+                "vegas_spread": spread_val, "vegas_fav": spread_fav, "vegas_total": total_val}
+
+    hist_lookup = {}
+    for g in games:
+        p = _parse_line(g)
+        if p:
+            hist_lookup[frozenset([p["home"].lower(), p["away"].lower()])] = p
+
+    updated, no_match, errors = 0, 0, []
+
+    for snap in missing:
+        t1  = snap["team1"].lower()
+        t2  = snap["team2"].lower()
+        key = frozenset([t1, t2])
+
+        line = hist_lookup.get(key)
+        if line is None:
+            for fkey, fl in hist_lookup.items():
+                flist = list(fkey)
+                if len(flist) == 2:
+                    a, b = flist[0], flist[1]
+                    if (t1 in a or a in t1) and (t2 in b or b in t2):
+                        line = fl; break
+                    if (t2 in a or a in t2) and (t1 in b or b in t1):
+                        line = fl; break
+
+        if line is None:
+            no_match += 1
+            continue
+
+        czarp_spread = snap.get("czarp_spread") or 0
+        vs = line["vegas_spread"]
+        vf = line["vegas_fav"]
+        spread_edge = round(czarp_spread - (-vs if vf == snap["team1"] else vs), 2) if vs else None
+
+        try:
+            db.table("daily_snapshots").update({
+                "vegas_spread": line["vegas_spread"],
+                "vegas_fav":    line["vegas_fav"],
+                "vegas_total":  line["vegas_total"],
+                "spread_edge":  spread_edge,
+            }).eq("id", snap["id"]).execute()
+            updated += 1
+        except Exception as e:
+            errors.append(f"{snap['team1']} vs {snap['team2']}: {e}")
+
+    print(f"  [backfill] {updated} updated, {no_match} no match, {len(errors)} errors")
+    return {"updated": updated, "no_match": no_match, "errors": errors, "credits_used": 20}
