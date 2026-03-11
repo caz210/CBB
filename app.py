@@ -63,7 +63,7 @@ st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap');
 html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
-.stApp { background: #09050f; color: #e8e8e8; }
+.stApp { background: #0e0b18; color: #e8e8e8; }
 h1, h2, h3 { font-family: 'Bebas Neue', sans-serif; letter-spacing: 2px; }
 [data-testid="metric-container"] { background: #140d26; border: 1px solid #3d2080; border-radius: 10px; padding: 14px !important; }
 [data-testid="stSidebar"] { background: #060310; border-right: 2px solid #3d2080; }
@@ -73,7 +73,7 @@ h1, h2, h3 { font-family: 'Bebas Neue', sans-serif; letter-spacing: 2px; }
 .team-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; }
 .team-name { font-size: 1.05rem; font-weight: 600; }
 .team-label { color: #9b72e0; font-size: 0.68rem; margin-left: 6px; letter-spacing: 0.5px; }
-.team-score { font-family: 'Bebas Neue', sans-serif; font-size: 1.9rem; color: #7e4fcf; letter-spacing: 1px; min-width: 50px; text-align: right; }
+.team-score { font-family: 'Bebas Neue', sans-serif; font-size: 1.9rem; color: #e8e8e8; letter-spacing: 1px; min-width: 50px; text-align: right; }
 .team-score-winner { color: #f0b429; }
 .game-meta { margin-top: 10px; padding-top: 10px; border-top: 1px solid #3d2080; display: flex; flex-wrap: wrap; gap: 16px; }
 .meta-item { display: flex; flex-direction: column; gap: 2px; }
@@ -89,7 +89,7 @@ h1, h2, h3 { font-family: 'Bebas Neue', sans-serif; letter-spacing: 2px; }
 .divider { border: none; border-top: 1px solid #3d2080; margin: 20px 0; }
 .section-title { font-family: 'Bebas Neue', sans-serif; font-size: 1.3rem; letter-spacing: 2px; color: #f0b429; margin: 24px 0 12px 0; }
 .sidebar-logo { display: flex; justify-content: center; padding: 10px 0 20px 0; }
-.sidebar-logo img { width: 140px; height: auto; }
+.sidebar-logo img { width: 170px; height: auto; }
 .meta-val-spread { color: #f0b429; font-weight: 700; font-size: 0.85rem; }
 .game-card-match { border-color: #f0b429 !important; box-shadow: 0 0 0 1px #f0b42966; }
 .game-card-neutral { border-left: 4px solid #a050f0 !important; }
@@ -103,11 +103,11 @@ h1, h2, h3 { font-family: 'Bebas Neue', sans-serif; letter-spacing: 2px; }
 .stTabs [data-baseweb="tab"] { background: #0d0820; color: #9b72e0 !important; border-radius: 6px 6px 0 0; padding: 8px 20px; font-family: 'Bebas Neue', sans-serif; font-size: 1rem; letter-spacing: 1.5px; border: 1px solid #3d2080; border-bottom: none; }
 .stTabs [aria-selected="true"] { background: #140d26 !important; color: #f0b429 !important; border-color: #f0b429 !important; }
 .stTabs [data-baseweb="tab"]:hover { color: #f0b429 !important; }
-.stTabs [data-baseweb="tab-panel"] { background: #09050f; padding-top: 16px; }
+.stTabs [data-baseweb="tab-panel"] { background: #0e0b18; padding-top: 16px; }
 /* Button styling */
 .stButton>button { background: #140d26; color: #f0b429; border: 1px solid #f0b429; font-family: 'Bebas Neue', sans-serif; letter-spacing: 1.5px; font-size: 1rem; }
-.stButton>button:hover { background: #f0b429; color: #09050f; }
-.stButton>button:active { background: #f0b429; color: #09050f; }
+.stButton>button:hover { background: #f0b429; color: #0e0b18; }
+.stButton>button:active { background: #f0b429; color: #0e0b18; }
 /* Metric cards */
 [data-testid="metric-container"] label { color: #9b72e0 !important; }
 [data-testid="metric-container"] [data-testid="metric-value"] { color: #f0b429 !important; }
@@ -536,7 +536,7 @@ with st.sidebar:
 col_logo, col_title = st.columns([1, 6])
 with col_logo:
     st.markdown(
-        f'<img src="data:image/png;base64,{LOGO_B64}" style="width:72px; height:auto; margin-top:6px;">',
+        f'<img src="data:image/png;base64,{LOGO_B64}" style="width:90px; height:auto; margin-top:4px;">',
         unsafe_allow_html=True
     )
 with col_title:
