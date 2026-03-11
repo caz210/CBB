@@ -130,29 +130,88 @@ def run_snapshot(results: list[dict], force: bool = False) -> dict:
 
 # ── 2. Fetch final scores from Odds API ──────────────────────────────────────
 
+def _build_odds_to_kenpom() -> dict:
+    """
+    Invert the KENPOM_TO_ODDS map so we can normalize Odds API team names
+    back to KenPom names for matching against daily_snapshots.
+    Also strips nicknames from Odds API names as a fallback.
+    """
+    try:
+        from odds_fetcher import KENPOM_TO_ODDS
+        # Invert: "Duke Blue Devils" → "Duke", etc.
+        inverted = {v.lower(): k for k, v in KENPOM_TO_ODDS.items()}
+        return inverted
+    except Exception:
+        return {}
+
+
+def _normalize_odds_name(odds_name: str, odds_to_kenpom: dict) -> str:
+    """
+    Convert an Odds API team name to a KenPom-style name.
+    Priority: exact inverted map → strip nickname → original
+    """
+    # 1. Exact inverted lookup
+    kp = odds_to_kenpom.get(odds_name.lower())
+    if kp:
+        return kp
+
+    # 2. Strip common suffixes (Odds API appends nicknames)
+    _SUFFIXES = [
+        " Blue Devils", " Tar Heels", " Wildcats", " Bulldogs", " Tigers",
+        " Huskies", " Volunteers", " Jayhawks", " Longhorns", " Buckeyes",
+        " Wolverines", " Hoosiers", " Boilermakers", " Hawkeyes", " Cornhuskers",
+        " Huskers", " Nittany Lions", " Spartans", " Trojans", " Bruins",
+        " Cardinal", " Bears", " Buffaloes", " Utes", " Cowboys", " Pokes",
+        " Cyclones", " Sooners", " Horned Frogs", " Mustangs", " Cougars",
+        " Aggies", " Rebels", " Crimson Tide", " Gators", " Seminoles",
+        " Hurricanes", " Panthers", " Rams", " Eagles", " Owls", " Red Raiders",
+        " Racers", " Mountaineers", " Pirates", " Demon Deacons", " Chanticleers",
+        " Monarchs", " Flames", " Bisons", " Blazers", " Miners", " Road Runners",
+        " Roadrunners", " Knights", " Retrievers", " Terrapins", " Terps",
+        " Cavaliers", " Hokies", " Deacons", " Orange", " Green Wave",
+        " Red Storm", " Friars", " Billikens", " Bluejays", " Blue Jays",
+        " Flyers", " Musketeers", " Ramblers", " Wolfpack", " Wolf Pack",
+        " Demon Deacons", " Anteaters", " Ducks", " Beavers", " Sun Devils",
+        " Golden Bears", " Golden Gophers", " Terrapins", " Red Foxes",
+        " Spiders", " Dukes", " Patriots", " Colonials", " Keydets",
+        " Highlanders", " Retrievers", " Bearcats", " RedHawks", " Redhawks",
+        " Grizzlies", " Bobcats", " Warhawks", " Thunderbirds", " Skyhawks",
+        " Buccaneers", " Explorers", " Quakers", " Big Red", " Crimson",
+        " Fighting Illini", " Illini", " Hoyas", " Friars",
+    ]
+    name = odds_name.strip()
+    for sfx in sorted(_SUFFIXES, key=len, reverse=True):
+        if name.endswith(sfx):
+            return name[:-len(sfx)].strip()
+
+    return odds_name  # fallback: unchanged
+
+
 def fetch_final_scores(date_str: str | None = None) -> list[dict]:
     """
     Fetch completed NCAAB game scores from Odds API.
     date_str: YYYY-MM-DD (defaults to yesterday CT — games finish overnight)
-    Returns list of {team1, team2, t1_final, t2_final, game_date}
+    Returns list of {team1, team2, kp_team1, kp_team2, t1_final, t2_final, game_date}
+    where kp_team1/kp_team2 are normalized KenPom-style names for snapshot matching.
     """
     api_key = _get_odds_key()
     if not api_key:
         raise RuntimeError("ODDS_API_KEY not configured")
 
     if date_str is None:
-        # Default: yesterday CT (most games from yesterday are complete)
         date_str = (datetime.now(CENTRAL).date() - timedelta(days=1)).isoformat()
 
     params = {
-        "apiKey":    api_key,
-        "daysFrom":  1,          # include scores from last N days
+        "apiKey":     api_key,
+        "daysFrom":   3,        # look back 3 days — catches missed grade days
         "dateFormat": "iso",
     }
 
     resp = requests.get(SCORES_URL, params=params, timeout=15)
     resp.raise_for_status()
     games = resp.json()
+
+    odds_to_kenpom = _build_odds_to_kenpom()
 
     scores = []
     for g in games:
@@ -162,16 +221,19 @@ def fetch_final_scores(date_str: str | None = None) -> list[dict]:
         # Game date in CT
         commence = g.get("commence_time", "")
         try:
-            game_dt = datetime.fromisoformat(commence.replace("Z", "+00:00"))
+            game_dt   = datetime.fromisoformat(commence.replace("Z", "+00:00"))
             game_date = game_dt.astimezone(CENTRAL).date().isoformat()
         except Exception:
+            continue
+
+        # Only keep games from the target date
+        if game_date != date_str:
             continue
 
         home = g.get("home_team", "")
         away = g.get("away_team", "")
 
-        # Extract scores
-        t_scores = {s["name"]: s.get("score") for s in g.get("scores") or []}
+        t_scores   = {s["name"]: s.get("score") for s in g.get("scores") or []}
         home_score = t_scores.get(home)
         away_score = t_scores.get(away)
 
@@ -182,10 +244,14 @@ def fetch_final_scores(date_str: str | None = None) -> list[dict]:
             "game_date": game_date,
             "team1":     home,
             "team2":     away,
+            # KenPom-normalized names used for snapshot matching
+            "kp_team1":  _normalize_odds_name(home, odds_to_kenpom),
+            "kp_team2":  _normalize_odds_name(away, odds_to_kenpom),
             "t1_final":  int(home_score),
             "t2_final":  int(away_score),
         })
 
+    print(f"  [scores] {len(scores)} completed games found for {date_str}")
     return scores
 
 
@@ -279,28 +345,32 @@ def _grade_bet(snap: dict, result: dict) -> dict | None:
 
 # ── 4. Run nightly results job ────────────────────────────────────────────────
 
-def run_results(date_str: str | None = None) -> dict:
+def run_results(date_str: str | None = None, debug: bool = False) -> dict:
     """
     Fetch final scores, match against snapshots, grade bets, save to bet_results.
     Safe to call multiple times — skips already-graded games.
 
     date_str: YYYY-MM-DD to grade (defaults to yesterday CT)
-    Returns {"graded": N, "skipped": N, "errors": [...]}
+    debug:    if True, return full match/miss diagnostics
+    Returns {"graded": N, "skipped": N, "errors": [...], "debug_lines": [...]}
     """
     if date_str is None:
         date_str = (datetime.now(CENTRAL).date() - timedelta(days=1)).isoformat()
+
+    debug_lines = []
 
     try:
         db = _get_supabase()
     except Exception as e:
         return {"graded": 0, "skipped": 0, "errors": [str(e)]}
 
-    # Fetch snapshots for the date
+    # Fetch snapshots for the date — keyed by lowercase KenPom name pair
     try:
         snaps_resp = db.table("daily_snapshots").select("*").eq(
             "snapshot_date", date_str
         ).execute()
-        snaps = {(r["team1"].lower(), r["team2"].lower()): r for r in (snaps_resp.data or [])}
+        snap_list = snaps_resp.data or []
+        snaps = {(r["team1"].lower(), r["team2"].lower()): r for r in snap_list}
     except Exception as e:
         return {"graded": 0, "skipped": 0, "errors": [f"Snapshot fetch: {e}"]}
 
@@ -308,41 +378,62 @@ def run_results(date_str: str | None = None) -> dict:
         return {"graded": 0, "skipped": 0, "errors": [],
                 "message": f"No snapshots found for {date_str}"}
 
-    # Fetch final scores
+    debug_lines.append(f"📋 {len(snaps)} snapshots for {date_str}:")
+    for (s1, s2) in snaps.keys():
+        debug_lines.append(f"   snap: '{s1}' vs '{s2}'")
+
+    # Fetch final scores (already filtered to date_str, with kp_team1/kp_team2)
     try:
         scores = fetch_final_scores(date_str)
     except Exception as e:
         return {"graded": 0, "skipped": 0, "errors": [f"Scores fetch: {e}"]}
+
+    debug_lines.append(f"\n🏀 {len(scores)} completed scores from API for {date_str}:")
+    for sc in scores:
+        debug_lines.append(
+            f"   odds: '{sc['team1']}' vs '{sc['team2']}'"
+            f"  →  kp: '{sc['kp_team1']}' vs '{sc['kp_team2']}'"
+            f"  ({sc['t1_final']}-{sc['t2_final']})"
+        )
 
     graded  = 0
     skipped = 0
     errors  = []
 
     for score in scores:
-        # Match score to snapshot using fuzzy team name lookup
-        t1 = score["team1"].lower()
-        t2 = score["team2"].lower()
+        # Use normalized KenPom names for matching
+        t1 = score["kp_team1"].lower()
+        t2 = score["kp_team2"].lower()
 
         snap = snaps.get((t1, t2)) or snaps.get((t2, t1))
+
         if snap is None:
-            # Try partial match
+            # Partial / fuzzy fallback
             for (s1, s2), s in snaps.items():
-                if (t1 in s1 or s1 in t1) and (t2 in s2 or s2 in t2):
+                # Check forward orientation
+                fwd = (t1 in s1 or s1 in t1) and (t2 in s2 or s2 in t2)
+                # Check reverse orientation
+                rev = (t2 in s1 or s1 in t2) and (t1 in s2 or s2 in t1)
+
+                if fwd:
                     snap = s
+                    debug_lines.append(f"   ✅ partial-fwd: '{t1}'→'{s1}', '{t2}'→'{s2}'")
                     break
-                if (t2 in s1 or s1 in t2) and (t1 in s2 or s2 in t1):
+                if rev:
                     snap = s
-                    # Flip scores since team order is reversed
                     score = dict(score)
                     score["t1_final"], score["t2_final"] = score["t2_final"], score["t1_final"]
+                    debug_lines.append(f"   ✅ partial-rev: '{t2}'→'{s1}', '{t1}'→'{s2}' (scores flipped)")
                     break
 
         if snap is None:
-            continue   # game not in our projections — skip silently
+            debug_lines.append(f"   ❌ NO MATCH: '{t1}' vs '{t2}'  (odds: '{score['team1']}' vs '{score['team2']}')")
+            continue
 
         if snap.get("bet_type") is None:
+            debug_lines.append(f"   ⏭ SKIP (no Vegas line): '{snap['team1']}' vs '{snap['team2']}'")
             skipped += 1
-            continue   # no Vegas line at snapshot time — can't grade
+            continue
 
         graded_row = _grade_bet(snap, score)
         if graded_row is None:
@@ -353,14 +444,19 @@ def run_results(date_str: str | None = None) -> dict:
             db.table("bet_results").upsert(
                 graded_row,
                 on_conflict="game_date,team1,team2",
-                ignore_duplicates=False    # update if already exists (re-grade)
+                ignore_duplicates=False
             ).execute()
+            cover = "✅ COVER" if graded_row.get("czarp_covers") else ("PUSH" if graded_row.get("push") else "❌ NO COVER")
+            debug_lines.append(
+                f"   💾 GRADED: '{snap['team1']}' vs '{snap['team2']}'"
+                f"  actual={graded_row['actual_spread']:+.0f}  {cover}"
+            )
             graded += 1
         except Exception as e:
             errors.append(f"{snap['team1']} vs {snap['team2']}: {e}")
 
     print(f"  [results] {graded} graded, {skipped} skipped (no line), {len(errors)} errors")
-    return {"graded": graded, "skipped": skipped, "errors": errors}
+    return {"graded": graded, "skipped": skipped, "errors": errors, "debug_lines": debug_lines}
 
 
 # ── 5. Fetch performance data for analytics tab ───────────────────────────────
