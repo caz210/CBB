@@ -1206,6 +1206,22 @@ with tab3:
                     st.warning(f"Errors: {result['errors'][:3]}")
             except Exception as e:
                 st.error(str(e))
+        if st.button("🔎 Debug Grade", use_container_width=True,
+                     help="Shows exactly which scores matched/missed your snapshots"):
+            try:
+                result = run_results(grade_date.isoformat(), debug=True)
+                st.success(f"Graded {result['graded']} | Skipped {result['skipped']}")
+                lines = result.get("debug_lines", [])
+                if lines:
+                    st.code("\n".join(lines), language=None)
+                else:
+                    st.info("No debug output — check that snapshots exist for this date.")
+                if result.get("errors"):
+                    st.warning(f"Errors: {result['errors'][:5]}")
+            except Exception as e:
+                st.error(str(e))
+                import traceback
+                st.code(traceback.format_exc())
     with col_c:
         st.markdown("Grade date applies here too", unsafe_allow_html=False)
         if st.button("🔍 Backfill Closing Lines", use_container_width=True, help="Fetches closing lines from historical Odds API for games missing Vegas spreads. Costs ~20 API credits."):
