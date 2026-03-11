@@ -1229,55 +1229,204 @@ with tab3:
         if df.empty:
             st.info("No results yet — projections are being tracked starting today. Check back after tonight's games complete.")
         else:
-            # Summary metrics
-            has_line  = df[df["vegas_spread"].notna() & df["czarp_covers"].notna() & ~df["push"].fillna(False)]
+            # ── Derived columns ───────────────────────────────────────────────
+            # sides_agree: did CZarp pick the same favorite as Vegas?
+            if "czarp_side" in df.columns and "vegas_fav" in df.columns:
+                df["sides_agree"] = df["czarp_side"] == df["vegas_fav"]
+
+            # ── Base filter: graded games with a Vegas line, no push ───────────
+            has_line = df[
+                df["vegas_spread"].notna() &
+                df["czarp_covers"].notna() &
+                ~df["push"].fillna(False)
+            ].copy()
+
             total_bets = len(has_line)
-            wins       = has_line["czarp_covers"].sum()
+            wins       = int(has_line["czarp_covers"].sum())
             losses     = total_bets - wins
             win_pct    = (wins / total_bets * 100) if total_bets > 0 else 0
 
             ml_df      = df[df["czarp_ml_correct"].notna()]
-            ml_correct = ml_df["czarz_ml_correct"].sum() if not ml_df.empty else 0
+            ml_correct = int(ml_df["czarp_ml_correct"].sum()) if not ml_df.empty else 0
             ml_pct     = (ml_correct / len(ml_df) * 100) if len(ml_df) > 0 else 0
 
+            # Spread accuracy vs actual
+            if "czarp_spread" in has_line.columns and "actual_spread" in has_line.columns:
+                has_line["czarp_err"]  = abs(has_line["czarp_spread"].fillna(0)  - has_line["actual_spread"].fillna(0))
+                has_line["vegas_err"]  = abs(has_line["vegas_spread"].fillna(0)  - has_line["actual_spread"].fillna(0))
+                avg_czarp_err  = has_line["czarp_err"].mean()
+                avg_vegas_err  = has_line["vegas_err"].mean()
+            else:
+                avg_czarp_err = avg_vegas_err = None
+
+            # ── Row 1: KPI headline metrics ───────────────────────────────────
             m1, m2, m3, m4 = st.columns(4)
-            m1.metric("ATS Record", f"{int(wins)}-{int(losses)}")
-            m2.metric("ATS Win %", f"{win_pct:.1f}%")
-            m3.metric("ML Correct %", f"{ml_pct:.1f}%")
+            delta_vs_breakeven = win_pct - 52.38
+            m1.metric("ATS Record",    f"{wins}-{losses}")
+            m2.metric("ATS Win %",     f"{win_pct:.1f}%",
+                      delta=f"{delta_vs_breakeven:+.1f}% vs 52.4% b/e",
+                      delta_color="normal")
+            m3.metric("ML Pick %",     f"{ml_pct:.1f}%")
             m4.metric("Games Tracked", total_bets)
 
             st.markdown("---")
 
-            # Breakdown by bet type
-            st.markdown("**ATS by Bet Type**")
-            bt_cols = ["bet_type", "czarp_covers"]
-            if all(c in df.columns for c in bt_cols):
-                bt_df = has_line.groupby("bet_type")["czarp_covers"].agg(["sum","count"])
-                bt_df.columns = ["Wins", "Total"]
-                bt_df["Win %"] = (bt_df["Wins"] / bt_df["Total"] * 100).round(1).astype(str) + "%"
-                bt_df["Record"] = bt_df["Wins"].astype(int).astype(str) + "-" + (bt_df["Total"] - bt_df["Wins"]).astype(int).astype(str)
-                st.dataframe(bt_df[["Record", "Win %", "Total"]], use_container_width=True)
+            # ── Row 2: Edge Score Tier Breakdown ──────────────────────────────
+            st.markdown("<div class='section-title'>🎯 EDGE SCORE TIERS</div>", unsafe_allow_html=True)
+            st.caption("Does a higher edge score predict ATS coverage? This is the core model validity test.")
 
-            # Upset picks record
-            upsets = has_line[has_line["is_upset_pick"] == True]
-            if not upsets.empty:
-                u_wins = upsets["czarp_covers"].sum()
-                st.markdown(f"**🚨 Upset Picks:** {int(u_wins)}-{len(upsets)-int(u_wins)} ATS ({u_wins/len(upsets)*100:.1f}%)")
+            tier_defs = [
+                ("🥇 Gold",  0.08,  None,  "≥ 0.08"),
+                ("🟢 Green", 0.05,  0.08,  "0.05 – 0.08"),
+                ("⚪ Any",   0.00,  None,  "> 0  (all with line)"),
+            ]
+            tier_rows = []
+            for label, lo, hi, thresh_label in tier_defs:
+                if "edge_score" not in has_line.columns:
+                    break
+                mask = has_line["edge_score"].notna() & (has_line["edge_score"] >= lo)
+                if hi is not None:
+                    mask &= has_line["edge_score"] < hi
+                sub = has_line[mask]
+                if len(sub) == 0:
+                    continue
+                w = int(sub["czarp_covers"].sum())
+                t = len(sub)
+                pct = w / t * 100
+                avg_e = sub["edge_score"].mean()
+                agree_rate = sub["sides_agree"].mean() * 100 if "sides_agree" in sub.columns and sub["sides_agree"].notna().any() else None
+                tier_rows.append({
+                    "Tier":         label,
+                    "Threshold":    thresh_label,
+                    "Record":       f"{w}-{t-w}",
+                    "Win %":        f"{pct:.1f}%",
+                    "Avg Edge":     f"{avg_e:.4f}",
+                    "Agree w/ Vegas": f"{agree_rate:.0f}%" if agree_rate is not None else "—",
+                    "Games":        t,
+                })
 
-            # Neutral site record
-            neutrals_df = has_line[has_line["is_neutral"] == True]
-            if not neutrals_df.empty:
-                n_wins = neutrals_df["czarp_covers"].sum()
-                st.markdown(f"**🏟️ Neutral Site:** {int(n_wins)}-{len(neutrals_df)-int(n_wins)} ATS ({n_wins/len(neutrals_df)*100:.1f}%)")
+            if tier_rows:
+                st.dataframe(pd.DataFrame(tier_rows), use_container_width=True, hide_index=True)
+            else:
+                st.caption("Not enough data yet — edge scores populate after grades are logged.")
 
             st.markdown("---")
 
-            # Recent results table
-            st.markdown("**Recent Results**")
-            display_cols = ["game_date","team1","team2","czarp_side","bet_type",
-                            "vegas_spread","actual_spread","czarp_covers","edge_score"]
+            # ── Row 3: CZarp vs Vegas Alignment ──────────────────────────────
+            st.markdown("<div class='section-title'>🤝 CZARP vs VEGAS ALIGNMENT</div>", unsafe_allow_html=True)
+            if "sides_agree" in has_line.columns and has_line["sides_agree"].notna().any():
+                agree_df    = has_line[has_line["sides_agree"] == True]
+                disagree_df = has_line[has_line["sides_agree"] == False]
+
+                c1, c2, c3 = st.columns(3)
+                if len(agree_df) > 0:
+                    aw = int(agree_df["czarp_covers"].sum())
+                    at = len(agree_df)
+                    c1.metric("✅ Agrees with Vegas",
+                              f"{aw}-{at-aw}",
+                              f"{aw/at*100:.1f}% ATS ({at} games)")
+                if len(disagree_df) > 0:
+                    dw = int(disagree_df["czarp_covers"].sum())
+                    dt = len(disagree_df)
+                    c2.metric("⚡ Differs from Vegas",
+                              f"{dw}-{dt-dw}",
+                              f"{dw/dt*100:.1f}% ATS ({dt} games)",
+                              delta_color="off")
+                # Edge: when CZarp differs AND has high edge
+                if "edge_score" in has_line.columns:
+                    diff_gold = disagree_df[disagree_df["edge_score"] >= 0.08] if not disagree_df.empty else pd.DataFrame()
+                    if len(diff_gold) > 0:
+                        dgw = int(diff_gold["czarp_covers"].sum())
+                        dgt = len(diff_gold)
+                        c3.metric("🥇 Differs + Gold Edge",
+                                  f"{dgw}-{dgt-dgw}",
+                                  f"{dgw/dgt*100:.1f}% ATS ({dgt} games)")
+            else:
+                st.caption("Sides agree data will populate after next grade run.")
+
+            st.markdown("---")
+
+            # ── Row 4: Breakdown grid ──────────────────────────────────────────
+            st.markdown("<div class='section-title'>📊 BREAKDOWNS</div>", unsafe_allow_html=True)
+            col_r1, col_r2, col_r3 = st.columns(3)
+
+            with col_r1:
+                st.markdown("**Bet Type**")
+                if "bet_type" in has_line.columns and has_line["bet_type"].notna().any():
+                    bt_df = (has_line.groupby("bet_type")["czarp_covers"]
+                             .agg(["sum", "count"]).reset_index())
+                    bt_df.columns = ["Type", "Wins", "Total"]
+                    bt_df["Record"] = bt_df.apply(
+                        lambda x: f"{int(x.Wins)}-{int(x.Total-x.Wins)}", axis=1)
+                    bt_df["Win %"] = (bt_df["Wins"] / bt_df["Total"] * 100).round(1).astype(str) + "%"
+                    st.dataframe(bt_df[["Type", "Record", "Win %", "Total"]],
+                                 use_container_width=True, hide_index=True)
+                else:
+                    st.caption("No bet type data yet")
+
+            with col_r2:
+                st.markdown("**🚨 Upset Picks**")
+                upsets = has_line[has_line["is_upset_pick"] == True] if "is_upset_pick" in has_line.columns else pd.DataFrame()
+                if not upsets.empty:
+                    uw = int(upsets["czarp_covers"].sum())
+                    ul = len(upsets) - uw
+                    st.metric("Record", f"{uw}-{ul}", f"{uw/len(upsets)*100:.1f}% ATS")
+                    if "edge_score" in upsets.columns:
+                        st.caption(f"Avg edge score: {upsets['edge_score'].mean():.4f}")
+                else:
+                    st.caption("No upset picks graded yet")
+
+            with col_r3:
+                st.markdown("**🏟️ Neutral Site**")
+                neutrals_perf = has_line[has_line["is_neutral"] == True] if "is_neutral" in has_line.columns else pd.DataFrame()
+                if not neutrals_perf.empty:
+                    nw = int(neutrals_perf["czarp_covers"].sum())
+                    nl = len(neutrals_perf) - nw
+                    st.metric("Record", f"{nw}-{nl}", f"{nw/len(neutrals_perf)*100:.1f}% ATS")
+                else:
+                    st.caption("No neutral site games graded yet")
+
+            st.markdown("---")
+
+            # ── Row 5: Projection Accuracy ────────────────────────────────────
+            if avg_czarp_err is not None:
+                st.markdown("<div class='section-title'>📐 PROJECTION ACCURACY</div>", unsafe_allow_html=True)
+                a1, a2, a3, a4 = st.columns(4)
+                a1.metric("CZarp Avg Spread Error", f"{avg_czarp_err:.1f} pts")
+                a2.metric("Vegas Avg Spread Error", f"{avg_vegas_err:.1f} pts")
+
+                # Side correctness (did CZarp pick the right team to cover?)
+                if "actual_spread" in has_line.columns and "czarp_spread" in has_line.columns:
+                    czarp_right_side = (
+                        (has_line["czarp_spread"].fillna(0) > 0) ==
+                        (has_line["actual_spread"].fillna(0) > 0)
+                    )
+                    side_pct = czarp_right_side.mean() * 100
+                    a3.metric("CZarp Correct Winner %", f"{side_pct:.1f}%")
+
+                # Pushes
+                pushes = df["push"].fillna(False).sum() if "push" in df.columns else 0
+                a4.metric("Pushes", int(pushes))
+
+            st.markdown("---")
+
+            # ── Row 6: Recent Results table ───────────────────────────────────
+            st.markdown("<div class='section-title'>📋 RECENT RESULTS</div>", unsafe_allow_html=True)
+            display_cols = [
+                "game_date", "team1", "team2", "czarp_side", "bet_type",
+                "vegas_spread", "czarp_spread", "actual_spread",
+                "czarp_covers", "edge_score", "sides_agree", "push"
+            ]
             show_cols = [c for c in display_cols if c in df.columns]
-            st.dataframe(df[show_cols].head(50), use_container_width=True, hide_index=True)
+
+            recent = df[show_cols].head(50).copy()
+            # Friendly booleans
+            for bool_col in ["czarp_covers", "sides_agree", "push"]:
+                if bool_col in recent.columns:
+                    recent[bool_col] = recent[bool_col].map(
+                        {True: "✅", False: "❌", None: "—"}
+                    ).fillna("—")
+            st.dataframe(recent, use_container_width=True, hide_index=True)
 
     except Exception as e:
         st.error(f"Performance data error: {e}")
