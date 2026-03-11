@@ -111,18 +111,32 @@ def run_snapshot(results: list[dict], force: bool = False) -> dict:
         }
 
         try:
-            # Try plain insert — if duplicate it throws a unique violation
-            resp = db.table("daily_snapshots").insert(row).execute()
-            if resp.data:
-                inserted += 1
+            # Check if already saved today WITH a Vegas line
+            existing = db.table("daily_snapshots").select("id,vegas_spread").eq(
+                "snapshot_date", today
+            ).eq("team1", team1).eq("team2", team2).execute()
+
+            existing_row = (existing.data or [None])[0] if existing.data else None
+
+            if existing_row:
+                # Already exists — only update if current snapshot has a line
+                # and the existing row is missing one (upgrade empty → lined)
+                has_new_line  = row.get("vegas_spread") is not None
+                had_old_line  = existing_row.get("vegas_spread") is not None
+                if has_new_line and not had_old_line:
+                    db.table("daily_snapshots").update(row).eq("id", existing_row["id"]).execute()
+                    inserted += 1  # count as inserted since it's a meaningful upgrade
+                    print(f"    ↑ upgraded (added line): {team1} vs {team2}")
+                else:
+                    skipped += 1
             else:
-                errors.append(f"{team1} vs {team2}: no data returned")
+                resp = db.table("daily_snapshots").insert(row).execute()
+                if resp.data:
+                    inserted += 1
+                else:
+                    errors.append(f"{team1} vs {team2}: no data returned")
         except Exception as e:
-            err_str = str(e)
-            if "duplicate" in err_str.lower() or "unique" in err_str.lower() or "23505" in err_str:
-                skipped += 1   # already saved today — expected, not an error
-            else:
-                errors.append(f"{team1} vs {team2}: {e}")
+            errors.append(f"{team1} vs {team2}: {e}")
 
     print(f"  [snapshot] {inserted} inserted, {skipped} already existed, {len(errors)} errors")
     return {"inserted": inserted, "skipped": skipped, "errors": errors}
@@ -137,20 +151,47 @@ def _build_odds_to_kenpom() -> dict:
     Also includes hard-coded overrides for known problem cases.
     """
     # Hard-coded overrides: exact Odds API nickname-stripped name → KenPom snapshot name
-    # Add entries here whenever Debug Grade shows a ❌ NO MATCH
+    # Add entries here whenever Debug Grade shows a ❌ NO MATCH.
+    # IMPORTANT: include BOTH the full Odds API name (with nickname) AND the stripped version
+    # because some entries in KENPOM_TO_ODDS map abbreviations → full Odds names,
+    # causing the inverted map to return abbreviations (e.g. ETSU) that don't match snapshots.
     OVERRIDES = {
-        # Odds API stripped name (lowercase)  : KenPom snapshot name
+        # ── Full Odds API name (with nickname) → KenPom snapshot name ──────────
+        # These are needed when KENPOM_TO_ODDS has an abbreviation as the key
+        # and the inverted map returns that abbreviation instead of the full name.
+        "east tennessee st buccaneers":         "East Tennessee St.",
+        "east tennessee state buccaneers":      "East Tennessee St.",
+        "etsu buccaneers":                      "East Tennessee St.",
+        "texas a&m-cc islanders":               "Texas A&M Corpus Chris",
+        "texas a&m corpus christi islanders":   "Texas A&M Corpus Chris",
+        "siu edwardsville cougars":             "SIUE",
+        "southern illinois edwardsville cougars": "SIUE",
+        "umkc kangaroos":                       "UMKC",
+        "iu indianapolis jaguars":              "IUPUI",
+        "uconn huskies":                        "UConn",
+        "ole miss rebels":                      "Ole Miss",
+        "nc state wolfpack":                    "NC State",
+        "usc trojans":                          "USC",
+        "pitt panthers":                        "Pitt",
+        "vcu rams":                             "VCU",
+        "smu mustangs":                         "SMU",
+        "tcu horned frogs":                     "TCU",
+        "byu cougars":                          "BYU",
+        "ucf knights":                          "UCF",
+        "unlv rebels":                          "UNLV",
+        "lsu tigers":                           "LSU",
+        "miami fl hurricanes":                  "Miami FL",
+        "miami oh redhawks":                    "Miami OH",
+        # ── Stripped name (no nickname) → KenPom snapshot name ─────────────────
+        "east tennessee st":                    "East Tennessee St.",
+        "etsu":                                 "East Tennessee St.",
         "texas a&m-cc":                         "Texas A&M Corpus Chris",
         "texas a&m corpus christi":             "Texas A&M Corpus Chris",
-        "east tennessee st":                    "East Tennessee St.",
-        "eastern tennessee state":              "East Tennessee St.",
-        "etsu":                                 "East Tennessee St.",
         "wright st":                            "Wright St.",
         "grambling st":                         "Grambling St.",
         "alabama st":                           "Alabama St.",
         "alcorn st":                            "Alcorn St.",
         "weber state":                          "Weber St.",
-        "northern kentucky":                    "Northern Kentucky",
         "ut rio grande valley":                 "UT Rio Grande Valley",
         "nicholls st":                          "Nicholls",
         "saint mary's":                         "Saint Mary's",
