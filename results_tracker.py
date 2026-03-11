@@ -134,15 +134,48 @@ def _build_odds_to_kenpom() -> dict:
     """
     Invert the KENPOM_TO_ODDS map so we can normalize Odds API team names
     back to KenPom names for matching against daily_snapshots.
-    Also strips nicknames from Odds API names as a fallback.
+    Also includes hard-coded overrides for known problem cases.
     """
+    # Hard-coded overrides: exact Odds API nickname-stripped name → KenPom snapshot name
+    # Add entries here whenever Debug Grade shows a ❌ NO MATCH
+    OVERRIDES = {
+        # Odds API stripped name (lowercase)  : KenPom snapshot name
+        "texas a&m-cc":                         "Texas A&M Corpus Chris",
+        "texas a&m corpus christi":             "Texas A&M Corpus Chris",
+        "east tennessee st":                    "East Tennessee St.",
+        "eastern tennessee state":              "East Tennessee St.",
+        "etsu":                                 "East Tennessee St.",
+        "wright st":                            "Wright St.",
+        "grambling st":                         "Grambling St.",
+        "alabama st":                           "Alabama St.",
+        "alcorn st":                            "Alcorn St.",
+        "weber state":                          "Weber St.",
+        "northern kentucky":                    "Northern Kentucky",
+        "ut rio grande valley":                 "UT Rio Grande Valley",
+        "nicholls st":                          "Nicholls",
+        "saint mary's":                         "Saint Mary's",
+        "ole miss":                             "Ole Miss",
+        "uconn":                                "UConn",
+        "connecticut":                          "UConn",
+        "loyola chicago":                       "Loyola Chicago",
+        "miami fl":                             "Miami FL",
+        "miami oh":                             "Miami OH",
+        "nc state":                             "NC State",
+        "north carolina state":                 "NC State",
+        "siu edwardsville":                     "SIUE",
+        "southern illinois edwardsville":       "SIUE",
+    }
+
     try:
         from odds_fetcher import KENPOM_TO_ODDS
-        # Invert: "Duke Blue Devils" → "Duke", etc.
+        # Invert: "Duke Blue Devils" (lowercase) → "Duke"
         inverted = {v.lower(): k for k, v in KENPOM_TO_ODDS.items()}
-        return inverted
     except Exception:
-        return {}
+        inverted = {}
+
+    # Overrides take priority over the inverted map
+    inverted.update({k.lower(): v for k, v in OVERRIDES.items()})
+    return inverted
 
 
 def _normalize_odds_name(odds_name: str, odds_to_kenpom: dict) -> str:
@@ -150,41 +183,76 @@ def _normalize_odds_name(odds_name: str, odds_to_kenpom: dict) -> str:
     Convert an Odds API team name to a KenPom-style name.
     Priority: exact inverted map → strip nickname → original
     """
-    # 1. Exact inverted lookup
+    # 1. Exact inverted lookup (full Odds API name → KenPom name)
     kp = odds_to_kenpom.get(odds_name.lower())
     if kp:
         return kp
 
-    # 2. Strip common suffixes (Odds API appends nicknames)
+    # 2. Strip team nicknames — Odds API always appends them
     _SUFFIXES = [
+        # Power conferences
         " Blue Devils", " Tar Heels", " Wildcats", " Bulldogs", " Tigers",
         " Huskies", " Volunteers", " Jayhawks", " Longhorns", " Buckeyes",
         " Wolverines", " Hoosiers", " Boilermakers", " Hawkeyes", " Cornhuskers",
         " Huskers", " Nittany Lions", " Spartans", " Trojans", " Bruins",
-        " Cardinal", " Bears", " Buffaloes", " Utes", " Cowboys", " Pokes",
+        " Cardinal", " Buffaloes", " Utes", " Cowboys", " Pokes",
         " Cyclones", " Sooners", " Horned Frogs", " Mustangs", " Cougars",
         " Aggies", " Rebels", " Crimson Tide", " Gators", " Seminoles",
-        " Hurricanes", " Panthers", " Rams", " Eagles", " Owls", " Red Raiders",
-        " Racers", " Mountaineers", " Pirates", " Demon Deacons", " Chanticleers",
-        " Monarchs", " Flames", " Bisons", " Blazers", " Miners", " Road Runners",
-        " Roadrunners", " Knights", " Retrievers", " Terrapins", " Terps",
+        " Hurricanes", " Panthers", " Rams", " Eagles", " Owls",
+        " Mountaineers", " Pirates", " Demon Deacons", " Chanticleers",
+        " Monarchs", " Flames", " Blazers", " Miners", " Roadrunners",
+        " Road Runners", " Knights", " Retrievers", " Terrapins", " Terps",
         " Cavaliers", " Hokies", " Deacons", " Orange", " Green Wave",
         " Red Storm", " Friars", " Billikens", " Bluejays", " Blue Jays",
         " Flyers", " Musketeers", " Ramblers", " Wolfpack", " Wolf Pack",
-        " Demon Deacons", " Anteaters", " Ducks", " Beavers", " Sun Devils",
-        " Golden Bears", " Golden Gophers", " Terrapins", " Red Foxes",
+        " Anteaters", " Ducks", " Beavers", " Sun Devils",
+        " Golden Bears", " Golden Gophers", " Red Foxes",
         " Spiders", " Dukes", " Patriots", " Colonials", " Keydets",
-        " Highlanders", " Retrievers", " Bearcats", " RedHawks", " Redhawks",
-        " Grizzlies", " Bobcats", " Warhawks", " Thunderbirds", " Skyhawks",
-        " Buccaneers", " Explorers", " Quakers", " Big Red", " Crimson",
-        " Fighting Illini", " Illini", " Hoyas", " Friars",
+        " Highlanders", " Bearcats", " Redhawks", " RedHawks",
+        " Thunderbirds", " Skyhawks", " Explorers", " Quakers",
+        " Fighting Illini", " Illini", " Hoyas",
+        # Mid-major / smaller schools (the ones actually failing)
+        " Hornets", " Braves", " Islanders", " Privateers", " Raiders",
+        " Norse", " Buccaneers", " Paladins", " Grizzlies", " Bears",
+        " Delta Devils", " Pride", " Vaqueros", " Colonels",
+        " Titans", " Gaels", " Broncos", " Fighting Camels", " Camels",
+        " Red Raiders", " Racers", " Bisons",
+        " Warhawks", " Bobcats",
+        " Penmen", " Tommies", " Jaspers", " Peacocks", " Stags",
+        " Waves", " Pilots", " Trailblazers", " Mastodons",
+        " Blue Raiders", " Mocs",
+        " Leathernecks", " Lancers", " Sycamores", " Purple Aces",
+        " Vikings", " Redbirds", " Salukis",
+        " Seawolves", " Matadors",
+        " Lumberjacks", " Cardinals", " Falcons",
+        " Penguins", " Flashes", " Zips", " Golden Flashes",
+        " Ospreys", " Hatters", " Great Danes", " Leopards", " Statesmen",
+        " River Hawks", " RiverHawks",
     ]
     name = odds_name.strip()
     for sfx in sorted(_SUFFIXES, key=len, reverse=True):
-        if name.endswith(sfx):
+        if name.lower().endswith(sfx.lower()):
             return name[:-len(sfx)].strip()
 
     return odds_name  # fallback: unchanged
+
+
+def _snap_sim(a: str, b: str) -> float:
+    """
+    Fuzzy similarity between two team name strings.
+    Normalizes periods, ampersands, and hyphens before comparing.
+    """
+    from difflib import SequenceMatcher
+
+    def _clean(s: str) -> str:
+        return (s.lower()
+                .replace(".", "")
+                .replace("&", "and")
+                .replace("-", " ")
+                .replace("  ", " ")
+                .strip())
+
+    return SequenceMatcher(None, _clean(a), _clean(b)).ratio()
 
 
 def fetch_final_scores(date_str: str | None = None) -> list[dict]:
@@ -408,23 +476,34 @@ def run_results(date_str: str | None = None, debug: bool = False) -> dict:
         snap = snaps.get((t1, t2)) or snaps.get((t2, t1))
 
         if snap is None:
-            # Partial / fuzzy fallback
-            for (s1, s2), s in snaps.items():
-                # Check forward orientation
-                fwd = (t1 in s1 or s1 in t1) and (t2 in s2 or s2 in t2)
-                # Check reverse orientation
-                rev = (t2 in s1 or s1 in t2) and (t1 in s2 or s2 in t1)
+            # Fuzzy fallback using SequenceMatcher — handles periods, abbreviations, etc.
+            FUZZY_THRESHOLD = 0.82
+            best_score  = 0.0
+            best_snap   = None
+            best_flipped = False
 
-                if fwd:
-                    snap = s
-                    debug_lines.append(f"   ✅ partial-fwd: '{t1}'→'{s1}', '{t2}'→'{s2}'")
-                    break
-                if rev:
-                    snap = s
+            for (s1, s2), s in snaps.items():
+                fwd = (_snap_sim(t1, s1) + _snap_sim(t2, s2)) / 2
+                rev = (_snap_sim(t2, s1) + _snap_sim(t1, s2)) / 2
+
+                if fwd >= FUZZY_THRESHOLD and fwd > best_score:
+                    best_score, best_snap, best_flipped = fwd, s, False
+                if rev >= FUZZY_THRESHOLD and rev > best_score:
+                    best_score, best_snap, best_flipped = rev, s, True
+
+            if best_snap is not None:
+                snap = best_snap
+                if best_flipped:
                     score = dict(score)
                     score["t1_final"], score["t2_final"] = score["t2_final"], score["t1_final"]
-                    debug_lines.append(f"   ✅ partial-rev: '{t2}'→'{s1}', '{t1}'→'{s2}' (scores flipped)")
-                    break
+                    debug_lines.append(
+                        f"   ✅ fuzzy-rev ({best_score:.2f}): '{t2}'→'{list(snaps.keys())[[v is snap for v in snaps.values()].index(True)][0]}'"
+                    )
+                else:
+                    snap_key = next(k for k, v in snaps.items() if v is snap)
+                    debug_lines.append(
+                        f"   ✅ fuzzy-fwd ({best_score:.2f}): '{t1}'→'{snap_key[0]}', '{t2}'→'{snap_key[1]}'"
+                    )
 
         if snap is None:
             debug_lines.append(f"   ❌ NO MATCH: '{t1}' vs '{t2}'  (odds: '{score['team1']}' vs '{score['team2']}')")
