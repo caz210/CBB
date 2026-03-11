@@ -170,16 +170,24 @@ def scrape_fanmatch_games(date_str: str | None = None) -> list[dict]:
     # Strategy: find all <a> links pointing to team pages and scan surrounding text
     # More robust: grab every table row and look for "at" / "vs" between two team links
 
-    table = soup.find("table", id="fanmatch-table")
-    if table is None:
-        # Fallback: find any table that has game rows
-        tables = soup.find_all("table")
-        table = tables[0] if tables else None
+    # KenPom FanMatch renders games across MULTIPLE <table> blocks
+    # (one per time slot / conference group) — must scrape ALL of them.
+    # Previously only scraped tables[0] which missed B10-T, B12-T, A10-T etc.
+    fanmatch_table = soup.find("table", id="fanmatch-table")
+    if fanmatch_table:
+        all_tables = [fanmatch_table]
+    else:
+        all_tables = soup.find_all("table")
 
-    if table is None:
+    if not all_tables:
         raise ValueError("Could not find FanMatch table on page — structure may have changed")
 
-    rows = table.find_all("tr")
+    # Flatten all rows from every table into a single list
+    rows = []
+    for tbl in all_tables:
+        rows.extend(tbl.find_all("tr"))
+
+    seen_pairs = set()  # deduplicate in case tables share header rows
 
     for row in rows:
         cells = row.find_all("td")
@@ -227,6 +235,12 @@ def scrape_fanmatch_games(date_str: str | None = None) -> list[dict]:
             neutral   = (connector == "vs")
             home_team = None if neutral else team2
             away_team = None if neutral else team1
+
+            # Deduplicate across tables
+            pair_key = frozenset([team1.lower(), team2.lower()])
+            if pair_key in seen_pairs:
+                break
+            seen_pairs.add(pair_key)
 
             games.append({
                 "date":      date_str,
