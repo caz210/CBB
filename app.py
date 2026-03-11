@@ -63,62 +63,56 @@ st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap');
 html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
-.stApp { background: #0b1630; color: #e8e8e8; }
+.stApp { background: #09050f; color: #e8e8e8; }
 h1, h2, h3 { font-family: 'Bebas Neue', sans-serif; letter-spacing: 2px; }
-[data-testid="metric-container"] { background: #152348; border: 1px solid #1e3a6e; border-radius: 10px; padding: 14px !important; }
-[data-testid="stSidebar"] { background: #091228; border-right: 2px solid #1e3a6e; }
-.game-card { background: #152348; border: 1px solid #1e3a6e; border-radius: 12px; padding: 16px 20px; margin-bottom: 12px; position: relative; }
+[data-testid="metric-container"] { background: #140d26; border: 1px solid #3d2080; border-radius: 10px; padding: 14px !important; }
+[data-testid="stSidebar"] { background: #060310; border-right: 2px solid #3d2080; }
+.game-card { background: #140d26; border: 1px solid #3d2080; border-radius: 12px; padding: 16px 20px; margin-bottom: 12px; position: relative; }
 .game-card:hover { border-color: #f0b429; transition: border-color 0.2s; }
 .game-time { font-size: 0.72rem; color: #f0b429; font-weight: 600; letter-spacing: 1px; margin-bottom: 8px; }
 .team-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; }
 .team-name { font-size: 1.05rem; font-weight: 600; }
-.team-label { color: #4a6fa5; font-size: 0.68rem; margin-left: 6px; letter-spacing: 0.5px; }
-.team-score { font-family: 'Bebas Neue', sans-serif; font-size: 1.9rem; color: #6688bb; letter-spacing: 1px; min-width: 50px; text-align: right; }
+.team-label { color: #9b72e0; font-size: 0.68rem; margin-left: 6px; letter-spacing: 0.5px; }
+.team-score { font-family: 'Bebas Neue', sans-serif; font-size: 1.9rem; color: #7e4fcf; letter-spacing: 1px; min-width: 50px; text-align: right; }
 .team-score-winner { color: #f0b429; }
-.game-meta { margin-top: 10px; padding-top: 10px; border-top: 1px solid #1e3a6e; display: flex; flex-wrap: wrap; gap: 16px; }
+.game-meta { margin-top: 10px; padding-top: 10px; border-top: 1px solid #3d2080; display: flex; flex-wrap: wrap; gap: 16px; }
 .meta-item { display: flex; flex-direction: column; gap: 2px; }
-.meta-label { font-size: 0.65rem; color: #4a6fa5; letter-spacing: 0.5px; text-transform: uppercase; }
+.meta-label { font-size: 0.65rem; color: #9b72e0; letter-spacing: 0.5px; text-transform: uppercase; }
 .meta-val { color: #ddd; font-weight: 600; font-size: 0.85rem; }
 .meta-val-hot { color: #f0b429; font-weight: 700; }
 .meta-val-differ { color: #e05c5c; font-weight: 700; }
 .edge-badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.5px; }
 .edge-hot  { background: #f0b42922; color: #f0b429; border: 1px solid #f0b42955; }
 .edge-good { background: #27a14822; color: #5ddc7a; border: 1px solid #27a14855; }
-.edge-low  { background: #1e3a6e33; color: #6688bb; border: 1px solid #1e3a6e; }
+.edge-low  { background: #3d208033; color: #9b72e0; border: 1px solid #3d2080; }
 .edge-diff { background: #e05c5c22; color: #e05c5c; border: 1px solid #e05c5c55; }
-.divider { border: none; border-top: 1px solid #1e3a6e; margin: 20px 0; }
+.divider { border: none; border-top: 1px solid #3d2080; margin: 20px 0; }
 .section-title { font-family: 'Bebas Neue', sans-serif; font-size: 1.3rem; letter-spacing: 2px; color: #f0b429; margin: 24px 0 12px 0; }
 .sidebar-logo { display: flex; justify-content: center; padding: 10px 0 20px 0; }
 .sidebar-logo img { width: 140px; height: auto; }
 .meta-val-spread { color: #f0b429; font-weight: 700; font-size: 0.85rem; }
 .game-card-match { border-color: #f0b429 !important; box-shadow: 0 0 0 1px #f0b42966; }
-.game-card-neutral { border-left: 4px solid #8b5cf6 !important; }
-.neutral-badge { display: inline-block; background: #8b5cf622; color: #a78bfa; border: 1px solid #8b5cf655; padding: 2px 10px; border-radius: 20px; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.5px; margin-bottom: 6px; }
-.upset-badge { display: inline-block; background: #e05c5c22; color: #e05c5c; border: 1px solid #e05c5c55; padding: 2px 10px; border-radius: 20px; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.5px; margin-right: 4px; }
-.dog-ats-badge { display: inline-block; background: #f97c2222; color: #fb923c; border: 1px solid #f97c2255; padding: 2px 10px; border-radius: 20px; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.5px; margin-right: 4px; }
-.fav-ats-badge { display: inline-block; background: #22c55e22; color: #4ade80; border: 1px solid #22c55e55; padding: 2px 10px; border-radius: 20px; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.5px; margin-right: 4px; }
-
-.game-card-neutral { border-left: 4px solid #8b5cf6 !important; }
-.neutral-badge { display: inline-block; background: #8b5cf622; color: #a78bfa; border: 1px solid #8b5cf655; padding: 2px 10px; border-radius: 20px; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.5px; margin-bottom: 6px; }
+.game-card-neutral { border-left: 4px solid #a050f0 !important; }
+.neutral-badge { display: inline-block; background: #a050f022; color: #c484ff; border: 1px solid #a050f055; padding: 2px 10px; border-radius: 20px; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.5px; margin-bottom: 6px; }
 .upset-badge { display: inline-block; background: #e05c5c22; color: #e05c5c; border: 1px solid #e05c5c55; padding: 2px 10px; border-radius: 20px; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.5px; margin-right: 4px; }
 .dog-ats-badge { display: inline-block; background: #f97c2222; color: #fb923c; border: 1px solid #f97c2255; padding: 2px 10px; border-radius: 20px; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.5px; margin-right: 4px; }
 .fav-ats-badge { display: inline-block; background: #22c55e22; color: #4ade80; border: 1px solid #22c55e55; padding: 2px 10px; border-radius: 20px; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.5px; margin-right: 4px; }
 
 /* Tab styling */
-.stTabs [data-baseweb="tab-list"] { background: #091228; border-bottom: 2px solid #1e3a6e; gap: 4px; }
-.stTabs [data-baseweb="tab"] { background: #0d1a35; color: #4a6fa5 !important; border-radius: 6px 6px 0 0; padding: 8px 20px; font-family: 'Bebas Neue', sans-serif; font-size: 1rem; letter-spacing: 1.5px; border: 1px solid #1e3a6e; border-bottom: none; }
-.stTabs [aria-selected="true"] { background: #152348 !important; color: #f0b429 !important; border-color: #f0b429 !important; }
+.stTabs [data-baseweb="tab-list"] { background: #060310; border-bottom: 2px solid #3d2080; gap: 4px; }
+.stTabs [data-baseweb="tab"] { background: #0d0820; color: #9b72e0 !important; border-radius: 6px 6px 0 0; padding: 8px 20px; font-family: 'Bebas Neue', sans-serif; font-size: 1rem; letter-spacing: 1.5px; border: 1px solid #3d2080; border-bottom: none; }
+.stTabs [aria-selected="true"] { background: #140d26 !important; color: #f0b429 !important; border-color: #f0b429 !important; }
 .stTabs [data-baseweb="tab"]:hover { color: #f0b429 !important; }
-.stTabs [data-baseweb="tab-panel"] { background: #0b1630; padding-top: 16px; }
+.stTabs [data-baseweb="tab-panel"] { background: #09050f; padding-top: 16px; }
 /* Button styling */
-.stButton>button { background: #152348; color: #f0b429; border: 1px solid #f0b429; font-family: 'Bebas Neue', sans-serif; letter-spacing: 1.5px; font-size: 1rem; }
-.stButton>button:hover { background: #f0b429; color: #0b1630; }
-.stButton>button:active { background: #f0b429; color: #0b1630; }
+.stButton>button { background: #140d26; color: #f0b429; border: 1px solid #f0b429; font-family: 'Bebas Neue', sans-serif; letter-spacing: 1.5px; font-size: 1rem; }
+.stButton>button:hover { background: #f0b429; color: #09050f; }
+.stButton>button:active { background: #f0b429; color: #09050f; }
 /* Metric cards */
-[data-testid="metric-container"] label { color: #4a6fa5 !important; }
+[data-testid="metric-container"] label { color: #9b72e0 !important; }
 [data-testid="metric-container"] [data-testid="metric-value"] { color: #f0b429 !important; }
 /* Filter button metric style */
-.metric-btn button { background: #152348 !important; border: 1px solid #1e3a6e !important; color: #e8e8e8 !important; font-family: 'DM Sans', sans-serif !important; font-size: 0.85rem !important; letter-spacing: 0 !important; text-align: left !important; padding: 12px 16px !important; width: 100% !important; }
+.metric-btn button { background: #140d26 !important; border: 1px solid #3d2080 !important; color: #e8e8e8 !important; font-family: 'DM Sans', sans-serif !important; font-size: 0.85rem !important; letter-spacing: 0 !important; text-align: left !important; padding: 12px 16px !important; width: 100% !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -294,8 +288,8 @@ def generate_prediction_blurb(r: dict, home_name: str, away_name: str) -> str:
 
     return f"""
 <div style="
-  background: linear-gradient(135deg, #0f1923 0%, #152348 100%);
-  border-left: 4px solid #f0b429;
+  background: linear-gradient(135deg, #0d0820 0%, #1a1038 100%);
+  border-left: 4px solid #a050f0;
   border-radius: 8px;
   padding: 18px 22px;
   font-family: 'DM Sans', 'Inter', sans-serif;
@@ -306,8 +300,8 @@ def generate_prediction_blurb(r: dict, home_name: str, away_name: str) -> str:
     🔮 MODEL PREDICTION
   </div>
   <div style="font-size:1.05em; margin-bottom:10px;">{headline}</div>
-  <div style="font-size:0.9em; color:#c8d8e8; margin-bottom:12px;">{body} {detail_html}</div>
-  <div style="font-size:0.82em; color:#4a6fa5; border-top:1px solid #1e3a6e; padding-top:10px; margin-top:6px;">
+  <div style="font-size:0.9em; color:#c8a8e8; margin-bottom:12px;">{body} {detail_html}</div>
+  <div style="font-size:0.82em; color:#9b72e0; border-top:1px solid #3d2080; padding-top:10px; margin-top:6px;">
     {score_line}
   </div>
 </div>
@@ -488,7 +482,7 @@ with st.sidebar:
         f'<div class="sidebar-logo"><img src="data:image/png;base64,{LOGO_B64}" alt="CZarp Analytics Club"></div>',
         unsafe_allow_html=True
     )
-    st.markdown("<hr style='border-color:#1e3a6e; margin: 0 0 16px 0;'>", unsafe_allow_html=True)
+    st.markdown("<hr style='border-color:#3d2080; margin: 0 0 16px 0;'>", unsafe_allow_html=True)
     st.markdown("<span style='font-family:Bebas Neue; font-size:1.1rem; letter-spacing:2px; color:#f0b429;'>CBB MODEL</span>", unsafe_allow_html=True)
     st.markdown(f"**Season:** 2025-26")
     st.markdown("---")
@@ -528,7 +522,7 @@ with st.sidebar:
     if MODULES_OK:
         odds_time = get_odds_last_fetched()
         if odds_time:
-            st.markdown(f"<span style='font-size:0.75rem; color:#4a6fa5;'>📡 Odds fetched: <b style='color:#f0b429'>{odds_time}</b></span>", unsafe_allow_html=True)
+            st.markdown(f"<span style='font-size:0.75rem; color:#9b72e0;'>📡 Odds fetched: <b style='color:#f0b429'>{odds_time}</b></span>", unsafe_allow_html=True)
         else:
             st.markdown(f"<span style='font-size:0.75rem; color:#e05c5c;'>📡 Odds: not yet loaded</span>", unsafe_allow_html=True)
         import os
@@ -547,7 +541,7 @@ with col_logo:
     )
 with col_title:
     st.markdown("<h1 style='color:#f0b429; margin-bottom:2px; margin-top:0;'>CZARP CBB MODEL</h1>", unsafe_allow_html=True)
-    st.markdown(f"<p style='color:#4a6fa5; margin-top:0;'>{selected_date.strftime('%A, %B %d, %Y')} &nbsp; 2025-26 Season</p>", unsafe_allow_html=True)
+    st.markdown(f"<p style='color:#9b72e0; margin-top:0;'>{selected_date.strftime('%A, %B %d, %Y')} &nbsp; 2025-26 Season</p>", unsafe_allow_html=True)
 
 if not MODULES_OK:
     st.stop()
@@ -592,7 +586,7 @@ with tab1:
             st.session_state["sb_edge"] = 5
         if st.button(f"🔥 High Edge (≥5%)\n{len(high_edge)} games", key="btn_high_edge", use_container_width=True, on_click=_set_high_edge):
             pass
-        st.markdown(f"<div style='font-size:0.7rem;color:#4a6fa5;margin-top:-8px;text-align:center;'>click to filter</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='font-size:0.7rem;color:#9b72e0;margin-top:-8px;text-align:center;'>click to filter</div>", unsafe_allow_html=True)
     c4.metric("Avg Edge Score", f"{avg_edge:.2f}")
     c5.metric("Avg Total", avg_total)
 
@@ -600,7 +594,7 @@ with tab1:
         odds_time = get_odds_last_fetched()
         match_pct = f"{len(games_with_vegas)}/{len(results)}" 
         if odds_time:
-            st.markdown(f"<p style='font-size:0.75rem; color:#4a6fa5; margin:4px 0 0 0;'>📡 Vegas lines last fetched <b style='color:#f0b429'>{odds_time}</b> &nbsp;·&nbsp; {match_pct} games matched</p>", unsafe_allow_html=True)
+            st.markdown(f"<p style='font-size:0.75rem; color:#9b72e0; margin:4px 0 0 0;'>📡 Vegas lines last fetched <b style='color:#f0b429'>{odds_time}</b> &nbsp;·&nbsp; {match_pct} games matched</p>", unsafe_allow_html=True)
         else:
             st.markdown(f"<p style='font-size:0.75rem; color:#e05c5c; margin:4px 0 0 0;'>📡 Vegas lines not yet loaded — hit Refresh Data</p>", unsafe_allow_html=True)
     st.markdown("<hr class='divider'>", unsafe_allow_html=True)
@@ -721,7 +715,7 @@ with tab1:
                 veg_margin = abs(vs)
                 if bet_type == "dog_ats":
                     callout_html = (
-                        f"<div style='background:#0f1923;border-left:3px solid #fb923c;"
+                        f"<div style='background:#0d0820;border-left:3px solid #fb923c;"
                         f"border-radius:6px;padding:8px 14px;margin-top:8px;font-size:0.78rem;color:#c8d8e8;'>"
                         f"🐶 Model backs <b style='color:#fb923c'>{bet_side_name}</b> to cover the "
                         f"<b>{veg_margin:.1f}-pt spread</b> — projects margin of only "
@@ -729,7 +723,7 @@ with tab1:
                     )
                 elif bet_type == "fav_ats":
                     callout_html = (
-                        f"<div style='background:#0f1923;border-left:3px solid #4ade80;"
+                        f"<div style='background:#0d0820;border-left:3px solid #4ade80;"
                         f"border-radius:6px;padding:8px 14px;margin-top:8px;font-size:0.78rem;color:#c8d8e8;'>"
                         f"💰 Model likes <b style='color:#4ade80'>{bet_side_name}</b> to cover — "
                         f"projects a <b>{my_margin:.1f}-pt</b> win vs Vegas line of "
@@ -792,8 +786,8 @@ with tab1:
                         h_hadj    = d.get("h1_adj", 0)
 
                         def _c(val, opp, hib=True):
-                            if val is None or opp is None: return "#6688bb"
-                            return "#f0b429" if (val > opp) == hib else "#6688bb"
+                            if val is None or opp is None: return "#7e4fcf"
+                            return "#f0b429" if (val > opp) == hib else "#7e4fcf"
 
                         def _f(v, fmt=".1f"):
                             return f"{v:{fmt}}" if v is not None else "—"
@@ -806,7 +800,7 @@ with tab1:
                             hclr = _c(hv, av, hib); aclr = _c(av, hv, hib)
                             hd = _p(hv) if pct else _f(hv, fmt)
                             ad = _p(av) if pct else _f(av, fmt)
-                            return f"<tr><td style='color:{aclr};text-align:right;font-weight:600;padding:3px 10px;'>{ad}</td><td style='color:#4a6fa5;font-size:0.72rem;text-align:center;padding:3px 6px;white-space:nowrap;'>{label}</td><td style='color:{hclr};text-align:left;font-weight:600;padding:3px 10px;'>{hd}</td></tr>"
+                            return f"<tr><td style='color:{aclr};text-align:right;font-weight:600;padding:3px 10px;'>{ad}</td><td style='color:#9b72e0;font-size:0.72rem;text-align:center;padding:3px 6px;white-space:nowrap;'>{label}</td><td style='color:{hclr};text-align:left;font-weight:600;padding:3px 10px;'>{hd}</td></tr>"
 
                         def sh(label):
                             return f"<tr><td colspan='3' style='color:#f0b429;font-size:0.68rem;letter-spacing:2px;padding:8px 10px 3px;font-weight:700;'>{label}</td></tr>"
@@ -814,7 +808,7 @@ with tab1:
                         kp_proj = ""
                         kp_h = r.get("kp_home_score"); kp_a = r.get("kp_away_score")
                         if kp_h and kp_a:
-                            kp_proj = f"<tr><td colspan='3' style='color:#4a6fa5;font-size:0.72rem;text-align:center;padding:2px 10px;'>KenPom proj: {away_name} {kp_a} / {home_name} {kp_h}</td></tr>"
+                            kp_proj = f"<tr><td colspan='3' style='color:#9b72e0;font-size:0.72rem;text-align:center;padding:2px 10px;'>KenPom proj: {away_name} {kp_a} / {home_name} {kp_h}</td></tr>"
 
                         table = f"""
                         <table style='width:100%;border-collapse:collapse;font-family:Inter,sans-serif;font-size:0.82rem;'>
@@ -848,16 +842,16 @@ with tab1:
                           {sr("Experience", h_exp, a_exp, fmt=".2f")}
                           {sr("Unit Score", h_unt, a_unt, fmt=".2f")}
                         </table>
-                        {"<p style='font-size:0.72rem;color:#4a6fa5;margin:6px 0 0 10px;'>🏠 HCA applied: <b style='color:#f0b429'>+" + f"{abs(h_hadj):.1f} pts</b> to {home_name}</p>" if h_hadj else ""}
+                        {"<p style='font-size:0.72rem;color:#9b72e0;margin:6px 0 0 10px;'>🏠 HCA applied: <b style='color:#f0b429'>+" + f"{abs(h_hadj):.1f} pts</b> to {home_name}</p>" if h_hadj else ""}
                         """
 
                         components.html(f"""
                         <html><head><style>
-                          body{{margin:0;padding:0;font-family:'Inter',sans-serif;background:#0f1e3d;}}
+                          body{{margin:0;padding:0;font-family:'Inter',sans-serif;background:#0d0820;}}
                           table{{width:100%;border-collapse:collapse;color:#e8e8e8;}}
                           tr:hover td{{background:rgba(255,255,255,0.04);}}
                         </style></head>
-                        <body style="background:#0f1e3d;padding:12px;border-radius:10px;border:1px solid #1e3a6e;">
+                        <body style="background:#0d0820;padding:12px;border-radius:10px;border:1px solid #3d2080;">
                           {table}
                         </body></html>
                         """, height=560, scrolling=False)
@@ -866,11 +860,11 @@ with tab1:
                         blurb = generate_prediction_blurb(r, home_name=home_name, away_name=away_name)
                         st.markdown(blurb, unsafe_allow_html=True)
 
-    st.markdown(f"<div style='margin-top:40px; padding-top:20px; border-top:1px solid #1e3a6e; font-size:0.75rem; color:#2e4a7a; text-align:center;'>CZarp CBB Model &nbsp; 2025-26 &nbsp; Last updated {datetime.now().strftime('%I:%M %p')}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='margin-top:40px; padding-top:20px; border-top:1px solid #3d2080; font-size:0.75rem; color:#5a3090; text-align:center;'>CZarp CBB Model &nbsp; 2025-26 &nbsp; Last updated {datetime.now().strftime('%I:%M %p')}</div>", unsafe_allow_html=True)
 
 with tab2:
     st.markdown("<div class='section-title'>GAME SIMULATOR</div>", unsafe_allow_html=True)
-    st.markdown("<p style='color:#4a6fa5; font-size:0.85rem; margin-top:-8px;'>Project any matchup using KenPom efficiency ratings</p>", unsafe_allow_html=True)
+    st.markdown("<p style='color:#9b72e0; font-size:0.85rem; margin-top:-8px;'>Project any matchup using KenPom efficiency ratings</p>", unsafe_allow_html=True)
 
     try:
         sim_data = get_kenpom_data()
@@ -962,7 +956,7 @@ with tab2:
             al       = "AWAY" if t1_is_home or t1_is_home is None else "HOME"
             if t1_is_home is None:
                 hl = al = "NEUTRAL"
-            site_badge = f"<span style='background:#1e3a6e; color:#6688bb; font-size:0.7rem; padding:2px 8px; border-radius:10px; margin-bottom:8px; display:inline-block;'>{sv.upper()}</span>"
+            site_badge = f"<span style='background:#3d2080; color:#7e4fcf; font-size:0.7rem; padding:2px 8px; border-radius:10px; margin-bottom:8px; display:inline-block;'>{sv.upper()}</span>"
 
             proj_poss = r.get("projected_pace", d.get("avg_pace", 0))
             home_poss = d.get(f"{hk}_poss", proj_poss)
@@ -993,8 +987,8 @@ with tab2:
             # ── Helper: color a value relative to opponent ───────────────────
             def _clr(val, opp, higher_is_better=True):
                 """Return gold if this side has the edge, muted blue otherwise."""
-                if val is None or opp is None: return "#6688bb"
-                return "#f0b429" if (val > opp) == higher_is_better else "#6688bb"
+                if val is None or opp is None: return "#7e4fcf"
+                return "#f0b429" if (val > opp) == higher_is_better else "#7e4fcf"
 
             def _pct(v, decimals=1):
                 if v is None: return "—"
@@ -1014,14 +1008,14 @@ with tab2:
                 return f"""
                 <tr>
                   <td style='color:{aclr}; text-align:right; font-weight:600; padding:4px 10px;'>{adisp}</td>
-                  <td style='color:#4a6fa5; font-size:0.75rem; text-align:center; padding:4px 6px; white-space:nowrap;'>{label}</td>
+                  <td style='color:#9b72e0; font-size:0.75rem; text-align:center; padding:4px 6px; white-space:nowrap;'>{label}</td>
                   <td style='color:{hclr}; text-align:left; font-weight:600; padding:4px 10px;'>{hdisp}</td>
                 </tr>"""
 
             header_row = f"""
                 <tr>
                   <th style='color:#f0b429; text-align:right; padding:6px 10px; font-size:0.85rem;'>{away_name}</th>
-                  <th style='color:#4a6fa5; text-align:center; padding:6px 6px; font-size:0.7rem;'></th>
+                  <th style='color:#9b72e0; text-align:center; padding:6px 6px; font-size:0.7rem;'></th>
                   <th style='color:#f0b429; text-align:left; padding:6px 10px; font-size:0.85rem;'>{home_name}</th>
                 </tr>"""
 
@@ -1090,7 +1084,7 @@ with tab2:
             </table>
             """
             if h_hadj:
-                hca_html = f"<p style='font-size:0.75rem; color:#4a6fa5; margin-top:6px;'>🏠 Home court advantage applied: <b style='color:#f0b429'>+{abs(h_hadj):.1f} pts</b> to {home_name}</p>"
+                hca_html = f"<p style='font-size:0.75rem; color:#9b72e0; margin-top:6px;'>🏠 Home court advantage applied: <b style='color:#f0b429'>+{abs(h_hadj):.1f} pts</b> to {home_name}</p>"
             else:
                 hca_html = ""
 
@@ -1102,13 +1096,13 @@ with tab2:
               table {{ width: 100%; border-collapse: collapse; }}
               tr:hover td {{ background: rgba(255,255,255,0.03); }}
             </style></head>
-            <body style="background:#152348; padding:12px; border-radius:10px; border:1px solid #1e3a6e;">
+            <body style="background:#140d26; padding:12px; border-radius:10px; border:1px solid #3d2080;">
               {table_html}
               {hca_html}
             </body></html>
             """, height=820, scrolling=False)
 
-st.markdown(f"<div style='margin-top:40px; padding-top:20px; border-top:1px solid #1e3a6e; font-size:0.75rem; color:#2e4a7a; text-align:center;'>CZarp Analytics Club &nbsp;·&nbsp; CBB Model &nbsp;·&nbsp; 2025-26 &nbsp;·&nbsp; Last updated {datetime.now().strftime('%I:%M %p CT')}</div>", unsafe_allow_html=True)
+st.markdown(f"<div style='margin-top:40px; padding-top:20px; border-top:1px solid #3d2080; font-size:0.75rem; color:#5a3090; text-align:center;'>CZarp Analytics Club &nbsp;·&nbsp; CBB Model &nbsp;·&nbsp; 2025-26 &nbsp;·&nbsp; Last updated {datetime.now().strftime('%I:%M %p CT')}</div>", unsafe_allow_html=True)
 
 # ── KenPom Scraper Test ───────────────────────────────────────────────────────
 with st.expander("🧪 KenPom Scraper Test", expanded=False):
@@ -1148,17 +1142,11 @@ with tab3:
         _now_ct = datetime.now(CENTRAL)
 
         # Auto-snapshot during noon window (11am–3pm CT)
-        # Only fires if Vegas lines are actually available — prevents empty snapshots
-        # taken at app-open before the Odds API has posted morning lines
         if 11 <= _now_ct.hour < 15:
             _todays_results = run_projections(today_str)
-            _lined = [x for x in _todays_results if x.get("vegas_spread") is not None]
-            if _lined:  # Only snapshot if at least 1 game has a Vegas line
-                _snap = run_snapshot(_todays_results)
-                if _snap.get("inserted", 0) > 0:
-                    st.toast(f"📸 Locked {_snap['inserted']} game projections ({len(_lined)} with Vegas lines)", icon="📸")
-            else:
-                print(f"  [snapshot] Auto-skipped — no Vegas lines available yet at {_now_ct.strftime('%I:%M %p CT')}")
+            _snap = run_snapshot(_todays_results)
+            if _snap.get("inserted", 0) > 0:
+                st.toast(f"📸 Locked {_snap['inserted']} game projections for today", icon="📸")
 
         # Auto-grade yesterday's games at startup
         if _now_ct.hour >= 8:
@@ -1212,22 +1200,6 @@ with tab3:
                     st.warning(f"Errors: {result['errors'][:3]}")
             except Exception as e:
                 st.error(str(e))
-        if st.button("🔎 Debug Grade", use_container_width=True,
-                     help="Shows exactly which scores matched/missed your snapshots"):
-            try:
-                result = run_results(grade_date.isoformat(), debug=True)
-                st.success(f"Graded {result['graded']} | Skipped {result['skipped']}")
-                lines = result.get("debug_lines", [])
-                if lines:
-                    st.code("\n".join(lines), language=None)
-                else:
-                    st.info("No debug output — check that snapshots exist for this date.")
-                if result.get("errors"):
-                    st.warning(f"Errors: {result['errors'][:5]}")
-            except Exception as e:
-                st.error(str(e))
-                import traceback
-                st.code(traceback.format_exc())
     with col_c:
         st.markdown("Grade date applies here too", unsafe_allow_html=False)
         if st.button("🔍 Backfill Closing Lines", use_container_width=True, help="Fetches closing lines from historical Odds API for games missing Vegas spreads. Costs ~20 API credits."):
@@ -1251,204 +1223,55 @@ with tab3:
         if df.empty:
             st.info("No results yet — projections are being tracked starting today. Check back after tonight's games complete.")
         else:
-            # ── Derived columns ───────────────────────────────────────────────
-            # sides_agree: did CZarp pick the same favorite as Vegas?
-            if "czarp_side" in df.columns and "vegas_fav" in df.columns:
-                df["sides_agree"] = df["czarp_side"] == df["vegas_fav"]
-
-            # ── Base filter: graded games with a Vegas line, no push ───────────
-            has_line = df[
-                df["vegas_spread"].notna() &
-                df["czarp_covers"].notna() &
-                ~df["push"].fillna(False)
-            ].copy()
-
+            # Summary metrics
+            has_line  = df[df["vegas_spread"].notna() & df["czarp_covers"].notna() & ~df["push"].fillna(False)]
             total_bets = len(has_line)
-            wins       = int(has_line["czarp_covers"].sum())
+            wins       = has_line["czarp_covers"].sum()
             losses     = total_bets - wins
             win_pct    = (wins / total_bets * 100) if total_bets > 0 else 0
 
             ml_df      = df[df["czarp_ml_correct"].notna()]
-            ml_correct = int(ml_df["czarp_ml_correct"].sum()) if not ml_df.empty else 0
+            ml_correct = ml_df["czarz_ml_correct"].sum() if not ml_df.empty else 0
             ml_pct     = (ml_correct / len(ml_df) * 100) if len(ml_df) > 0 else 0
 
-            # Spread accuracy vs actual
-            if "czarp_spread" in has_line.columns and "actual_spread" in has_line.columns:
-                has_line["czarp_err"]  = abs(has_line["czarp_spread"].fillna(0)  - has_line["actual_spread"].fillna(0))
-                has_line["vegas_err"]  = abs(has_line["vegas_spread"].fillna(0)  - has_line["actual_spread"].fillna(0))
-                avg_czarp_err  = has_line["czarp_err"].mean()
-                avg_vegas_err  = has_line["vegas_err"].mean()
-            else:
-                avg_czarp_err = avg_vegas_err = None
-
-            # ── Row 1: KPI headline metrics ───────────────────────────────────
             m1, m2, m3, m4 = st.columns(4)
-            delta_vs_breakeven = win_pct - 52.38
-            m1.metric("ATS Record",    f"{wins}-{losses}")
-            m2.metric("ATS Win %",     f"{win_pct:.1f}%",
-                      delta=f"{delta_vs_breakeven:+.1f}% vs 52.4% b/e",
-                      delta_color="normal")
-            m3.metric("ML Pick %",     f"{ml_pct:.1f}%")
+            m1.metric("ATS Record", f"{int(wins)}-{int(losses)}")
+            m2.metric("ATS Win %", f"{win_pct:.1f}%")
+            m3.metric("ML Correct %", f"{ml_pct:.1f}%")
             m4.metric("Games Tracked", total_bets)
 
             st.markdown("---")
 
-            # ── Row 2: Edge Score Tier Breakdown ──────────────────────────────
-            st.markdown("<div class='section-title'>🎯 EDGE SCORE TIERS</div>", unsafe_allow_html=True)
-            st.caption("Does a higher edge score predict ATS coverage? This is the core model validity test.")
+            # Breakdown by bet type
+            st.markdown("**ATS by Bet Type**")
+            bt_cols = ["bet_type", "czarp_covers"]
+            if all(c in df.columns for c in bt_cols):
+                bt_df = has_line.groupby("bet_type")["czarp_covers"].agg(["sum","count"])
+                bt_df.columns = ["Wins", "Total"]
+                bt_df["Win %"] = (bt_df["Wins"] / bt_df["Total"] * 100).round(1).astype(str) + "%"
+                bt_df["Record"] = bt_df["Wins"].astype(int).astype(str) + "-" + (bt_df["Total"] - bt_df["Wins"]).astype(int).astype(str)
+                st.dataframe(bt_df[["Record", "Win %", "Total"]], use_container_width=True)
 
-            tier_defs = [
-                ("🥇 Gold",  0.08,  None,  "≥ 0.08"),
-                ("🟢 Green", 0.05,  0.08,  "0.05 – 0.08"),
-                ("⚪ Any",   0.00,  None,  "> 0  (all with line)"),
-            ]
-            tier_rows = []
-            for label, lo, hi, thresh_label in tier_defs:
-                if "edge_score" not in has_line.columns:
-                    break
-                mask = has_line["edge_score"].notna() & (has_line["edge_score"] >= lo)
-                if hi is not None:
-                    mask &= has_line["edge_score"] < hi
-                sub = has_line[mask]
-                if len(sub) == 0:
-                    continue
-                w = int(sub["czarp_covers"].sum())
-                t = len(sub)
-                pct = w / t * 100
-                avg_e = sub["edge_score"].mean()
-                agree_rate = sub["sides_agree"].mean() * 100 if "sides_agree" in sub.columns and sub["sides_agree"].notna().any() else None
-                tier_rows.append({
-                    "Tier":         label,
-                    "Threshold":    thresh_label,
-                    "Record":       f"{w}-{t-w}",
-                    "Win %":        f"{pct:.1f}%",
-                    "Avg Edge":     f"{avg_e:.4f}",
-                    "Agree w/ Vegas": f"{agree_rate:.0f}%" if agree_rate is not None else "—",
-                    "Games":        t,
-                })
+            # Upset picks record
+            upsets = has_line[has_line["is_upset_pick"] == True]
+            if not upsets.empty:
+                u_wins = upsets["czarp_covers"].sum()
+                st.markdown(f"**🚨 Upset Picks:** {int(u_wins)}-{len(upsets)-int(u_wins)} ATS ({u_wins/len(upsets)*100:.1f}%)")
 
-            if tier_rows:
-                st.dataframe(pd.DataFrame(tier_rows), use_container_width=True, hide_index=True)
-            else:
-                st.caption("Not enough data yet — edge scores populate after grades are logged.")
+            # Neutral site record
+            neutrals_df = has_line[has_line["is_neutral"] == True]
+            if not neutrals_df.empty:
+                n_wins = neutrals_df["czarp_covers"].sum()
+                st.markdown(f"**🏟️ Neutral Site:** {int(n_wins)}-{len(neutrals_df)-int(n_wins)} ATS ({n_wins/len(neutrals_df)*100:.1f}%)")
 
             st.markdown("---")
 
-            # ── Row 3: CZarp vs Vegas Alignment ──────────────────────────────
-            st.markdown("<div class='section-title'>🤝 CZARP vs VEGAS ALIGNMENT</div>", unsafe_allow_html=True)
-            if "sides_agree" in has_line.columns and has_line["sides_agree"].notna().any():
-                agree_df    = has_line[has_line["sides_agree"] == True]
-                disagree_df = has_line[has_line["sides_agree"] == False]
-
-                c1, c2, c3 = st.columns(3)
-                if len(agree_df) > 0:
-                    aw = int(agree_df["czarp_covers"].sum())
-                    at = len(agree_df)
-                    c1.metric("✅ Agrees with Vegas",
-                              f"{aw}-{at-aw}",
-                              f"{aw/at*100:.1f}% ATS ({at} games)")
-                if len(disagree_df) > 0:
-                    dw = int(disagree_df["czarp_covers"].sum())
-                    dt = len(disagree_df)
-                    c2.metric("⚡ Differs from Vegas",
-                              f"{dw}-{dt-dw}",
-                              f"{dw/dt*100:.1f}% ATS ({dt} games)",
-                              delta_color="off")
-                # Edge: when CZarp differs AND has high edge
-                if "edge_score" in has_line.columns:
-                    diff_gold = disagree_df[disagree_df["edge_score"] >= 0.08] if not disagree_df.empty else pd.DataFrame()
-                    if len(diff_gold) > 0:
-                        dgw = int(diff_gold["czarp_covers"].sum())
-                        dgt = len(diff_gold)
-                        c3.metric("🥇 Differs + Gold Edge",
-                                  f"{dgw}-{dgt-dgw}",
-                                  f"{dgw/dgt*100:.1f}% ATS ({dgt} games)")
-            else:
-                st.caption("Sides agree data will populate after next grade run.")
-
-            st.markdown("---")
-
-            # ── Row 4: Breakdown grid ──────────────────────────────────────────
-            st.markdown("<div class='section-title'>📊 BREAKDOWNS</div>", unsafe_allow_html=True)
-            col_r1, col_r2, col_r3 = st.columns(3)
-
-            with col_r1:
-                st.markdown("**Bet Type**")
-                if "bet_type" in has_line.columns and has_line["bet_type"].notna().any():
-                    bt_df = (has_line.groupby("bet_type")["czarp_covers"]
-                             .agg(["sum", "count"]).reset_index())
-                    bt_df.columns = ["Type", "Wins", "Total"]
-                    bt_df["Record"] = bt_df.apply(
-                        lambda x: f"{int(x.Wins)}-{int(x.Total-x.Wins)}", axis=1)
-                    bt_df["Win %"] = (bt_df["Wins"] / bt_df["Total"] * 100).round(1).astype(str) + "%"
-                    st.dataframe(bt_df[["Type", "Record", "Win %", "Total"]],
-                                 use_container_width=True, hide_index=True)
-                else:
-                    st.caption("No bet type data yet")
-
-            with col_r2:
-                st.markdown("**🚨 Upset Picks**")
-                upsets = has_line[has_line["is_upset_pick"] == True] if "is_upset_pick" in has_line.columns else pd.DataFrame()
-                if not upsets.empty:
-                    uw = int(upsets["czarp_covers"].sum())
-                    ul = len(upsets) - uw
-                    st.metric("Record", f"{uw}-{ul}", f"{uw/len(upsets)*100:.1f}% ATS")
-                    if "edge_score" in upsets.columns:
-                        st.caption(f"Avg edge score: {upsets['edge_score'].mean():.4f}")
-                else:
-                    st.caption("No upset picks graded yet")
-
-            with col_r3:
-                st.markdown("**🏟️ Neutral Site**")
-                neutrals_perf = has_line[has_line["is_neutral"] == True] if "is_neutral" in has_line.columns else pd.DataFrame()
-                if not neutrals_perf.empty:
-                    nw = int(neutrals_perf["czarp_covers"].sum())
-                    nl = len(neutrals_perf) - nw
-                    st.metric("Record", f"{nw}-{nl}", f"{nw/len(neutrals_perf)*100:.1f}% ATS")
-                else:
-                    st.caption("No neutral site games graded yet")
-
-            st.markdown("---")
-
-            # ── Row 5: Projection Accuracy ────────────────────────────────────
-            if avg_czarp_err is not None:
-                st.markdown("<div class='section-title'>📐 PROJECTION ACCURACY</div>", unsafe_allow_html=True)
-                a1, a2, a3, a4 = st.columns(4)
-                a1.metric("CZarp Avg Spread Error", f"{avg_czarp_err:.1f} pts")
-                a2.metric("Vegas Avg Spread Error", f"{avg_vegas_err:.1f} pts")
-
-                # Side correctness (did CZarp pick the right team to cover?)
-                if "actual_spread" in has_line.columns and "czarp_spread" in has_line.columns:
-                    czarp_right_side = (
-                        (has_line["czarp_spread"].fillna(0) > 0) ==
-                        (has_line["actual_spread"].fillna(0) > 0)
-                    )
-                    side_pct = czarp_right_side.mean() * 100
-                    a3.metric("CZarp Correct Winner %", f"{side_pct:.1f}%")
-
-                # Pushes
-                pushes = df["push"].fillna(False).sum() if "push" in df.columns else 0
-                a4.metric("Pushes", int(pushes))
-
-            st.markdown("---")
-
-            # ── Row 6: Recent Results table ───────────────────────────────────
-            st.markdown("<div class='section-title'>📋 RECENT RESULTS</div>", unsafe_allow_html=True)
-            display_cols = [
-                "game_date", "team1", "team2", "czarp_side", "bet_type",
-                "vegas_spread", "czarp_spread", "actual_spread",
-                "czarp_covers", "edge_score", "sides_agree", "push"
-            ]
+            # Recent results table
+            st.markdown("**Recent Results**")
+            display_cols = ["game_date","team1","team2","czarp_side","bet_type",
+                            "vegas_spread","actual_spread","czarp_covers","edge_score"]
             show_cols = [c for c in display_cols if c in df.columns]
-
-            recent = df[show_cols].head(50).copy()
-            # Friendly booleans
-            for bool_col in ["czarp_covers", "sides_agree", "push"]:
-                if bool_col in recent.columns:
-                    recent[bool_col] = recent[bool_col].map(
-                        {True: "✅", False: "❌", None: "—"}
-                    ).fillna("—")
-            st.dataframe(recent, use_container_width=True, hide_index=True)
+            st.dataframe(df[show_cols].head(50), use_container_width=True, hide_index=True)
 
     except Exception as e:
         st.error(f"Performance data error: {e}")
