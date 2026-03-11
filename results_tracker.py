@@ -452,16 +452,34 @@ def _grade_bet(snap: dict, result: dict) -> dict | None:
     }
 
 
-# ── 4. Run nightly results job ────────────────────────────────────────────────
+def _save_scores_to_db(db, scores: list[dict]) -> int:
+    """
+    Persist raw final scores to the game_results table.
+    Idempotent — upserts on (game_date, team1, team2).
+    Returns count of rows written.
+    """
+    saved = 0
+    for sc in scores:
+        try:
+            db.table("game_results").upsert({
+                "game_date": sc["game_date"],
+                "team1":     sc["team1"],       # Odds API name (home)
+                "team2":     sc["team2"],       # Odds API name (away)
+                "t1_final":  sc["t1_final"],
+                "t2_final":  sc["t2_final"],
+            }, on_conflict="game_date,team1,team2").execute()
+            saved += 1
+        except Exception as e:
+            print(f"  [game_results] write failed for {sc['team1']} vs {sc['team2']}: {e}")
+    return saved
+
+
+
 
 def run_results(date_str: str | None = None, debug: bool = False) -> dict:
     """
-    Fetch final scores, match against snapshots, grade bets, save to bet_results.
-    Safe to call multiple times — skips already-graded games.
-
-    date_str: YYYY-MM-DD to grade (defaults to yesterday CT)
-    debug:    if True, return full match/miss diagnostics
-    Returns {"graded": N, "skipped": N, "errors": [...], "debug_lines": [...]}
+    Fetch final scores → save to game_results → match snapshots → grade → save to bet_results.
+    Falls back to game_results DB table when Odds API scores have expired (>3 days old).
     """
     if date_str is None:
         date_str = (datetime.now(CENTRAL).date() - timedelta(days=1)).isoformat()
@@ -473,7 +491,7 @@ def run_results(date_str: str | None = None, debug: bool = False) -> dict:
     except Exception as e:
         return {"graded": 0, "skipped": 0, "errors": [str(e)]}
 
-    # Fetch snapshots for the date — keyed by lowercase KenPom name pair
+    # ── Fetch snapshots ───────────────────────────────────────────────────────
     try:
         snaps_resp = db.table("daily_snapshots").select("*").eq(
             "snapshot_date", date_str
@@ -491,13 +509,45 @@ def run_results(date_str: str | None = None, debug: bool = False) -> dict:
     for (s1, s2) in snaps.keys():
         debug_lines.append(f"   snap: '{s1}' vs '{s2}'")
 
-    # Fetch final scores (already filtered to date_str, with kp_team1/kp_team2)
+    # ── Fetch scores: live API → save permanently → fallback to DB ────────────
+    scores = []
+    source = "api"
     try:
         scores = fetch_final_scores(date_str)
+        if scores:
+            n_saved = _save_scores_to_db(db, scores)
+            debug_lines.append(f"\n💾 Saved {n_saved} scores to game_results table")
     except Exception as e:
-        return {"graded": 0, "skipped": 0, "errors": [f"Scores fetch: {e}"]}
+        debug_lines.append(f"⚠ Scores API error: {e}")
 
-    debug_lines.append(f"\n🏀 {len(scores)} completed scores from API for {date_str}:")
+    if not scores:
+        # Fallback: pull from permanent game_results table
+        try:
+            gr_resp = db.table("game_results").select("*").eq(
+                "game_date", date_str
+            ).execute()
+            raw = gr_resp.data or []
+            if raw:
+                odds_to_kenpom = _build_odds_to_kenpom()
+                scores = [{
+                    "game_date": r["game_date"],
+                    "team1":     r["team1"],
+                    "team2":     r["team2"],
+                    "kp_team1":  _normalize_odds_name(r["team1"], odds_to_kenpom),
+                    "kp_team2":  _normalize_odds_name(r["team2"], odds_to_kenpom),
+                    "t1_final":  r["t1_final"],
+                    "t2_final":  r["t2_final"],
+                } for r in raw]
+                source = "db"
+                debug_lines.append(f"📦 Using {len(scores)} scores from game_results (API expired)")
+        except Exception as e:
+            debug_lines.append(f"⚠ game_results fallback error: {e}")
+
+    if not scores:
+        return {"graded": 0, "skipped": 0, "errors": [],
+                "message": f"No scores found for {date_str} (API or DB)"}
+
+    debug_lines.append(f"\n🏀 {len(scores)} scores [{source}] for {date_str}:")
     for sc in scores:
         debug_lines.append(
             f"   odds: '{sc['team1']}' vs '{sc['team2']}'"
