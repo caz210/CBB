@@ -1148,11 +1148,17 @@ with tab3:
         _now_ct = datetime.now(CENTRAL)
 
         # Auto-snapshot during noon window (11am–3pm CT)
+        # Only fires if Vegas lines are actually available — prevents empty snapshots
+        # taken at app-open before the Odds API has posted morning lines
         if 11 <= _now_ct.hour < 15:
             _todays_results = run_projections(today_str)
-            _snap = run_snapshot(_todays_results)
-            if _snap.get("inserted", 0) > 0:
-                st.toast(f"📸 Locked {_snap['inserted']} game projections for today", icon="📸")
+            _lined = [x for x in _todays_results if x.get("vegas_spread") is not None]
+            if _lined:  # Only snapshot if at least 1 game has a Vegas line
+                _snap = run_snapshot(_todays_results)
+                if _snap.get("inserted", 0) > 0:
+                    st.toast(f"📸 Locked {_snap['inserted']} game projections ({len(_lined)} with Vegas lines)", icon="📸")
+            else:
+                print(f"  [snapshot] Auto-skipped — no Vegas lines available yet at {_now_ct.strftime('%I:%M %p CT')}")
 
         # Auto-grade yesterday's games at startup
         if _now_ct.hour >= 8:
