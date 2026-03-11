@@ -219,7 +219,7 @@ def scrape_fanmatch_games(date_str: str | None = None) -> list[dict]:
                 name = re.sub(r"^#\d{1,3}\s*", "", name)
                 # Strip trailing conference tournament suffix like " sb-t", " wcc-t", " mvc-t"
                 # KenPom appends these to team names on the fanmatch page
-                name = re.sub(r"\s+[a-z]{2,6}-t$", "", name, flags=re.IGNORECASE)
+                name = re.sub(r"\s+[a-z0-9]{2,8}-t$", "", name, flags=re.IGNORECASE)
                 return name.strip()
 
             team1 = _strip_rank(raw_t1)
@@ -228,8 +228,12 @@ def scrape_fanmatch_games(date_str: str | None = None) -> list[dict]:
             # Skip junk rows (stats blurbs, headers) — real team names are short
             if not team1 or not team2 or len(team1) > 40 or len(team2) > 40:
                 continue
-            # Skip if either "team" contains digits (stats rows like "73.4")
-            if re.search(r'\d', team1) or re.search(r'\d', team2):
+            # Skip if either "team" looks like a stats row (multiple digits, or decimal numbers)
+            # Must allow team names like "Utah St.", numeric suffixes already stripped above
+            def _has_stats_digits(s):
+                # Stats rows have standalone numbers like "73.4" or many digits
+                return bool(re.search(r'\d+\.\d', s)) or sum(c.isdigit() for c in s) > 2
+            if _has_stats_digits(team1) or _has_stats_digits(team2):
                 continue
 
             neutral   = (connector == "vs")
