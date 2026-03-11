@@ -250,6 +250,8 @@ def _grade_bet(snap: dict, result: dict) -> dict | None:
             push = True
             czarp_covers = None
 
+    sides_agree = (czarp_side == vegas_fav) if (czarp_side and vegas_fav) else None
+
     return {
         "game_date":        snap.get("snapshot_date"),
         "team1":            team1,
@@ -259,10 +261,13 @@ def _grade_bet(snap: dict, result: dict) -> dict | None:
         "is_upset_pick":    snap.get("is_upset_pick"),
         "is_neutral":       snap.get("is_neutral"),
         "czarp_spread":     snap.get("czarp_spread"),
+        "czarp_total":      snap.get("czarp_total"),
         "vegas_spread":     vegas_spread,
         "vegas_fav":        vegas_fav,
+        "vegas_total":      snap.get("vegas_total"),
         "edge_score":       snap.get("edge_score"),
         "spread_edge":      snap.get("spread_edge"),
+        "sides_agree":      sides_agree,
         "t1_final":         t1_final,
         "t2_final":         t2_final,
         "actual_spread":    float(actual_spread),
