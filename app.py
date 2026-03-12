@@ -577,7 +577,7 @@ if not results:
     st.warning(f"No games found for {today}. Try a different date or hit Refresh Data.")
     st.stop()
 
-tab1, tab2, tab3, tab4 = st.tabs(['🏀 Daily Projections', '🔬 Simulator', '📊 Performance', '📋 Table'])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(['🏀 Daily Projections', '🔬 Simulator', '📊 Performance', '📋 Table', '☕ Support'])
 
 with tab1:
     # --- Metrics ---
@@ -1347,3 +1347,42 @@ with tab4:
             df_table[_col] = pd.to_numeric(df_table[_col], errors="coerce")
 
     st.dataframe(df_table, use_container_width=True, hide_index=True)
+
+# ── Support / Ko-fi Tab ────────────────────────────────────────────────────────
+with tab5:
+    st.markdown("""
+<div style="
+  max-width: 520px;
+  margin: 40px auto;
+  text-align: center;
+  font-family: 'DM Sans', sans-serif;
+">
+  <div style="font-size: 3rem; margin-bottom: 16px;">☕</div>
+  <div style="font-family: 'Bebas Neue', sans-serif; font-size: 2rem; letter-spacing: 3px; color: #f0b429; margin-bottom: 12px;">
+    ENJOY THE MODEL?
+  </div>
+  <div style="color: #c8b8e8; font-size: 1rem; line-height: 1.7; margin-bottom: 32px;">
+    CZarp CBB is free to use. If the picks have been treating you well
+    this season, a coffee goes a long way toward keeping the lights on. 🙏
+  </div>
+  <a href="https://ko-fi.com/czarp" target="_blank" style="text-decoration: none;">
+    <div style="
+      display: inline-block;
+      background: linear-gradient(135deg, #a050f0, #7030c0);
+      color: white;
+      padding: 16px 40px;
+      border-radius: 50px;
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 1.3rem;
+      letter-spacing: 2px;
+      box-shadow: 0 4px 20px #a050f044;
+      cursor: pointer;
+    ">
+      ☕ &nbsp; BUY ME A COFFEE
+    </div>
+  </a>
+  <div style="margin-top: 24px; color: #5a3090; font-size: 0.8rem;">
+    Powered by Ko-fi &nbsp;·&nbsp; No account needed &nbsp;·&nbsp; Card or PayPal
+  </div>
+</div>
+""", unsafe_allow_html=True)
