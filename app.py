@@ -1279,7 +1279,7 @@ elif st.session_state.page == "performance":
 
     # ── Snapshot trigger (noon window) ────────────────────────────────────────
     try:
-        from results_tracker import run_snapshot, run_results, get_performance_data, backfill_closing_lines
+        from results_tracker import run_snapshot, run_results, get_performance_data, backfill_closing_lines, repair_snapshot_bet_fields
         _now_ct = datetime.now(CENTRAL)
 
         # Auto-snapshot during noon window (11am–3pm CT)
@@ -1350,6 +1350,15 @@ elif st.session_state.page == "performance":
                 from results_tracker import backfill_closing_lines
                 result = backfill_closing_lines(str(grade_date))
                 st.success(f"Updated {result['updated']} | No match {result['no_match']} | ~{result['credits_used']} credits used")
+                if result.get("errors"):
+                    st.warning(f"Errors: {result['errors'][:3]}")
+            except Exception as e:
+                st.error(str(e))
+
+        if st.button("🔧 Repair Snapshot Bet Fields", use_container_width=True, help="Fixes existing snapshots missing bet_type/czarp_side — run once per date to unlock grading."):
+            try:
+                result = repair_snapshot_bet_fields(str(grade_date))
+                st.success(f"Repaired {result['repaired']} rows | Already OK {result['skipped']}")
                 if result.get("errors"):
                     st.warning(f"Errors: {result['errors'][:3]}")
             except Exception as e:
