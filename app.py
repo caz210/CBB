@@ -486,6 +486,10 @@ def run_projections(today_str):
 
 
 # --- Sidebar ---
+# ── Page routing ──────────────────────────────────────────────────────────────
+if "page" not in st.session_state:
+    st.session_state.page = "main"
+
 with st.sidebar:
     # Logo
     st.markdown(
@@ -496,19 +500,24 @@ with st.sidebar:
     st.markdown("<span style='font-family:Bebas Neue; font-size:1.1rem; letter-spacing:2px; color:#f0b429;'>CBB MODEL</span>", unsafe_allow_html=True)
     st.markdown(f"**Season:** 2025-26")
     st.markdown("---")
-    sort_by = st.selectbox("Sort games by", ["Edge Score", "Total", "Spread (biggest fav)", "Team Name A-Z"], key="sb_sort")
-    min_edge_raw = st.slider("Min Edge Score (0–10+)", 0, 10, 0, 1, key="sb_edge")
-    min_edge = min_edge_raw / 100
-    st.text_input("Search", placeholder="🔍 Search team...", key="team_search", label_visibility="collapsed")
-    st.markdown("---")  # 5 on slider = 0.05 threshold
-    show_only_missing_lines = st.checkbox("Missing Lines", value=False, key="sb_vegas")
-    show_only_dawgs  = st.checkbox("🐶 Only Dawgs (+ points)", value=False, key="sb_dawgs")
-    show_only_favs   = st.checkbox("⭐ Only Favorites (- points)", value=False, key="sb_favs")
-    show_only_upset  = st.checkbox("🚨 Only Upset Picks", value=False, key="sb_upset")
-    show_only_neutral = st.checkbox("🏟️ Only Neutral Site", value=False, key="sb_neutral")
+
+    # ── Page navigation ───────────────────────────────────────────────────────
+    st.markdown("<span style='font-family:Bebas Neue; font-size:0.8rem; letter-spacing:2px; color:#9b72e0;'>NAVIGATE</span>", unsafe_allow_html=True)
+    if st.button("🏀  Daily Projections", use_container_width=True, key="nav_main",
+                 type="primary" if st.session_state.page == "main" else "secondary"):
+        st.session_state.page = "main"
+        st.rerun()
+    if st.button("📊  Performance", use_container_width=True, key="nav_perf",
+                 type="primary" if st.session_state.page == "performance" else "secondary"):
+        st.session_state.page = "performance"
+        st.rerun()
+    if st.button("📋  Table", use_container_width=True, key="nav_table",
+                 type="primary" if st.session_state.page == "table" else "secondary"):
+        st.session_state.page = "table"
+        st.rerun()
     st.markdown("---")
 
-    # Date picker — default to TODAY in Central time
+    # Date picker — always visible (used by all pages)
     _ct = datetime.now(CENTRAL)
     _today_ct = _ct.date()
     selected_date = st.date_input(
@@ -520,9 +529,32 @@ with st.sidebar:
         key="sb_date"
     )
     today = str(selected_date)
-    today_str = today  # module-level alias for use in tab3
+    today_str = today  # module-level alias for use in perf/table pages
 
+    # ── Filters — only shown on Daily Projections ─────────────────────────────
+    if st.session_state.page == "main":
+        st.markdown("---")
+        sort_by = st.selectbox("Sort games by", ["Edge Score", "Total", "Spread (biggest fav)", "Team Name A-Z"], key="sb_sort")
+        min_edge_raw = st.slider("Min Edge Score (0–10+)", 0, 10, 0, 1, key="sb_edge")
+        min_edge = min_edge_raw / 100
+        st.text_input("Search", placeholder="🔍 Search team...", key="team_search", label_visibility="collapsed")
+        st.markdown("---")
+        show_only_missing_lines = st.checkbox("Missing Lines", value=False, key="sb_vegas")
+        show_only_dawgs  = st.checkbox("🐶 Only Dawgs (+ points)", value=False, key="sb_dawgs")
+        show_only_favs   = st.checkbox("⭐ Only Favorites (- points)", value=False, key="sb_favs")
+        show_only_upset  = st.checkbox("🚨 Only Upset Picks", value=False, key="sb_upset")
+        show_only_neutral = st.checkbox("🏟️ Only Neutral Site", value=False, key="sb_neutral")
+    else:
+        # Provide defaults so main page code doesn't break on rerun
+        sort_by = "Edge Score"
+        min_edge = 0.0
+        show_only_missing_lines = False
+        show_only_dawgs = False
+        show_only_favs = False
+        show_only_upset = False
+        show_only_neutral = False
     st.markdown("---")
+
     if st.button("Refresh Data", use_container_width=True, key="sb_refresh"):
         st.cache_data.clear()
         st.rerun()
@@ -577,573 +609,612 @@ if not results:
     st.warning(f"No games found for {today}. Try a different date or hit Refresh Data.")
     st.stop()
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(['🏀 Daily Projections', '🔬 Simulator', '📊 Performance', '📋 Table', '☕ Support'])
+if st.session_state.page == "main":
+    tab1, tab2, tab3 = st.tabs(['🏀 Daily Projections', '🔬 Simulator', '☕ Support'])
 
-with tab1:
-    # --- Metrics ---
-    games_with_vegas = [r for r in results if r.get("vegas_spread") is not None]
-    high_edge  = [r for r in results if (r.get("edge_score") or 0) >= 0.05]
-    avg_total  = round(sum(r["total"] for r in results) / len(results), 1)
-    valid_edges = [r.get("edge_score") for r in results if r.get("edge_score") is not None]
-    avg_edge = round(sum(valid_edges) / len(valid_edges) * 100, 2) if valid_edges else 0.0
+    with tab1:
+        # --- Metrics ---
+        games_with_vegas = [r for r in results if r.get("vegas_spread") is not None]
+        high_edge  = [r for r in results if (r.get("edge_score") or 0) >= 0.05]
+        avg_total  = round(sum(r["total"] for r in results) / len(results), 1)
+        valid_edges = [r.get("edge_score") for r in results if r.get("edge_score") is not None]
+        avg_edge = round(sum(valid_edges) / len(valid_edges) * 100, 2) if valid_edges else 0.0
 
-    c1,c2,c3,c4,c5 = st.columns(5)
-    c1.metric("Games Today", len(results))
-    c2.metric("With Vegas Lines", len(games_with_vegas))
-    # High Edge metric — clicking it filters the list
-    with c3:
-        def _set_high_edge():
-            st.session_state["sb_edge"] = 5
-        if st.button(f"🔥 High Edge (≥5%)\n{len(high_edge)} games", key="btn_high_edge", use_container_width=True, on_click=_set_high_edge):
-            pass
-        st.markdown(f"<div style='font-size:0.7rem;color:#9b72e0;margin-top:-8px;text-align:center;'>click to filter</div>", unsafe_allow_html=True)
-    c4.metric("Avg Edge Score", f"{avg_edge:.2f}")
-    c5.metric("Avg Total", avg_total)
+        c1,c2,c3,c4,c5 = st.columns(5)
+        c1.metric("Games Today", len(results))
+        c2.metric("With Vegas Lines", len(games_with_vegas))
+        # High Edge metric — clicking it filters the list
+        with c3:
+            def _set_high_edge():
+                st.session_state["sb_edge"] = 5
+            if st.button(f"🔥 High Edge (≥5%)\n{len(high_edge)} games", key="btn_high_edge", use_container_width=True, on_click=_set_high_edge):
+                pass
+            st.markdown(f"<div style='font-size:0.7rem;color:#9b72e0;margin-top:-8px;text-align:center;'>click to filter</div>", unsafe_allow_html=True)
+        c4.metric("Avg Edge Score", f"{avg_edge:.2f}")
+        c5.metric("Avg Total", avg_total)
 
-    if MODULES_OK:
-        odds_time = get_odds_last_fetched()
-        match_pct = f"{len(games_with_vegas)}/{len(results)}" 
-        if odds_time:
-            st.markdown(f"<p style='font-size:0.75rem; color:#9b72e0; margin:4px 0 0 0;'>📡 Vegas lines last fetched <b style='color:#f0b429'>{odds_time}</b> &nbsp;·&nbsp; {match_pct} games matched</p>", unsafe_allow_html=True)
-        else:
-            st.markdown(f"<p style='font-size:0.75rem; color:#e05c5c; margin:4px 0 0 0;'>📡 Vegas lines not yet loaded — hit Refresh Data</p>", unsafe_allow_html=True)
-    st.markdown("<hr class='divider'>", unsafe_allow_html=True)
-
-    # Read search value from session state so filtering works before widget renders
-    team_search = st.session_state.get("team_search", "").strip().lower()
-
-    # --- Sort & Filter ---
-    if sort_by == "Edge Score":
-        results = sorted(results, key=lambda r: r.get("edge_score") or 0, reverse=True)
-    elif sort_by == "Total":
-        results = sorted(results, key=lambda r: r["total"], reverse=True)
-    elif sort_by == "Spread (biggest fav)":
-        results = sorted(results, key=lambda r: abs(r["spread"]), reverse=True)
-    else:
-        results = sorted(results, key=lambda r: r["team1"])
-
-    if show_only_missing_lines:
-        results = [r for r in results if r.get("vegas_spread") is None]
-    if min_edge > 0:
-        results = [r for r in results if (r.get("edge_score") or 0) >= min_edge]
-    show_only_neutral = st.session_state.get("sb_neutral", False)
-    if show_only_neutral:
-        results = [r for r in results if r.get("is_neutral")]
-    if show_only_dawgs:
-        results = [r for r in results if r.get("bet_type") == "dog_ats"]
-    if show_only_favs:
-        results = [r for r in results if r.get("bet_type") == "fav_ats"]
-    if st.session_state.get("sb_upset", False):
-        results = [r for r in results if r.get("is_upset_pick")]
-    if team_search:
-        results = [r for r in results if team_search in r["team1"].lower() or team_search in r["team2"].lower()]
-        if not results:
-            st.info(f"No games found matching '{team_search}'.")
-
-    # --- Game Cards ---
-    st.markdown("<div class='section-title'>TODAY'S PROJECTIONS</div>", unsafe_allow_html=True)
-
-    if not results:
-        st.info("No games match your filters.")
-    else:
-        for r in results:
-            edge     = r.get("edge_score")
-            disagree = r.get("sides_agree") is False
-
-            epct = f"{edge*100:.2f}%" if edge else ""
-            if disagree and edge and edge >= 0.05:
-                badge_cls, badge_txt = "edge-diff", f"SIDES DIFFER  {epct}"
-            elif edge and edge >= 0.07:
-                badge_cls, badge_txt = "edge-hot",  f"HOT EDGE  {epct}"
-            elif edge and edge >= 0.05:
-                badge_cls, badge_txt = "edge-good", f"EDGE  {epct}"
-            elif edge and edge > 0:
-                badge_cls, badge_txt = "edge-low",  f"EDGE {epct}"
+        if MODULES_OK:
+            odds_time = get_odds_last_fetched()
+            match_pct = f"{len(games_with_vegas)}/{len(results)}" 
+            if odds_time:
+                st.markdown(f"<p style='font-size:0.75rem; color:#9b72e0; margin:4px 0 0 0;'>📡 Vegas lines last fetched <b style='color:#f0b429'>{odds_time}</b> &nbsp;·&nbsp; {match_pct} games matched</p>", unsafe_allow_html=True)
             else:
-                badge_cls, badge_txt = "edge-low",  "NO LINE"
-
-            away_score = r["team2_score"]
-            home_score = r["team1_score"]
-            away_name  = r["team2"]
-            home_name  = r["team1"]
-            away_cls = "team-score team-score-winner" if away_score > home_score else "team-score"
-            home_cls = "team-score team-score-winner" if home_score > away_score else "team-score"
-
-            s = r["spread"]
-            if s > 0:
-                czarp_txt  = f"{home_name[:16]} {-abs(s):+.1f}"
-                czarp_side = f"{home_name[:18]} - {abs(s):.1f}"
-            elif s < 0:
-                czarp_txt  = f"{away_name[:16]} {-abs(s):+.1f}"
-                czarp_side = f"{away_name[:18]} - {abs(s):.1f}"
-            else:
-                czarp_txt  = "EVEN"
-                czarp_side = "EVEN"
-
-            vs   = r.get("vegas_spread")
-            vt   = r.get("vegas_total")
-            vfav = r.get("vegas_fav")
-            if vs is not None and vfav:
-                vtxt  = f"{vfav[:16]} {-abs(vs):+.1f}" if vs != 0 else "EVEN"
-                vttxt = f"{vt:.1f}" if vt else "-"
-            else:
-                vtxt, vttxt = "-", "-"
-
-            swing_txt = f"{r['spread_edge']:+.1f}" if r.get("spread_edge") is not None else "-"
-            gtime = r.get("game_time") or r.get("odds_game_time") or ""
-            time_html = f"<div class='game-time'>{gtime}</div>" if gtime else ""
-            differ_html = "<span class='meta-val meta-val-differ'>SIDES DIFFER</span>" if disagree else ""
-            differ_block = '<div class="meta-item"><span class="meta-label">&nbsp;</span>' + differ_html + '</div>' if disagree else ""
-            edge_block = f'<div class="meta-item"><span class="meta-label">Edge</span><span class="edge-badge {badge_cls}">{badge_txt}</span></div>'
-
-            # Highlight card if it matches the search
-            is_match   = bool(team_search and (team_search in away_name.lower() or team_search in home_name.lower()))
-            is_neutral = r.get("is_neutral", False)
-            card_class = "game-card"
-            if is_match:    card_class += " game-card-match"
-            if is_neutral:  card_class += " game-card-neutral"
-
-            # ── Bet badges ────────────────────────────────────────────────────
-            bet_type      = r.get("bet_type")       # "fav_ats" | "dog_ats" | None
-            bet_side_name = r.get("bet_side")
-            is_upset      = r.get("is_upset_pick", False)
-            badge_html = ""
-            if is_neutral:
-                badge_html += "<span class='neutral-badge'>🏟️ NEUTRAL SITE</span> "
-            if is_upset and bet_side_name:
-                badge_html += f"<span class='upset-badge'>🚨 UPSET PICK — {bet_side_name}</span> "
-            if bet_type == "dog_ats" and bet_side_name:
-                badge_html += f"<span class='dog-ats-badge'>🐶 BACK DOG — {bet_side_name}</span>"
-            elif bet_type == "fav_ats" and bet_side_name:
-                badge_html += f"<span class='fav-ats-badge'>💰 LAY FAV — {bet_side_name}</span>"
-            badge_row = f"<div style='margin-bottom:6px;'>{badge_html}</div>" if badge_html else ""
-
-            # ── Bet callout box ───────────────────────────────────────────────
-            callout_html = ""
-            if bet_side_name and vs is not None:
-                my_margin  = abs(r.get("spread", 0))
-                veg_margin = abs(vs)
-                if bet_type == "dog_ats":
-                    callout_html = (
-                        f"<div style='background:#0d0820;border-left:3px solid #fb923c;"
-                        f"border-radius:6px;padding:8px 14px;margin-top:8px;font-size:0.78rem;color:#d0b8f0;'>"
-                        f"🐶 Model backs <b style='color:#fb923c'>{bet_side_name}</b> to cover the "
-                        f"<b>{veg_margin:.1f}-pt spread</b> — projects margin of only "
-                        f"<b>{my_margin:.1f}</b> pts for the favorite.</div>"
-                    )
-                elif bet_type == "fav_ats":
-                    callout_html = (
-                        f"<div style='background:#0d0820;border-left:3px solid #4ade80;"
-                        f"border-radius:6px;padding:8px 14px;margin-top:8px;font-size:0.78rem;color:#d0b8f0;'>"
-                        f"💰 Model likes <b style='color:#4ade80'>{bet_side_name}</b> to cover — "
-                        f"projects a <b>{my_margin:.1f}-pt</b> win vs Vegas line of "
-                        f"<b>{veg_margin:.1f}</b>.</div>"
-                    )
-
-            parts = [
-                f'<div class="{card_class}">',
-                badge_row,
-                time_html,
-                f'<div class="team-row"><span class="team-name">{away_name} <span class="team-label">AWAY</span></span><span class="{away_cls}">{away_score:.1f}</span></div>',
-                f'<div class="team-row"><span class="team-name">{home_name} <span class="team-label">HOME</span></span><span class="{home_cls}">{home_score:.1f}</span></div>',
-                f'<div class="game-meta">',
-                f'<div class="meta-item"><span class="meta-label">CZarp Side</span><span class="meta-val-spread">{czarp_side}</span></div>',
-                f'<div class="meta-item"><span class="meta-label">CZarp Spread</span><span class="meta-val-spread">{czarp_txt}</span></div>',
-                f'<div class="meta-item"><span class="meta-label">CZarp Total</span><span class="meta-val">{r["total"]:.1f}</span></div>',
-                f'<div class="meta-item"><span class="meta-label">Vegas Spread</span><span class="meta-val">{vtxt}</span></div>',
-                f'<div class="meta-item"><span class="meta-label">Vegas Total</span><span class="meta-val">{vttxt}</span></div>',
-                f'<div class="meta-item"><span class="meta-label">Swing</span><span class="meta-val">{swing_txt}</span></div>',
-                edge_block,
-                '</div>',
-                callout_html,
-                '</div>',
-            ]
-            st.markdown("".join(parts), unsafe_allow_html=True)
-
-            # ── Collapsible four-factor breakdown ────────────────────────────
-            d = r.get("debug", {})
-            if d:
-                with st.expander(f"📊 {away_name} vs {home_name} — Full Breakdown", expanded=False):
-                    import streamlit.components.v1 as components
-
-                    _tab_breakdown, _tab_prediction = st.tabs(["📊 Breakdown", "🔮 Prediction"])
-
-                    with _tab_breakdown:
-                        hk, ak = "t1", "t2"   # team1 = home in daily projections
-
-                        h_rank  = d.get(f"kenpom_rank_{hk}"); a_rank  = d.get(f"kenpom_rank_{ak}")
-                        h_net   = d.get(f"net_rank_{hk}");    a_net   = d.get(f"net_rank_{ak}")
-                        h_adjoe = d.get(f"{hk}_adjoe");       a_adjoe = d.get(f"{ak}_adjoe")
-                        h_adjde = d.get(f"{hk}_adjde");       a_adjde = d.get(f"{ak}_adjde")
-                        h_tempo = d.get(f"{hk}_tempo");       a_tempo = d.get(f"{ak}_tempo")
-                        h_poss  = d.get(f"{hk}_poss");        a_poss  = d.get(f"{ak}_poss")
-                        proj_poss = r.get("projected_pace", d.get("avg_pace", 0))
-
-                        h_to_pct  = d.get(f"{hk}_to_pct");   a_to_pct  = d.get(f"{ak}_to_pct")
-                        h_or_pct  = d.get(f"{hk}_or_pct");   a_or_pct  = d.get(f"{ak}_or_pct")
-                        h_ft_rate = d.get(f"{hk}_ft_rate");  a_ft_rate = d.get(f"{ak}_ft_rate")
-                        # DEFENSE: each team's own defensive stats (not swapped)
-                        h_dto_pct = d.get(f"{hk}_dto_pct");  a_dto_pct = d.get(f"{ak}_dto_pct")   # TOs forced by THIS team
-                        h_dor_pct = d.get(f"{hk}_dor_pct");  a_dor_pct = d.get(f"{ak}_dor_pct")   # Opp ORB% THIS team allows
-                        h_dft_rt  = d.get(f"{hk}_dft_rate"); a_dft_rt  = d.get(f"{ak}_dft_rate")  # FT rate THIS team allows
-                        h_to_proj = d.get(f"{hk}_to");       a_to_proj = d.get(f"{ak}_to")
-                        h_reb     = d.get(f"{hk}_reb");       a_reb     = d.get(f"{ak}_reb")
-                        h_ft_proj = d.get(f"{hk}_ft");       a_ft_proj = d.get(f"{ak}_ft")
-                        h_hgt     = d.get(f"{hk}_hgt");       a_hgt     = d.get(f"{ak}_hgt")
-                        h_exp     = d.get(f"{hk}_exp");       a_exp     = d.get(f"{ak}_exp")
-                        h_unt     = r.get("team1_unit_score");a_unt     = r.get("team2_unit_score")
-                        h_ppp     = r.get("team1_ppp", 0);   a_ppp     = r.get("team2_ppp", 0)
-                        h_hadj    = d.get("h1_adj", 0)
-
-                        def _c(val, opp, hib=True):
-                            if val is None or opp is None: return "#7e4fcf"
-                            return "#f0b429" if (val > opp) == hib else "#7e4fcf"
-
-                        def _f(v, fmt=".1f"):
-                            return f"{v:{fmt}}" if v is not None else "—"
-
-                        def _p(v):
-                            if v is None: return "—"
-                            return f"{v*100:.1f}%" if v < 5 else f"{v:.1f}%"
-
-                        def sr(label, hv, av, hib=True, fmt=".1f", pct=False):
-                            hclr = _c(hv, av, hib); aclr = _c(av, hv, hib)
-                            hd = _p(hv) if pct else _f(hv, fmt)
-                            ad = _p(av) if pct else _f(av, fmt)
-                            return f"<tr><td style='color:{aclr};text-align:right;font-weight:600;padding:3px 10px;'>{ad}</td><td style='color:#9b72e0;font-size:0.72rem;text-align:center;padding:3px 6px;white-space:nowrap;'>{label}</td><td style='color:{hclr};text-align:left;font-weight:600;padding:3px 10px;'>{hd}</td></tr>"
-
-                        def sh(label):
-                            return f"<tr><td colspan='3' style='color:#f0b429;font-size:0.68rem;letter-spacing:2px;padding:8px 10px 3px;font-weight:700;'>{label}</td></tr>"
-
-                        kp_proj = ""
-                        kp_h = r.get("kp_home_score"); kp_a = r.get("kp_away_score")
-                        if kp_h and kp_a:
-                            kp_proj = f"<tr><td colspan='3' style='color:#9b72e0;font-size:0.72rem;text-align:center;padding:2px 10px;'>KenPom proj: {away_name} {kp_a} / {home_name} {kp_h}</td></tr>"
-
-                        table = f"""
-                        <table style='width:100%;border-collapse:collapse;font-family:Inter,sans-serif;font-size:0.82rem;'>
-                          <tr>
-                            <th style='color:#f0b429;text-align:right;padding:5px 10px;font-size:0.82rem;'>{away_name}</th>
-                            <th style='width:180px'></th>
-                            <th style='color:#f0b429;text-align:left;padding:5px 10px;font-size:0.82rem;'>{home_name}</th>
-                          </tr>
-                          {sh("RANKINGS & EFFICIENCY")}
-                          {sr("KenPom Rank", h_rank, a_rank, hib=False, fmt=".0f")}
-                          {sr("Adj Offensive Efficiency", h_adjoe, a_adjoe)}
-                          {sr("Adj Defensive Efficiency", h_adjde, a_adjde, hib=False)}
-                          {sr("PPP (projected)", h_ppp, a_ppp, fmt=".4f")}
-                          {kp_proj}
-                          {sh("PACE & POSSESSIONS")}
-                          {sr("Adj Tempo (season)", h_tempo, a_tempo)}
-                          {sr("Proj Possessions (this game)", h_poss, a_poss)}
-                          {sh("FOUR FACTORS — OFFENSE")}
-                          {sr("Turnover %  (lower = better)", h_to_pct, a_to_pct, hib=False, pct=True)}
-                          {sr("Off Rebound %", h_or_pct, a_or_pct, pct=True)}
-                          {sr("FT Rate  (FTA/FGA)", h_ft_rate, a_ft_rate, pct=True)}
-                          {sr("Proj TO Advantage", h_to_proj, a_to_proj, hib=False)}
-                          {sr("Proj Reb Advantage", h_reb, a_reb)}
-                          {sr("Proj FT Advantage", h_ft_proj, a_ft_proj)}
-                          {sh("FOUR FACTORS — DEFENSE")}
-                          {sr("TOs Forced on Opponent %", h_dto_pct, a_dto_pct, hib=True, pct=True)}
-                          {sr("Opp Off Reb % Allowed (lower = better)", h_dor_pct, a_dor_pct, hib=False, pct=True)}
-                          {sr("FT Rate Allowed to Opp (lower = better)", h_dft_rt, a_dft_rt, hib=False, pct=True)}
-                          {sh("ROSTER")}
-                          {sr("Avg Height", h_hgt, a_hgt)}
-                          {sr("Experience", h_exp, a_exp, fmt=".2f")}
-                          {sr("Unit Score", h_unt, a_unt, fmt=".2f")}
-                        </table>
-                        {"<p style='font-size:0.72rem;color:#9b72e0;margin:6px 0 0 10px;'>🏠 HCA applied: <b style='color:#f0b429'>+" + f"{abs(h_hadj):.1f} pts</b> to {home_name}</p>" if h_hadj else ""}
-                        """
-
-                        components.html(f"""
-                        <html><head><style>
-                          body{{margin:0;padding:0;font-family:'Inter',sans-serif;background:#0d0820;}}
-                          table{{width:100%;border-collapse:collapse;color:#e8e8e8;}}
-                          tr:hover td{{background:rgba(255,255,255,0.04);}}
-                        </style></head>
-                        <body style="background:#0d0820;padding:12px;border-radius:10px;border:1px solid #3d2080;">
-                          {table}
-                        </body></html>
-                        """, height=560, scrolling=False)
-
-                    with _tab_prediction:
-                        blurb = generate_prediction_blurb(r, home_name=home_name, away_name=away_name)
-                        st.markdown(blurb, unsafe_allow_html=True)
-
-    st.markdown(f"<div style='margin-top:40px; padding-top:20px; border-top:1px solid #3d2080; font-size:0.75rem; color:#9b72e0; text-align:center;'>CZarp CBB Model &nbsp; 2025-26 &nbsp; Last updated {datetime.now().strftime('%I:%M %p')}</div>", unsafe_allow_html=True)
-
-with tab2:
-    st.markdown("<div class='section-title'>GAME SIMULATOR</div>", unsafe_allow_html=True)
-    st.markdown("<p style='color:#9b72e0; font-size:0.85rem; margin-top:-8px;'>Project any matchup using KenPom efficiency ratings</p>", unsafe_allow_html=True)
-
-    try:
-        sim_data = get_kenpom_data()
-        team_list = sorted(sim_data["ratings"]["TeamName"].dropna().tolist())
-    except Exception as e:
-        st.error(f"Could not load team list: {e}")
-        team_list = []
-
-    if team_list:
+                st.markdown(f"<p style='font-size:0.75rem; color:#e05c5c; margin:4px 0 0 0;'>📡 Vegas lines not yet loaded — hit Refresh Data</p>", unsafe_allow_html=True)
         st.markdown("<hr class='divider'>", unsafe_allow_html=True)
 
-        # ── Team selectors — use session_state defaults to prevent tab-switch reset ──
-        if "sim_team_a" not in st.session_state:
-            st.session_state["sim_team_a"] = "Duke" if "Duke" in team_list else team_list[0]
-        if "sim_team_b" not in st.session_state:
-            st.session_state["sim_team_b"] = "Kentucky" if "Kentucky" in team_list else team_list[1]
-        if "sim_site" not in st.session_state:
-            st.session_state["sim_site"] = "Neutral"
+        # Read search value from session state so filtering works before widget renders
+        team_search = st.session_state.get("team_search", "").strip().lower()
 
-        # Use a form so team selections DON'T trigger reruns until "Run Projection" is pressed
-        # This prevents the app from bouncing back to tab1 on every dropdown change
-        with st.form("sim_form"):
-            sc1, sc2, sc3 = st.columns([2, 2, 1])
-            with sc1:
-                default_a = st.session_state.get("sim_team_a", "Duke" if "Duke" in team_list else team_list[0])
-                idx_a = team_list.index(default_a) if default_a in team_list else 0
-                team_a = st.selectbox("Team A", team_list, index=idx_a, key="sim_team_a_form")
-            with sc2:
-                default_b = st.session_state.get("sim_team_b", "Kentucky" if "Kentucky" in team_list else team_list[1])
-                idx_b = team_list.index(default_b) if default_b in team_list else 1
-                team_b = st.selectbox("Team B", team_list, index=idx_b, key="sim_team_b_form")
-            with sc3:
-                site_opts = ["Neutral", "Team A Home", "Team B Home"]
-                default_site = st.session_state.get("sim_site", "Neutral")
-                idx_s = site_opts.index(default_site) if default_site in site_opts else 0
-                site = st.selectbox("Site", site_opts, index=idx_s, key="sim_site_form")
-
-            run_sim = st.form_submit_button("🏀 RUN PROJECTION", use_container_width=False, type="primary")
-
-        if site == "Neutral":
-            team1_is_home = None
-        elif site == "Team A Home":
-            team1_is_home = True
+        # --- Sort & Filter ---
+        if sort_by == "Edge Score":
+            results = sorted(results, key=lambda r: r.get("edge_score") or 0, reverse=True)
+        elif sort_by == "Total":
+            results = sorted(results, key=lambda r: r["total"], reverse=True)
+        elif sort_by == "Spread (biggest fav)":
+            results = sorted(results, key=lambda r: abs(r["spread"]), reverse=True)
         else:
-            team1_is_home = False
+            results = sorted(results, key=lambda r: r["team1"])
 
-        if run_sim:
-            # Save selections to session state
-            st.session_state["sim_team_a"] = team_a
-            st.session_state["sim_team_b"] = team_b
-            st.session_state["sim_site"] = site
+        if show_only_missing_lines:
+            results = [r for r in results if r.get("vegas_spread") is None]
+        if min_edge > 0:
+            results = [r for r in results if (r.get("edge_score") or 0) >= min_edge]
+        show_only_neutral = st.session_state.get("sb_neutral", False)
+        if show_only_neutral:
+            results = [r for r in results if r.get("is_neutral")]
+        if show_only_dawgs:
+            results = [r for r in results if r.get("bet_type") == "dog_ats"]
+        if show_only_favs:
+            results = [r for r in results if r.get("bet_type") == "fav_ats"]
+        if st.session_state.get("sb_upset", False):
+            results = [r for r in results if r.get("is_upset_pick")]
+        if team_search:
+            results = [r for r in results if team_search in r["team1"].lower() or team_search in r["team2"].lower()]
+            if not results:
+                st.info(f"No games found matching '{team_search}'.")
 
-        if run_sim:
-            try:
-                r = project_game(team_a, team_b, team1_is_home, sim_data)
-                st.session_state["sim_result"] = r
-                st.session_state["sim_labels"] = (site, team_a, team_b, team1_is_home)
-            except Exception as e:
-                st.error(f"Projection error: {e}")
-                st.session_state.pop("sim_result", None)
+        # --- Game Cards ---
+        st.markdown("<div class='section-title'>TODAY'S PROJECTIONS</div>", unsafe_allow_html=True)
 
-        if "sim_result" in st.session_state:
-            r   = st.session_state["sim_result"]
-            sv, ta, tb, t1_is_home = st.session_state["sim_labels"]
-            d   = r.get("debug", {})
+        if not results:
+            st.info("No games match your filters.")
+        else:
+            for r in results:
+                edge     = r.get("edge_score")
+                disagree = r.get("sides_agree") is False
 
-            # Orient home/away
-            if t1_is_home is False:
-                home_name,  away_name  = r["team2"], r["team1"]
-                home_score, away_score = r["team2_score"], r["team1_score"]
-                home_ppp,   away_ppp   = r.get("team2_ppp", 0), r.get("team1_ppp", 0)
-                hk, ak = "t2", "t1"
-            else:
-                home_name,  away_name  = r["team1"], r["team2"]
-                home_score, away_score = r["team1_score"], r["team2_score"]
-                home_ppp,   away_ppp   = r.get("team1_ppp", 0), r.get("team2_ppp", 0)
-                hk, ak = "t1", "t2"
+                epct = f"{edge*100:.2f}%" if edge else ""
+                if disagree and edge and edge >= 0.05:
+                    badge_cls, badge_txt = "edge-diff", f"SIDES DIFFER  {epct}"
+                elif edge and edge >= 0.07:
+                    badge_cls, badge_txt = "edge-hot",  f"HOT EDGE  {epct}"
+                elif edge and edge >= 0.05:
+                    badge_cls, badge_txt = "edge-good", f"EDGE  {epct}"
+                elif edge and edge > 0:
+                    badge_cls, badge_txt = "edge-low",  f"EDGE {epct}"
+                else:
+                    badge_cls, badge_txt = "edge-low",  "NO LINE"
 
-            away_wins = away_score > home_score
-            home_wins = home_score > away_score
+                away_score = r["team2_score"]
+                home_score = r["team1_score"]
+                away_name  = r["team2"]
+                home_name  = r["team1"]
+                away_cls = "team-score team-score-winner" if away_score > home_score else "team-score"
+                home_cls = "team-score team-score-winner" if home_score > away_score else "team-score"
 
-            s        = r["spread"]
-            fav_name = r["team1"] if s > 0 else (r["team2"] if s < 0 else None)
-            czarp_txt = f"{fav_name} {-abs(s):+.1f}" if fav_name else "EVEN"
+                s = r["spread"]
+                if s > 0:
+                    czarp_txt  = f"{home_name[:16]} {-abs(s):+.1f}"
+                    czarp_side = f"{home_name[:18]} - {abs(s):.1f}"
+                elif s < 0:
+                    czarp_txt  = f"{away_name[:16]} {-abs(s):+.1f}"
+                    czarp_side = f"{away_name[:18]} - {abs(s):.1f}"
+                else:
+                    czarp_txt  = "EVEN"
+                    czarp_side = "EVEN"
 
-            away_sc  = "team-score team-score-winner" if away_wins else "team-score"
-            home_sc  = "team-score team-score-winner" if home_wins else "team-score"
-            hl       = "HOME" if t1_is_home or t1_is_home is None else "AWAY"
-            al       = "AWAY" if t1_is_home or t1_is_home is None else "HOME"
-            if t1_is_home is None:
-                hl = al = "NEUTRAL"
-            site_badge = f"<span style='background:#3d2080; color:#7e4fcf; font-size:0.7rem; padding:2px 8px; border-radius:10px; margin-bottom:8px; display:inline-block;'>{sv.upper()}</span>"
+                vs   = r.get("vegas_spread")
+                vt   = r.get("vegas_total")
+                vfav = r.get("vegas_fav")
+                if vs is not None and vfav:
+                    vtxt  = f"{vfav[:16]} {-abs(vs):+.1f}" if vs != 0 else "EVEN"
+                    vttxt = f"{vt:.1f}" if vt else "-"
+                else:
+                    vtxt, vttxt = "-", "-"
 
-            proj_poss = r.get("projected_pace", d.get("avg_pace", 0))
-            home_poss = d.get(f"{hk}_poss", proj_poss)
-            away_poss = d.get(f"{ak}_poss", proj_poss)
+                swing_txt = f"{r['spread_edge']:+.1f}" if r.get("spread_edge") is not None else "-"
+                gtime = r.get("game_time") or r.get("odds_game_time") or ""
+                time_html = f"<div class='game-time'>{gtime}</div>" if gtime else ""
+                differ_html = "<span class='meta-val meta-val-differ'>SIDES DIFFER</span>" if disagree else ""
+                differ_block = '<div class="meta-item"><span class="meta-label">&nbsp;</span>' + differ_html + '</div>' if disagree else ""
+                edge_block = f'<div class="meta-item"><span class="meta-label">Edge</span><span class="edge-badge {badge_cls}">{badge_txt}</span></div>'
 
-            # ── Score card ──────────────────────────────────────────────────
-            st.markdown(f"""
-            <div class="game-card" style="max-width:560px; margin-top:20px;">
-                {site_badge}
-                <div class="team-row">
-                    <span class="team-name">{away_name} <span class="team-label">{al}</span></span>
-                    <span class="{away_sc}">{away_score:.1f}</span>
-                </div>
-                <div class="team-row">
-                    <span class="team-name">{home_name} <span class="team-label">{hl}</span></span>
-                    <span class="{home_sc}">{home_score:.1f}</span>
-                </div>
-                <div class="game-meta">
-                    <div class="meta-item"><span class="meta-label">CZarp Side</span><span class="meta-val-spread">{czarp_txt}</span></div>
-                    <div class="meta-item"><span class="meta-label">CZarp Total</span><span class="meta-val">{r["total"]:.1f}</span></div>
-                    <div class="meta-item"><span class="meta-label">Proj Possessions</span><span class="meta-val">{proj_poss:.1f}</span></div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+                # Highlight card if it matches the search
+                is_match   = bool(team_search and (team_search in away_name.lower() or team_search in home_name.lower()))
+                is_neutral = r.get("is_neutral", False)
+                card_class = "game-card"
+                if is_match:    card_class += " game-card-match"
+                if is_neutral:  card_class += " game-card-neutral"
 
-            st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+                # ── Bet badges ────────────────────────────────────────────────────
+                bet_type      = r.get("bet_type")       # "fav_ats" | "dog_ats" | None
+                bet_side_name = r.get("bet_side")
+                is_upset      = r.get("is_upset_pick", False)
+                badge_html = ""
+                if is_neutral:
+                    badge_html += "<span class='neutral-badge'>🏟️ NEUTRAL SITE</span> "
+                if is_upset and bet_side_name:
+                    badge_html += f"<span class='upset-badge'>🚨 UPSET PICK — {bet_side_name}</span> "
+                if bet_type == "dog_ats" and bet_side_name:
+                    badge_html += f"<span class='dog-ats-badge'>🐶 BACK DOG — {bet_side_name}</span>"
+                elif bet_type == "fav_ats" and bet_side_name:
+                    badge_html += f"<span class='fav-ats-badge'>💰 LAY FAV — {bet_side_name}</span>"
+                badge_row = f"<div style='margin-bottom:6px;'>{badge_html}</div>" if badge_html else ""
 
-            # ── Helper: color a value relative to opponent ───────────────────
-            def _clr(val, opp, higher_is_better=True):
-                """Return gold if this side has the edge, muted blue otherwise."""
-                if val is None or opp is None: return "#7e4fcf"
-                return "#f0b429" if (val > opp) == higher_is_better else "#7e4fcf"
+                # ── Bet callout box ───────────────────────────────────────────────
+                callout_html = ""
+                if bet_side_name and vs is not None:
+                    my_margin  = abs(r.get("spread", 0))
+                    veg_margin = abs(vs)
+                    if bet_type == "dog_ats":
+                        callout_html = (
+                            f"<div style='background:#0d0820;border-left:3px solid #fb923c;"
+                            f"border-radius:6px;padding:8px 14px;margin-top:8px;font-size:0.78rem;color:#d0b8f0;'>"
+                            f"🐶 Model backs <b style='color:#fb923c'>{bet_side_name}</b> to cover the "
+                            f"<b>{veg_margin:.1f}-pt spread</b> — projects margin of only "
+                            f"<b>{my_margin:.1f}</b> pts for the favorite.</div>"
+                        )
+                    elif bet_type == "fav_ats":
+                        callout_html = (
+                            f"<div style='background:#0d0820;border-left:3px solid #4ade80;"
+                            f"border-radius:6px;padding:8px 14px;margin-top:8px;font-size:0.78rem;color:#d0b8f0;'>"
+                            f"💰 Model likes <b style='color:#4ade80'>{bet_side_name}</b> to cover — "
+                            f"projects a <b>{my_margin:.1f}-pt</b> win vs Vegas line of "
+                            f"<b>{veg_margin:.1f}</b>.</div>"
+                        )
 
-            def _pct(v, decimals=1):
-                if v is None: return "—"
-                return f"{v*100:.{decimals}f}%" if v < 5 else f"{v:.{decimals}f}"
+                parts = [
+                    f'<div class="{card_class}">',
+                    badge_row,
+                    time_html,
+                    f'<div class="team-row"><span class="team-name">{away_name} <span class="team-label">AWAY</span></span><span class="{away_cls}">{away_score:.1f}</span></div>',
+                    f'<div class="team-row"><span class="team-name">{home_name} <span class="team-label">HOME</span></span><span class="{home_cls}">{home_score:.1f}</span></div>',
+                    f'<div class="game-meta">',
+                    f'<div class="meta-item"><span class="meta-label">CZarp Side</span><span class="meta-val-spread">{czarp_side}</span></div>',
+                    f'<div class="meta-item"><span class="meta-label">CZarp Spread</span><span class="meta-val-spread">{czarp_txt}</span></div>',
+                    f'<div class="meta-item"><span class="meta-label">CZarp Total</span><span class="meta-val">{r["total"]:.1f}</span></div>',
+                    f'<div class="meta-item"><span class="meta-label">Vegas Spread</span><span class="meta-val">{vtxt}</span></div>',
+                    f'<div class="meta-item"><span class="meta-label">Vegas Total</span><span class="meta-val">{vttxt}</span></div>',
+                    f'<div class="meta-item"><span class="meta-label">Swing</span><span class="meta-val">{swing_txt}</span></div>',
+                    edge_block,
+                    '</div>',
+                    callout_html,
+                    '</div>',
+                ]
+                st.markdown("".join(parts), unsafe_allow_html=True)
 
-            def _stat(v, fmt=".1f"):
-                return f"{v:{fmt}}" if v is not None else "—"
+                # ── Collapsible four-factor breakdown ────────────────────────────
+                d = r.get("debug", {})
+                if d:
+                    with st.expander(f"📊 {away_name} vs {home_name} — Full Breakdown", expanded=False):
+                        import streamlit.components.v1 as components
 
-            # Stat row template
-            def stat_row(label, hval, aval, higher_is_better=True, fmt=".1f", pct=False):
-                hv = hval if hval is not None else 0
-                av = aval if aval is not None else 0
-                hclr = _clr(hv, av, higher_is_better)
-                aclr = _clr(av, hv, higher_is_better)
-                hdisp = _pct(hval) if pct else _stat(hval, fmt)
-                adisp = _pct(aval) if pct else _stat(aval, fmt)
-                return f"""
-                <tr>
-                  <td style='color:{aclr}; text-align:right; font-weight:600; padding:4px 10px;'>{adisp}</td>
-                  <td style='color:#9b72e0; font-size:0.75rem; text-align:center; padding:4px 6px; white-space:nowrap;'>{label}</td>
-                  <td style='color:{hclr}; text-align:left; font-weight:600; padding:4px 10px;'>{hdisp}</td>
-                </tr>"""
+                        _tab_breakdown, _tab_prediction = st.tabs(["📊 Breakdown", "🔮 Prediction"])
 
-            header_row = f"""
-                <tr>
-                  <th style='color:#f0b429; text-align:right; padding:6px 10px; font-size:0.85rem;'>{away_name}</th>
-                  <th style='color:#9b72e0; text-align:center; padding:6px 6px; font-size:0.7rem;'></th>
-                  <th style='color:#f0b429; text-align:left; padding:6px 10px; font-size:0.85rem;'>{home_name}</th>
-                </tr>"""
+                        with _tab_breakdown:
+                            hk, ak = "t1", "t2"   # team1 = home in daily projections
 
-            def section_header(label):
-                return f"""<tr><td colspan='3' style='color:#f0b429; font-size:0.7rem; letter-spacing:2px; padding:10px 10px 4px; font-family: "Bebas Neue", sans-serif;'>{label}</td></tr>"""
+                            h_rank  = d.get(f"kenpom_rank_{hk}"); a_rank  = d.get(f"kenpom_rank_{ak}")
+                            h_net   = d.get(f"net_rank_{hk}");    a_net   = d.get(f"net_rank_{ak}")
+                            h_adjoe = d.get(f"{hk}_adjoe");       a_adjoe = d.get(f"{ak}_adjoe")
+                            h_adjde = d.get(f"{hk}_adjde");       a_adjde = d.get(f"{ak}_adjde")
+                            h_tempo = d.get(f"{hk}_tempo");       a_tempo = d.get(f"{ak}_tempo")
+                            h_poss  = d.get(f"{hk}_poss");        a_poss  = d.get(f"{ak}_poss")
+                            proj_poss = r.get("projected_pace", d.get("avg_pace", 0))
 
-            # Pull all debug values, oriented to home/away
-            h_rank   = d.get(f"kenpom_rank_{hk}"); a_rank   = d.get(f"kenpom_rank_{ak}")
-            h_net    = d.get(f"net_rank_{hk}");    a_net    = d.get(f"net_rank_{ak}")
-            h_adjoe  = d.get(f"{hk}_adjoe");       a_adjoe  = d.get(f"{ak}_adjoe")
-            h_adjde  = d.get(f"{hk}_adjde");       a_adjde  = d.get(f"{ak}_adjde")
-            h_tempo  = d.get(f"{hk}_tempo");       a_tempo  = d.get(f"{ak}_tempo")
+                            h_to_pct  = d.get(f"{hk}_to_pct");   a_to_pct  = d.get(f"{ak}_to_pct")
+                            h_or_pct  = d.get(f"{hk}_or_pct");   a_or_pct  = d.get(f"{ak}_or_pct")
+                            h_ft_rate = d.get(f"{hk}_ft_rate");  a_ft_rate = d.get(f"{ak}_ft_rate")
+                            # DEFENSE: each team's own defensive stats (not swapped)
+                            h_dto_pct = d.get(f"{hk}_dto_pct");  a_dto_pct = d.get(f"{ak}_dto_pct")   # TOs forced by THIS team
+                            h_dor_pct = d.get(f"{hk}_dor_pct");  a_dor_pct = d.get(f"{ak}_dor_pct")   # Opp ORB% THIS team allows
+                            h_dft_rt  = d.get(f"{hk}_dft_rate"); a_dft_rt  = d.get(f"{ak}_dft_rate")  # FT rate THIS team allows
+                            h_to_proj = d.get(f"{hk}_to");       a_to_proj = d.get(f"{ak}_to")
+                            h_reb     = d.get(f"{hk}_reb");       a_reb     = d.get(f"{ak}_reb")
+                            h_ft_proj = d.get(f"{hk}_ft");       a_ft_proj = d.get(f"{ak}_ft")
+                            h_hgt     = d.get(f"{hk}_hgt");       a_hgt     = d.get(f"{ak}_hgt")
+                            h_exp     = d.get(f"{hk}_exp");       a_exp     = d.get(f"{ak}_exp")
+                            h_unt     = r.get("team1_unit_score");a_unt     = r.get("team2_unit_score")
+                            h_ppp     = r.get("team1_ppp", 0);   a_ppp     = r.get("team2_ppp", 0)
+                            h_hadj    = d.get("h1_adj", 0)
 
-            # Four Factors — Offense (lower TO% and higher OR%/FTR/adjOE = better)
-            h_to_pct  = d.get(f"{hk}_to_pct");    a_to_pct  = d.get(f"{ak}_to_pct")
-            h_dto_pct = d.get(f"{hk}_dto_pct");   a_dto_pct = d.get(f"{ak}_dto_pct")   # TOs forced by THIS team's defense
-            h_or_pct  = d.get(f"{hk}_or_pct");    a_or_pct  = d.get(f"{ak}_or_pct")
-            h_dor_pct = d.get(f"{hk}_dor_pct");   a_dor_pct = d.get(f"{ak}_dor_pct")   # Opp ORB% THIS team allows
-            h_ft_rate = d.get(f"{hk}_ft_rate");   a_ft_rate = d.get(f"{ak}_ft_rate")
-            h_dft_rt  = d.get(f"{hk}_dft_rate");  a_dft_rt  = d.get(f"{ak}_dft_rate")  # FT rate THIS team allows
+                            def _c(val, opp, hib=True):
+                                if val is None or opp is None: return "#7e4fcf"
+                                return "#f0b429" if (val > opp) == hib else "#7e4fcf"
 
-            # Projected game stats
-            h_poss_adj = d.get(f"{hk}_poss"); a_poss_adj = d.get(f"{ak}_poss")
-            h_to_proj  = d.get(f"{hk}_to");   a_to_proj  = d.get(f"{ak}_to")
-            h_reb_proj = d.get(f"{hk}_reb");  a_reb_proj = d.get(f"{ak}_reb")
-            h_ft_proj  = d.get(f"{hk}_ft");   a_ft_proj  = d.get(f"{ak}_ft")
+                            def _f(v, fmt=".1f"):
+                                return f"{v:{fmt}}" if v is not None else "—"
 
-            # Unit score
-            h_hgt  = d.get(f"{hk}_hgt");   a_hgt  = d.get(f"{ak}_hgt")
-            h_exp  = d.get(f"{hk}_exp");    a_exp  = d.get(f"{ak}_exp")
-            h_unt  = r.get("team1_unit_score" if hk == "t1" else "team2_unit_score")
-            a_unt  = r.get("team1_unit_score" if ak == "t1" else "team2_unit_score")
-            h_hadj = d.get(f"h1_adj" if hk == "t1" else "h2_adj", 0)
+                            def _p(v):
+                                if v is None: return "—"
+                                return f"{v*100:.1f}%" if v < 5 else f"{v:.1f}%"
 
-            table_html = f"""
-            <table style='width:100%; border-collapse:collapse; max-width:620px;'>
-              {header_row}
-              {section_header("RANKINGS & EFFICIENCY")}
-              {stat_row("KenPom Rank", h_rank, a_rank, higher_is_better=False, fmt=".0f")}
-              {stat_row("Adj Off Efficiency", h_adjoe, a_adjoe, higher_is_better=True)}
-              {stat_row("Adj Def Efficiency", h_adjde, a_adjde, higher_is_better=False)}
-              {stat_row("PPP (projected)", home_ppp, away_ppp, higher_is_better=True, fmt=".4f")}
+                            def sr(label, hv, av, hib=True, fmt=".1f", pct=False):
+                                hclr = _c(hv, av, hib); aclr = _c(av, hv, hib)
+                                hd = _p(hv) if pct else _f(hv, fmt)
+                                ad = _p(av) if pct else _f(av, fmt)
+                                return f"<tr><td style='color:{aclr};text-align:right;font-weight:600;padding:3px 10px;'>{ad}</td><td style='color:#9b72e0;font-size:0.72rem;text-align:center;padding:3px 6px;white-space:nowrap;'>{label}</td><td style='color:{hclr};text-align:left;font-weight:600;padding:3px 10px;'>{hd}</td></tr>"
 
-              {section_header("PACE & POSSESSIONS")}
-              {stat_row("Adj Tempo (season)", h_tempo, a_tempo, higher_is_better=True)}
-              {stat_row("Proj Possessions (game)", h_poss_adj, a_poss_adj, higher_is_better=True, fmt=".1f")}
+                            def sh(label):
+                                return f"<tr><td colspan='3' style='color:#f0b429;font-size:0.68rem;letter-spacing:2px;padding:8px 10px 3px;font-weight:700;'>{label}</td></tr>"
 
-              {section_header("FOUR FACTORS — OFFENSE")}
-              {stat_row("Adj Off Efficiency (AdjOE)", h_adjoe, a_adjoe, higher_is_better=True)}
-              {stat_row("Turnover %  (lower = better)", h_to_pct, a_to_pct, higher_is_better=False, pct=True)}
-              {stat_row("Off Reb %", h_or_pct, a_or_pct, higher_is_better=True, pct=True)}
-              {stat_row("FT Rate (FTA/FGA)", h_ft_rate, a_ft_rate, higher_is_better=True, pct=True)}
-              {stat_row("Proj Turnovers", h_to_proj, a_to_proj, higher_is_better=False, fmt=".1f")}
-              {stat_row("Proj Off Rebounds", h_reb_proj, a_reb_proj, higher_is_better=True, fmt=".1f")}
-              {stat_row("Proj FT Points", h_ft_proj, a_ft_proj, higher_is_better=True, fmt=".1f")}
+                            kp_proj = ""
+                            kp_h = r.get("kp_home_score"); kp_a = r.get("kp_away_score")
+                            if kp_h and kp_a:
+                                kp_proj = f"<tr><td colspan='3' style='color:#9b72e0;font-size:0.72rem;text-align:center;padding:2px 10px;'>KenPom proj: {away_name} {kp_a} / {home_name} {kp_h}</td></tr>"
 
-              {section_header("FOUR FACTORS — DEFENSE")}
-              {stat_row("TOs Forced on Opponent %", h_dto_pct, a_dto_pct, higher_is_better=True, pct=True)}
-              {stat_row("Opp Off Reb % Allowed (lower = better)", h_dor_pct, a_dor_pct, higher_is_better=False, pct=True)}
-              {stat_row("FT Rate Allowed to Opp (lower = better)", h_dft_rt, a_dft_rt, higher_is_better=False, pct=True)}
+                            table = f"""
+                            <table style='width:100%;border-collapse:collapse;font-family:Inter,sans-serif;font-size:0.82rem;'>
+                              <tr>
+                                <th style='color:#f0b429;text-align:right;padding:5px 10px;font-size:0.82rem;'>{away_name}</th>
+                                <th style='width:180px'></th>
+                                <th style='color:#f0b429;text-align:left;padding:5px 10px;font-size:0.82rem;'>{home_name}</th>
+                              </tr>
+                              {sh("RANKINGS & EFFICIENCY")}
+                              {sr("KenPom Rank", h_rank, a_rank, hib=False, fmt=".0f")}
+                              {sr("Adj Offensive Efficiency", h_adjoe, a_adjoe)}
+                              {sr("Adj Defensive Efficiency", h_adjde, a_adjde, hib=False)}
+                              {sr("PPP (projected)", h_ppp, a_ppp, fmt=".4f")}
+                              {kp_proj}
+                              {sh("PACE & POSSESSIONS")}
+                              {sr("Adj Tempo (season)", h_tempo, a_tempo)}
+                              {sr("Proj Possessions (this game)", h_poss, a_poss)}
+                              {sh("FOUR FACTORS — OFFENSE")}
+                              {sr("Turnover %  (lower = better)", h_to_pct, a_to_pct, hib=False, pct=True)}
+                              {sr("Off Rebound %", h_or_pct, a_or_pct, pct=True)}
+                              {sr("FT Rate  (FTA/FGA)", h_ft_rate, a_ft_rate, pct=True)}
+                              {sr("Proj TO Advantage", h_to_proj, a_to_proj, hib=False)}
+                              {sr("Proj Reb Advantage", h_reb, a_reb)}
+                              {sr("Proj FT Advantage", h_ft_proj, a_ft_proj)}
+                              {sh("FOUR FACTORS — DEFENSE")}
+                              {sr("TOs Forced on Opponent %", h_dto_pct, a_dto_pct, hib=True, pct=True)}
+                              {sr("Opp Off Reb % Allowed (lower = better)", h_dor_pct, a_dor_pct, hib=False, pct=True)}
+                              {sr("FT Rate Allowed to Opp (lower = better)", h_dft_rt, a_dft_rt, hib=False, pct=True)}
+                              {sh("ROSTER")}
+                              {sr("Avg Height", h_hgt, a_hgt)}
+                              {sr("Experience", h_exp, a_exp, fmt=".2f")}
+                              {sr("Unit Score", h_unt, a_unt, fmt=".2f")}
+                            </table>
+                            {"<p style='font-size:0.72rem;color:#9b72e0;margin:6px 0 0 10px;'>🏠 HCA applied: <b style='color:#f0b429'>+" + f"{abs(h_hadj):.1f} pts</b> to {home_name}</p>" if h_hadj else ""}
+                            """
 
-              {section_header("ROSTER FACTORS")}
-              {stat_row("Avg Height", h_hgt, a_hgt, higher_is_better=True, fmt=".1f")}
-              {stat_row("Experience", h_exp, a_exp, higher_is_better=True, fmt=".2f")}
-              {stat_row("Unit Score", h_unt, a_unt, higher_is_better=True, fmt=".2f")}
-            </table>
-            """
-            if h_hadj:
-                hca_html = f"<p style='font-size:0.75rem; color:#9b72e0; margin-top:6px;'>🏠 Home court advantage applied: <b style='color:#f0b429'>+{abs(h_hadj):.1f} pts</b> to {home_name}</p>"
-            else:
-                hca_html = ""
+                            components.html(f"""
+                            <html><head><style>
+                              body{{margin:0;padding:0;font-family:'Inter',sans-serif;background:#0d0820;}}
+                              table{{width:100%;border-collapse:collapse;color:#e8e8e8;}}
+                              tr:hover td{{background:rgba(255,255,255,0.04);}}
+                            </style></head>
+                            <body style="background:#0d0820;padding:12px;border-radius:10px;border:1px solid #3d2080;">
+                              {table}
+                            </body></html>
+                            """, height=560, scrolling=False)
 
-            # Wrap in full HTML doc with matching styles — st.components renders reliably
-            import streamlit.components.v1 as components
-            components.html(f"""
-            <html><head><style>
-              body {{ background: transparent; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }}
-              table {{ width: 100%; border-collapse: collapse; }}
-              tr:hover td {{ background: rgba(255,255,255,0.03); }}
-            </style></head>
-            <body style="background:#140d26; padding:12px; border-radius:10px; border:1px solid #3d2080;">
-              {table_html}
-              {hca_html}
-            </body></html>
-            """, height=820, scrolling=False)
+                        with _tab_prediction:
+                            blurb = generate_prediction_blurb(r, home_name=home_name, away_name=away_name)
+                            st.markdown(blurb, unsafe_allow_html=True)
 
-st.markdown(f"<div style='margin-top:40px; padding-top:20px; border-top:1px solid #3d2080; font-size:0.75rem; color:#9b72e0; text-align:center;'>CZarp Analytics Club &nbsp;·&nbsp; CBB Model &nbsp;·&nbsp; 2025-26 &nbsp;·&nbsp; Last updated {datetime.now().strftime('%I:%M %p CT')}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='margin-top:40px; padding-top:20px; border-top:1px solid #3d2080; font-size:0.75rem; color:#9b72e0; text-align:center;'>CZarp CBB Model &nbsp; 2025-26 &nbsp; Last updated {datetime.now().strftime('%I:%M %p')}</div>", unsafe_allow_html=True)
 
-# ── KenPom Scraper Test ───────────────────────────────────────────────────────
-with st.expander("🧪 KenPom Scraper Test", expanded=False):
-    st.caption("Tests direct login + fanmatch scraping to detect neutral sites via 'at' vs 'vs' notation.")
-    test_date = st.text_input("Date to test (YYYY-MM-DD, blank = today)", value="", key="scraper_test_date")
-    if st.button("Run Scraper Test", key="run_scraper_test"):
+    with tab2:
+        st.markdown("<div class='section-title'>GAME SIMULATOR</div>", unsafe_allow_html=True)
+        st.markdown("<p style='color:#9b72e0; font-size:0.85rem; margin-top:-8px;'>Project any matchup using KenPom efficiency ratings</p>", unsafe_allow_html=True)
+
         try:
-            from kenpom_scraper import scrape_fanmatch_games
-            with st.spinner("Logging into KenPom and scraping FanMatch..."):
-                target = test_date.strip() or None
-                games = scrape_fanmatch_games(target)
-            neutrals = [g for g in games if g["neutral"]]
-            homes    = [g for g in games if not g["neutral"]]
-            st.success(f"Found {len(games)} games — {len(neutrals)} neutral, {len(homes)} home")
-            if neutrals:
-                st.markdown("**Neutral Site Games:**")
-                for g in neutrals:
-                    st.markdown(f"- **{g['team1']}** vs **{g['team2']}**")
-            if homes:
-                st.markdown("**Home Games (first 8):**")
-                for g in homes[:8]:
-                    st.markdown(f"- {g['away_team']} at {g['home_team']}")
-                if len(homes) > 8:
-                    st.caption(f"...and {len(homes)-8} more")
+            sim_data = get_kenpom_data()
+            team_list = sorted(sim_data["ratings"]["TeamName"].dropna().tolist())
         except Exception as e:
-            st.error(f"Scraper failed: {e}")
-            import traceback
-            st.code(traceback.format_exc())
+            st.error(f"Could not load team list: {e}")
+            team_list = []
 
-# ── Performance Tab ───────────────────────────────────────────────────────────
-with tab3:
+        if team_list:
+            st.markdown("<hr class='divider'>", unsafe_allow_html=True)
+
+            # ── Team selectors — use session_state defaults to prevent tab-switch reset ──
+            if "sim_team_a" not in st.session_state:
+                st.session_state["sim_team_a"] = "Duke" if "Duke" in team_list else team_list[0]
+            if "sim_team_b" not in st.session_state:
+                st.session_state["sim_team_b"] = "Kentucky" if "Kentucky" in team_list else team_list[1]
+            if "sim_site" not in st.session_state:
+                st.session_state["sim_site"] = "Neutral"
+
+            # Use a form so team selections DON'T trigger reruns until "Run Projection" is pressed
+            # This prevents the app from bouncing back to tab1 on every dropdown change
+            with st.form("sim_form"):
+                sc1, sc2, sc3 = st.columns([2, 2, 1])
+                with sc1:
+                    default_a = st.session_state.get("sim_team_a", "Duke" if "Duke" in team_list else team_list[0])
+                    idx_a = team_list.index(default_a) if default_a in team_list else 0
+                    team_a = st.selectbox("Team A", team_list, index=idx_a, key="sim_team_a_form")
+                with sc2:
+                    default_b = st.session_state.get("sim_team_b", "Kentucky" if "Kentucky" in team_list else team_list[1])
+                    idx_b = team_list.index(default_b) if default_b in team_list else 1
+                    team_b = st.selectbox("Team B", team_list, index=idx_b, key="sim_team_b_form")
+                with sc3:
+                    site_opts = ["Neutral", "Team A Home", "Team B Home"]
+                    default_site = st.session_state.get("sim_site", "Neutral")
+                    idx_s = site_opts.index(default_site) if default_site in site_opts else 0
+                    site = st.selectbox("Site", site_opts, index=idx_s, key="sim_site_form")
+
+                run_sim = st.form_submit_button("🏀 RUN PROJECTION", use_container_width=False, type="primary")
+
+            if site == "Neutral":
+                team1_is_home = None
+            elif site == "Team A Home":
+                team1_is_home = True
+            else:
+                team1_is_home = False
+
+            if run_sim:
+                # Save selections to session state
+                st.session_state["sim_team_a"] = team_a
+                st.session_state["sim_team_b"] = team_b
+                st.session_state["sim_site"] = site
+
+            if run_sim:
+                try:
+                    r = project_game(team_a, team_b, team1_is_home, sim_data)
+                    st.session_state["sim_result"] = r
+                    st.session_state["sim_labels"] = (site, team_a, team_b, team1_is_home)
+                except Exception as e:
+                    st.error(f"Projection error: {e}")
+                    st.session_state.pop("sim_result", None)
+
+            if "sim_result" in st.session_state:
+                r   = st.session_state["sim_result"]
+                sv, ta, tb, t1_is_home = st.session_state["sim_labels"]
+                d   = r.get("debug", {})
+
+                # Orient home/away
+                if t1_is_home is False:
+                    home_name,  away_name  = r["team2"], r["team1"]
+                    home_score, away_score = r["team2_score"], r["team1_score"]
+                    home_ppp,   away_ppp   = r.get("team2_ppp", 0), r.get("team1_ppp", 0)
+                    hk, ak = "t2", "t1"
+                else:
+                    home_name,  away_name  = r["team1"], r["team2"]
+                    home_score, away_score = r["team1_score"], r["team2_score"]
+                    home_ppp,   away_ppp   = r.get("team1_ppp", 0), r.get("team2_ppp", 0)
+                    hk, ak = "t1", "t2"
+
+                away_wins = away_score > home_score
+                home_wins = home_score > away_score
+
+                s        = r["spread"]
+                fav_name = r["team1"] if s > 0 else (r["team2"] if s < 0 else None)
+                czarp_txt = f"{fav_name} {-abs(s):+.1f}" if fav_name else "EVEN"
+
+                away_sc  = "team-score team-score-winner" if away_wins else "team-score"
+                home_sc  = "team-score team-score-winner" if home_wins else "team-score"
+                hl       = "HOME" if t1_is_home or t1_is_home is None else "AWAY"
+                al       = "AWAY" if t1_is_home or t1_is_home is None else "HOME"
+                if t1_is_home is None:
+                    hl = al = "NEUTRAL"
+                site_badge = f"<span style='background:#3d2080; color:#7e4fcf; font-size:0.7rem; padding:2px 8px; border-radius:10px; margin-bottom:8px; display:inline-block;'>{sv.upper()}</span>"
+
+                proj_poss = r.get("projected_pace", d.get("avg_pace", 0))
+                home_poss = d.get(f"{hk}_poss", proj_poss)
+                away_poss = d.get(f"{ak}_poss", proj_poss)
+
+                # ── Score card ──────────────────────────────────────────────────
+                st.markdown(f"""
+                <div class="game-card" style="max-width:560px; margin-top:20px;">
+                    {site_badge}
+                    <div class="team-row">
+                        <span class="team-name">{away_name} <span class="team-label">{al}</span></span>
+                        <span class="{away_sc}">{away_score:.1f}</span>
+                    </div>
+                    <div class="team-row">
+                        <span class="team-name">{home_name} <span class="team-label">{hl}</span></span>
+                        <span class="{home_sc}">{home_score:.1f}</span>
+                    </div>
+                    <div class="game-meta">
+                        <div class="meta-item"><span class="meta-label">CZarp Side</span><span class="meta-val-spread">{czarp_txt}</span></div>
+                        <div class="meta-item"><span class="meta-label">CZarp Total</span><span class="meta-val">{r["total"]:.1f}</span></div>
+                        <div class="meta-item"><span class="meta-label">Proj Possessions</span><span class="meta-val">{proj_poss:.1f}</span></div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+
+                # ── Helper: color a value relative to opponent ───────────────────
+                def _clr(val, opp, higher_is_better=True):
+                    """Return gold if this side has the edge, muted blue otherwise."""
+                    if val is None or opp is None: return "#7e4fcf"
+                    return "#f0b429" if (val > opp) == higher_is_better else "#7e4fcf"
+
+                def _pct(v, decimals=1):
+                    if v is None: return "—"
+                    return f"{v*100:.{decimals}f}%" if v < 5 else f"{v:.{decimals}f}"
+
+                def _stat(v, fmt=".1f"):
+                    return f"{v:{fmt}}" if v is not None else "—"
+
+                # Stat row template
+                def stat_row(label, hval, aval, higher_is_better=True, fmt=".1f", pct=False):
+                    hv = hval if hval is not None else 0
+                    av = aval if aval is not None else 0
+                    hclr = _clr(hv, av, higher_is_better)
+                    aclr = _clr(av, hv, higher_is_better)
+                    hdisp = _pct(hval) if pct else _stat(hval, fmt)
+                    adisp = _pct(aval) if pct else _stat(aval, fmt)
+                    return f"""
+                    <tr>
+                      <td style='color:{aclr}; text-align:right; font-weight:600; padding:4px 10px;'>{adisp}</td>
+                      <td style='color:#9b72e0; font-size:0.75rem; text-align:center; padding:4px 6px; white-space:nowrap;'>{label}</td>
+                      <td style='color:{hclr}; text-align:left; font-weight:600; padding:4px 10px;'>{hdisp}</td>
+                    </tr>"""
+
+                header_row = f"""
+                    <tr>
+                      <th style='color:#f0b429; text-align:right; padding:6px 10px; font-size:0.85rem;'>{away_name}</th>
+                      <th style='color:#9b72e0; text-align:center; padding:6px 6px; font-size:0.7rem;'></th>
+                      <th style='color:#f0b429; text-align:left; padding:6px 10px; font-size:0.85rem;'>{home_name}</th>
+                    </tr>"""
+
+                def section_header(label):
+                    return f"""<tr><td colspan='3' style='color:#f0b429; font-size:0.7rem; letter-spacing:2px; padding:10px 10px 4px; font-family: "Bebas Neue", sans-serif;'>{label}</td></tr>"""
+
+                # Pull all debug values, oriented to home/away
+                h_rank   = d.get(f"kenpom_rank_{hk}"); a_rank   = d.get(f"kenpom_rank_{ak}")
+                h_net    = d.get(f"net_rank_{hk}");    a_net    = d.get(f"net_rank_{ak}")
+                h_adjoe  = d.get(f"{hk}_adjoe");       a_adjoe  = d.get(f"{ak}_adjoe")
+                h_adjde  = d.get(f"{hk}_adjde");       a_adjde  = d.get(f"{ak}_adjde")
+                h_tempo  = d.get(f"{hk}_tempo");       a_tempo  = d.get(f"{ak}_tempo")
+
+                # Four Factors — Offense (lower TO% and higher OR%/FTR/adjOE = better)
+                h_to_pct  = d.get(f"{hk}_to_pct");    a_to_pct  = d.get(f"{ak}_to_pct")
+                h_dto_pct = d.get(f"{hk}_dto_pct");   a_dto_pct = d.get(f"{ak}_dto_pct")   # TOs forced by THIS team's defense
+                h_or_pct  = d.get(f"{hk}_or_pct");    a_or_pct  = d.get(f"{ak}_or_pct")
+                h_dor_pct = d.get(f"{hk}_dor_pct");   a_dor_pct = d.get(f"{ak}_dor_pct")   # Opp ORB% THIS team allows
+                h_ft_rate = d.get(f"{hk}_ft_rate");   a_ft_rate = d.get(f"{ak}_ft_rate")
+                h_dft_rt  = d.get(f"{hk}_dft_rate");  a_dft_rt  = d.get(f"{ak}_dft_rate")  # FT rate THIS team allows
+
+                # Projected game stats
+                h_poss_adj = d.get(f"{hk}_poss"); a_poss_adj = d.get(f"{ak}_poss")
+                h_to_proj  = d.get(f"{hk}_to");   a_to_proj  = d.get(f"{ak}_to")
+                h_reb_proj = d.get(f"{hk}_reb");  a_reb_proj = d.get(f"{ak}_reb")
+                h_ft_proj  = d.get(f"{hk}_ft");   a_ft_proj  = d.get(f"{ak}_ft")
+
+                # Unit score
+                h_hgt  = d.get(f"{hk}_hgt");   a_hgt  = d.get(f"{ak}_hgt")
+                h_exp  = d.get(f"{hk}_exp");    a_exp  = d.get(f"{ak}_exp")
+                h_unt  = r.get("team1_unit_score" if hk == "t1" else "team2_unit_score")
+                a_unt  = r.get("team1_unit_score" if ak == "t1" else "team2_unit_score")
+                h_hadj = d.get(f"h1_adj" if hk == "t1" else "h2_adj", 0)
+
+                table_html = f"""
+                <table style='width:100%; border-collapse:collapse; max-width:620px;'>
+                  {header_row}
+                  {section_header("RANKINGS & EFFICIENCY")}
+                  {stat_row("KenPom Rank", h_rank, a_rank, higher_is_better=False, fmt=".0f")}
+                  {stat_row("Adj Off Efficiency", h_adjoe, a_adjoe, higher_is_better=True)}
+                  {stat_row("Adj Def Efficiency", h_adjde, a_adjde, higher_is_better=False)}
+                  {stat_row("PPP (projected)", home_ppp, away_ppp, higher_is_better=True, fmt=".4f")}
+
+                  {section_header("PACE & POSSESSIONS")}
+                  {stat_row("Adj Tempo (season)", h_tempo, a_tempo, higher_is_better=True)}
+                  {stat_row("Proj Possessions (game)", h_poss_adj, a_poss_adj, higher_is_better=True, fmt=".1f")}
+
+                  {section_header("FOUR FACTORS — OFFENSE")}
+                  {stat_row("Adj Off Efficiency (AdjOE)", h_adjoe, a_adjoe, higher_is_better=True)}
+                  {stat_row("Turnover %  (lower = better)", h_to_pct, a_to_pct, higher_is_better=False, pct=True)}
+                  {stat_row("Off Reb %", h_or_pct, a_or_pct, higher_is_better=True, pct=True)}
+                  {stat_row("FT Rate (FTA/FGA)", h_ft_rate, a_ft_rate, higher_is_better=True, pct=True)}
+                  {stat_row("Proj Turnovers", h_to_proj, a_to_proj, higher_is_better=False, fmt=".1f")}
+                  {stat_row("Proj Off Rebounds", h_reb_proj, a_reb_proj, higher_is_better=True, fmt=".1f")}
+                  {stat_row("Proj FT Points", h_ft_proj, a_ft_proj, higher_is_better=True, fmt=".1f")}
+
+                  {section_header("FOUR FACTORS — DEFENSE")}
+                  {stat_row("TOs Forced on Opponent %", h_dto_pct, a_dto_pct, higher_is_better=True, pct=True)}
+                  {stat_row("Opp Off Reb % Allowed (lower = better)", h_dor_pct, a_dor_pct, higher_is_better=False, pct=True)}
+                  {stat_row("FT Rate Allowed to Opp (lower = better)", h_dft_rt, a_dft_rt, higher_is_better=False, pct=True)}
+
+                  {section_header("ROSTER FACTORS")}
+                  {stat_row("Avg Height", h_hgt, a_hgt, higher_is_better=True, fmt=".1f")}
+                  {stat_row("Experience", h_exp, a_exp, higher_is_better=True, fmt=".2f")}
+                  {stat_row("Unit Score", h_unt, a_unt, higher_is_better=True, fmt=".2f")}
+                </table>
+                """
+                if h_hadj:
+                    hca_html = f"<p style='font-size:0.75rem; color:#9b72e0; margin-top:6px;'>🏠 Home court advantage applied: <b style='color:#f0b429'>+{abs(h_hadj):.1f} pts</b> to {home_name}</p>"
+                else:
+                    hca_html = ""
+
+                # Wrap in full HTML doc with matching styles — st.components renders reliably
+                import streamlit.components.v1 as components
+                components.html(f"""
+                <html><head><style>
+                  body {{ background: transparent; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }}
+                  table {{ width: 100%; border-collapse: collapse; }}
+                  tr:hover td {{ background: rgba(255,255,255,0.03); }}
+                </style></head>
+                <body style="background:#140d26; padding:12px; border-radius:10px; border:1px solid #3d2080;">
+                  {table_html}
+                  {hca_html}
+                </body></html>
+                """, height=820, scrolling=False)
+
+    st.markdown(f"<div style='margin-top:40px; padding-top:20px; border-top:1px solid #3d2080; font-size:0.75rem; color:#9b72e0; text-align:center;'>CZarp Analytics Club &nbsp;·&nbsp; CBB Model &nbsp;·&nbsp; 2025-26 &nbsp;·&nbsp; Last updated {datetime.now().strftime('%I:%M %p CT')}</div>", unsafe_allow_html=True)
+
+    # ── KenPom Scraper Test ───────────────────────────────────────────────────────
+    with st.expander("🧪 KenPom Scraper Test", expanded=False):
+        st.caption("Tests direct login + fanmatch scraping to detect neutral sites via 'at' vs 'vs' notation.")
+        test_date = st.text_input("Date to test (YYYY-MM-DD, blank = today)", value="", key="scraper_test_date")
+        if st.button("Run Scraper Test", key="run_scraper_test"):
+            try:
+                from kenpom_scraper import scrape_fanmatch_games
+                with st.spinner("Logging into KenPom and scraping FanMatch..."):
+                    target = test_date.strip() or None
+                    games = scrape_fanmatch_games(target)
+                neutrals = [g for g in games if g["neutral"]]
+                homes    = [g for g in games if not g["neutral"]]
+                st.success(f"Found {len(games)} games — {len(neutrals)} neutral, {len(homes)} home")
+                if neutrals:
+                    st.markdown("**Neutral Site Games:**")
+                    for g in neutrals:
+                        st.markdown(f"- **{g['team1']}** vs **{g['team2']}**")
+                if homes:
+                    st.markdown("**Home Games (first 8):**")
+                    for g in homes[:8]:
+                        st.markdown(f"- {g['away_team']} at {g['home_team']}")
+                    if len(homes) > 8:
+                        st.caption(f"...and {len(homes)-8} more")
+            except Exception as e:
+                st.error(f"Scraper failed: {e}")
+                import traceback
+                st.code(traceback.format_exc())
+
+    # ── Performance Tab ───────────────────────────────────────────────────────────
+    with tab3:
+        st.markdown("""
+    <div style="
+      max-width: 520px;
+      margin: 40px auto;
+      text-align: center;
+      font-family: 'DM Sans', sans-serif;
+    ">
+      <div style="font-size: 3rem; margin-bottom: 16px;">☕</div>
+      <div style="font-family: 'Bebas Neue', sans-serif; font-size: 2rem; letter-spacing: 3px; color: #f0b429; margin-bottom: 12px;">
+        ENJOY THE MODEL?
+      </div>
+      <div style="color: #c8b8e8; font-size: 1rem; line-height: 1.7; margin-bottom: 32px;">
+        CZarp CBB is free to use. If the picks have been treating you well
+        this season, a coffee goes a long way toward keeping the lights on. 🙏
+      </div>
+      <a href="https://ko-fi.com/czarp" target="_blank" style="text-decoration: none;">
+        <div style="
+          display: inline-block;
+          background: linear-gradient(135deg, #a050f0, #7030c0);
+          color: white;
+          padding: 16px 40px;
+          border-radius: 50px;
+          font-family: 'Bebas Neue', sans-serif;
+          font-size: 1.3rem;
+          letter-spacing: 2px;
+          box-shadow: 0 4px 20px #a050f044;
+          cursor: pointer;
+        ">
+          ☕ &nbsp; BUY ME A COFFEE
+        </div>
+      </a>
+      <div style="margin-top: 24px; color: #5a3090; font-size: 0.8rem;">
+        Powered by Ko-fi &nbsp;·&nbsp; No account needed &nbsp;·&nbsp; Card or PayPal
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+elif st.session_state.page == "performance":
     st.markdown("<div class='section-title'>📊 CZARP PERFORMANCE</div>", unsafe_allow_html=True)
 
     # ── Snapshot trigger (noon window) ────────────────────────────────────────
@@ -1289,7 +1360,7 @@ with tab3:
         st.code(traceback.format_exc())
 
 # ── Table Tab ─────────────────────────────────────────────────────────────────
-with tab4:
+elif st.session_state.page == "table":
     st.markdown("<div class='section-title'>📋 FULL TABLE</div>", unsafe_allow_html=True)
 
     def _parse_time(t: str) -> str:
@@ -1349,40 +1420,3 @@ with tab4:
     st.dataframe(df_table, use_container_width=True, hide_index=True)
 
 # ── Support / Ko-fi Tab ────────────────────────────────────────────────────────
-with tab5:
-    st.markdown("""
-<div style="
-  max-width: 520px;
-  margin: 40px auto;
-  text-align: center;
-  font-family: 'DM Sans', sans-serif;
-">
-  <div style="font-size: 3rem; margin-bottom: 16px;">☕</div>
-  <div style="font-family: 'Bebas Neue', sans-serif; font-size: 2rem; letter-spacing: 3px; color: #f0b429; margin-bottom: 12px;">
-    ENJOY THE MODEL?
-  </div>
-  <div style="color: #c8b8e8; font-size: 1rem; line-height: 1.7; margin-bottom: 32px;">
-    CZarp CBB is free to use. If the picks have been treating you well
-    this season, a coffee goes a long way toward keeping the lights on. 🙏
-  </div>
-  <a href="https://ko-fi.com/czarp" target="_blank" style="text-decoration: none;">
-    <div style="
-      display: inline-block;
-      background: linear-gradient(135deg, #a050f0, #7030c0);
-      color: white;
-      padding: 16px 40px;
-      border-radius: 50px;
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 1.3rem;
-      letter-spacing: 2px;
-      box-shadow: 0 4px 20px #a050f044;
-      cursor: pointer;
-    ">
-      ☕ &nbsp; BUY ME A COFFEE
-    </div>
-  </a>
-  <div style="margin-top: 24px; color: #5a3090; font-size: 0.8rem;">
-    Powered by Ko-fi &nbsp;·&nbsp; No account needed &nbsp;·&nbsp; Card or PayPal
-  </div>
-</div>
-""", unsafe_allow_html=True)
