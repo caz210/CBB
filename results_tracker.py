@@ -792,3 +792,93 @@ def backfill_closing_lines(date_str: str | None = None) -> dict:
 
     print(f"  [backfill] {updated} updated, {no_match} no match, {len(errors)} errors")
     return {"updated": updated, "no_match": no_match, "errors": errors, "credits_used": 20}
+
+
+# ── 7. Repair snapshot rows missing bet_type ──────────────────────────────────
+
+def repair_snapshot_bet_fields(date_str: str | None = None) -> dict:
+    """
+    For daily_snapshots rows that have vegas_spread but missing bet_type,
+    recompute bet_type, czarp_side, spread_edge, edge_score from stored values
+    and patch them in place. Run this once to fix historical bad rows.
+    """
+    if date_str is None:
+        date_str = (datetime.now(CENTRAL).date() - timedelta(days=1)).isoformat()
+
+    try:
+        db = _get_supabase()
+    except Exception as e:
+        return {"repaired": 0, "skipped": 0, "errors": [str(e)]}
+
+    try:
+        resp = db.table("daily_snapshots").select("*").eq(
+            "snapshot_date", date_str
+        ).execute()
+        snaps = resp.data or []
+    except Exception as e:
+        return {"repaired": 0, "skipped": 0, "errors": [f"Fetch: {e}"]}
+
+    repaired = 0
+    skipped  = 0
+    errors   = []
+
+    for snap in snaps:
+        # Skip if already has bet_type
+        if snap.get("bet_type") is not None:
+            skipped += 1
+            continue
+
+        vs  = snap.get("vegas_spread")   # absolute value stored
+        vf  = snap.get("vegas_fav")
+        cs  = snap.get("czarp_spread") or 0   # positive = team1 favored by model
+        t1  = snap.get("team1", "")
+        t2  = snap.get("team2", "")
+
+        if vs is None or not vf:
+            skipped += 1
+            continue
+
+        # CZarp side: positive spread = team1 favored, negative = team2
+        czarp_winner = t1 if cs >= 0 else t2
+
+        # Spread edge: how many pts czarp margin differs from vegas margin
+        # vegas_spread stored as absolute, vf tells us who's giving points
+        vf_margin = vs  # the margin vegas gives to vf
+        czarp_margin = abs(cs)
+
+        if vf == t1:
+            # vegas favors t1 by vs pts, czarp favors t1 by cs pts (cs>0) or t2 (cs<0)
+            spread_edge = round(cs - vs, 2)   # positive = czarp thinks margin bigger
+        else:
+            # vegas favors t2 by vs pts
+            spread_edge = round(-cs - vs, 2)
+
+        # Edge score — approximation of abs(spread_edge) / 10 capped at reasonable range
+        edge_score = round(min(abs(spread_edge) / 10, 0.20), 4) if vs else None
+
+        # bet_type: are we backing the dog or the fav?
+        if vf == czarp_winner:
+            bet_type = "fav_ats"
+        else:
+            bet_type = "dog_ats"
+
+        # is_upset_pick: czarp backs the underdog (non-vegas-fav)
+        is_upset = (czarp_winner != vf)
+
+        patch = {
+            "czarp_side":    czarp_winner,
+            "bet_type":      bet_type,
+            "is_upset_pick": is_upset,
+            "spread_edge":   spread_edge,
+            "edge_score":    edge_score,
+        }
+
+        try:
+            db.table("daily_snapshots").update(patch).eq("id", snap["id"]).execute()
+            print(f"    ✅ repaired: {t1} vs {t2}  bet_type={bet_type}  edge={edge_score}")
+            repaired += 1
+        except Exception as e:
+            errors.append(f"{t1} vs {t2}: {e}")
+
+    print(f"  [repair] {repaired} repaired, {skipped} skipped, {len(errors)} errors")
+    return {"repaired": repaired, "skipped": skipped, "errors": errors}
