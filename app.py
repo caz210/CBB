@@ -543,6 +543,7 @@ with st.sidebar:
                  type="primary" if st.session_state.page == "table" else "secondary"):
         st.session_state.page = "table"
         st.rerun()
+    st.markdown("<a href='https://ko-fi.com/czarp' target='_blank' style='display:block; margin-top:6px; text-align:center; background:#1a0e30; border:1px solid #3d2080; border-radius:8px; padding:8px 12px; color:#c8b8e8; font-size:0.9rem; text-decoration:none;'>☕  Support</a>", unsafe_allow_html=True)
     st.markdown("---")
 
     # Date picker — always visible (used by all pages)
@@ -1113,7 +1114,7 @@ if st.session_state.page == "main":
                     </tr>"""
 
                 def section_header(label):
-                    return f"""<tr><td colspan='3' style='color:#f0b429; font-size:0.65rem; letter-spacing:1.5px; padding:8px 8px 3px; font-family: "Bebas Neue", sans-serif;'>{label}</td></tr>"""
+                    return f"""<tr><td colspan='3' style='color:#f0b429; font-size:0.65rem; letter-spacing:1.5px; padding:10px 8px 3px; text-align:center; font-family: "Bebas Neue", sans-serif; border-top: 1px solid #2a1560;'>{label}</td></tr>"""
 
                 # Pull all debug values, oriented to home/away
                 h_rank   = d.get(f"kenpom_rank_{hk}"); a_rank   = d.get(f"kenpom_rank_{ak}")
