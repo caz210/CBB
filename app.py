@@ -543,7 +543,7 @@ with st.sidebar:
                  type="primary" if st.session_state.page == "table" else "secondary"):
         st.session_state.page = "table"
         st.rerun()
-    st.markdown("<a href='https://ko-fi.com/czarp' target='_blank' style='display:block; margin-top:6px; text-align:center; background:#1a0e30; border:1px solid #3d2080; border-radius:8px; padding:8px 12px; color:#c8b8e8; font-size:0.9rem; text-decoration:none;'>☕  Support</a>", unsafe_allow_html=True)
+    st.link_button("☕  Support", "https://ko-fi.com/czarp", use_container_width=True)
     st.markdown("---")
 
     # Date picker — always visible (used by all pages)
@@ -639,7 +639,7 @@ if not results:
     st.stop()
 
 if st.session_state.page == "main":
-    tab1, tab2, tab3 = st.tabs(['🏀 Daily Projections', '🔬 Simulator', '☕'])
+    tab1, tab2, tab3 = st.tabs(['🏀 Daily Projections', '🔬 Simulator', '☕ Support'])
 
     with tab1:
         # --- Metrics ---
