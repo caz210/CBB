@@ -119,14 +119,15 @@ def run_snapshot(results: list[dict], force: bool = False) -> dict:
             existing_row = (existing.data or [None])[0] if existing.data else None
 
             if existing_row:
-                # Already exists — only update if current snapshot has a line
-                # and the existing row is missing one (upgrade empty → lined)
+                # Upgrade if: new line available when old had none, OR bet_type was missing
                 has_new_line  = row.get("vegas_spread") is not None
                 had_old_line  = existing_row.get("vegas_spread") is not None
-                if has_new_line and not had_old_line:
+                missing_bet   = existing_row.get("bet_type") is None and row.get("bet_type") is not None
+                if (has_new_line and not had_old_line) or missing_bet:
                     db.table("daily_snapshots").update(row).eq("id", existing_row["id"]).execute()
-                    inserted += 1  # count as inserted since it's a meaningful upgrade
-                    print(f"    ↑ upgraded (added line): {team1} vs {team2}")
+                    inserted += 1
+                    reason = "added line" if not had_old_line else "repaired bet_type"
+                    print(f"    ↑ upgraded ({reason}): {team1} vs {team2}")
                 else:
                     skipped += 1
             else:
