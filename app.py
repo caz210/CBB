@@ -610,7 +610,7 @@ if not results:
     st.stop()
 
 if st.session_state.page == "main":
-    tab1, tab2, tab3 = st.tabs(['🏀 Daily Projections', '🔬 Simulator', '☕ Support'])
+    tab1, tab2, tab3 = st.tabs(['🏀 Daily Projections', '🔬 Simulator', '☕'])
 
     with tab1:
         # --- Metrics ---
@@ -1050,20 +1050,20 @@ if st.session_state.page == "main":
                     adisp = _pct(aval) if pct else _stat(aval, fmt)
                     return f"""
                     <tr>
-                      <td style='color:{aclr}; text-align:right; font-weight:600; padding:4px 10px;'>{adisp}</td>
-                      <td style='color:#9b72e0; font-size:0.75rem; text-align:center; padding:4px 6px; white-space:nowrap;'>{label}</td>
-                      <td style='color:{hclr}; text-align:left; font-weight:600; padding:4px 10px;'>{hdisp}</td>
+                      <td style='color:{aclr}; text-align:right; font-weight:700; padding:3px 8px; font-size:0.9rem;'>{adisp}</td>
+                      <td style='color:#9b72e0; font-size:0.68rem; text-align:center; padding:3px 4px; line-height:1.3;'>{label}</td>
+                      <td style='color:{hclr}; text-align:left; font-weight:700; padding:3px 8px; font-size:0.9rem;'>{hdisp}</td>
                     </tr>"""
 
                 header_row = f"""
                     <tr>
-                      <th style='color:#f0b429; text-align:right; padding:6px 10px; font-size:0.85rem;'>{away_name}</th>
-                      <th style='color:#9b72e0; text-align:center; padding:6px 6px; font-size:0.7rem;'></th>
-                      <th style='color:#f0b429; text-align:left; padding:6px 10px; font-size:0.85rem;'>{home_name}</th>
+                      <th style='color:#f0b429; text-align:right; padding:6px 8px; font-size:0.9rem; max-width:80px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;'>{away_name}</th>
+                      <th style='color:#9b72e0; text-align:center; padding:6px 4px; font-size:0.7rem;'></th>
+                      <th style='color:#f0b429; text-align:left; padding:6px 8px; font-size:0.9rem; max-width:80px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;'>{home_name}</th>
                     </tr>"""
 
                 def section_header(label):
-                    return f"""<tr><td colspan='3' style='color:#f0b429; font-size:0.7rem; letter-spacing:2px; padding:10px 10px 4px; font-family: "Bebas Neue", sans-serif;'>{label}</td></tr>"""
+                    return f"""<tr><td colspan='3' style='color:#f0b429; font-size:0.65rem; letter-spacing:1.5px; padding:8px 8px 3px; font-family: "Bebas Neue", sans-serif;'>{label}</td></tr>"""
 
                 # Pull all debug values, oriented to home/away
                 h_rank   = d.get(f"kenpom_rank_{hk}"); a_rank   = d.get(f"kenpom_rank_{ak}")
@@ -1094,31 +1094,36 @@ if st.session_state.page == "main":
                 h_hadj = d.get(f"h1_adj" if hk == "t1" else "h2_adj", 0)
 
                 table_html = f"""
-                <table style='width:100%; border-collapse:collapse; max-width:620px;'>
+                <table style='width:100%; border-collapse:collapse; table-layout:fixed;'>
+                  <colgroup>
+                    <col style='width:28%'>
+                    <col style='width:44%'>
+                    <col style='width:28%'>
+                  </colgroup>
                   {header_row}
                   {section_header("RANKINGS & EFFICIENCY")}
                   {stat_row("KenPom Rank", h_rank, a_rank, higher_is_better=False, fmt=".0f")}
-                  {stat_row("Adj Off Efficiency", h_adjoe, a_adjoe, higher_is_better=True)}
-                  {stat_row("Adj Def Efficiency", h_adjde, a_adjde, higher_is_better=False)}
-                  {stat_row("PPP (projected)", home_ppp, away_ppp, higher_is_better=True, fmt=".4f")}
+                  {stat_row("Adj Off Eff", h_adjoe, a_adjoe, higher_is_better=True)}
+                  {stat_row("Adj Def Eff", h_adjde, a_adjde, higher_is_better=False)}
+                  {stat_row("PPP (proj)", home_ppp, away_ppp, higher_is_better=True, fmt=".4f")}
 
                   {section_header("PACE & POSSESSIONS")}
-                  {stat_row("Adj Tempo (season)", h_tempo, a_tempo, higher_is_better=True)}
-                  {stat_row("Proj Possessions (game)", h_poss_adj, a_poss_adj, higher_is_better=True, fmt=".1f")}
+                  {stat_row("Adj Tempo", h_tempo, a_tempo, higher_is_better=True)}
+                  {stat_row("Proj Possessions", h_poss_adj, a_poss_adj, higher_is_better=True, fmt=".1f")}
 
                   {section_header("FOUR FACTORS — OFFENSE")}
-                  {stat_row("Adj Off Efficiency (AdjOE)", h_adjoe, a_adjoe, higher_is_better=True)}
-                  {stat_row("Turnover %  (lower = better)", h_to_pct, a_to_pct, higher_is_better=False, pct=True)}
+                  {stat_row("Adj Off Eff", h_adjoe, a_adjoe, higher_is_better=True)}
+                  {stat_row("TO% (↓ better)", h_to_pct, a_to_pct, higher_is_better=False, pct=True)}
                   {stat_row("Off Reb %", h_or_pct, a_or_pct, higher_is_better=True, pct=True)}
                   {stat_row("FT Rate (FTA/FGA)", h_ft_rate, a_ft_rate, higher_is_better=True, pct=True)}
                   {stat_row("Proj Turnovers", h_to_proj, a_to_proj, higher_is_better=False, fmt=".1f")}
-                  {stat_row("Proj Off Rebounds", h_reb_proj, a_reb_proj, higher_is_better=True, fmt=".1f")}
-                  {stat_row("Proj FT Points", h_ft_proj, a_ft_proj, higher_is_better=True, fmt=".1f")}
+                  {stat_row("Proj Off Reb", h_reb_proj, a_reb_proj, higher_is_better=True, fmt=".1f")}
+                  {stat_row("Proj FT Pts", h_ft_proj, a_ft_proj, higher_is_better=True, fmt=".1f")}
 
                   {section_header("FOUR FACTORS — DEFENSE")}
-                  {stat_row("TOs Forced on Opponent %", h_dto_pct, a_dto_pct, higher_is_better=True, pct=True)}
-                  {stat_row("Opp Off Reb % Allowed (lower = better)", h_dor_pct, a_dor_pct, higher_is_better=False, pct=True)}
-                  {stat_row("FT Rate Allowed to Opp (lower = better)", h_dft_rt, a_dft_rt, higher_is_better=False, pct=True)}
+                  {stat_row("TOs Forced %", h_dto_pct, a_dto_pct, higher_is_better=True, pct=True)}
+                  {stat_row("Opp OReb% Allowed (↓)", h_dor_pct, a_dor_pct, higher_is_better=False, pct=True)}
+                  {stat_row("FT Rate Allowed (↓)", h_dft_rt, a_dft_rt, higher_is_better=False, pct=True)}
 
                   {section_header("ROSTER FACTORS")}
                   {stat_row("Avg Height", h_hgt, a_hgt, higher_is_better=True, fmt=".1f")}
@@ -1134,16 +1139,20 @@ if st.session_state.page == "main":
                 # Wrap in full HTML doc with matching styles — st.components renders reliably
                 import streamlit.components.v1 as components
                 components.html(f"""
-                <html><head><style>
+                <html><head>
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <style>
+                  * {{ box-sizing: border-box; }}
                   body {{ background: transparent; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }}
-                  table {{ width: 100%; border-collapse: collapse; }}
+                  table {{ width: 100%; border-collapse: collapse; table-layout: fixed; }}
                   tr:hover td {{ background: rgba(255,255,255,0.03); }}
+                  td, th {{ word-wrap: break-word; overflow-wrap: break-word; }}
                 </style></head>
-                <body style="background:#140d26; padding:12px; border-radius:10px; border:1px solid #3d2080;">
+                <body style="background:#140d26; padding:10px; border-radius:10px; border:1px solid #3d2080;">
                   {table_html}
                   {hca_html}
                 </body></html>
-                """, height=820, scrolling=False)
+                """, height=780, scrolling=True)
 
     st.markdown(f"<div style='margin-top:40px; padding-top:20px; border-top:1px solid #3d2080; font-size:0.75rem; color:#9b72e0; text-align:center;'>CZarp Analytics Club &nbsp;·&nbsp; CBB Model &nbsp;·&nbsp; 2025-26 &nbsp;·&nbsp; Last updated {datetime.now().strftime('%I:%M %p CT')}</div>", unsafe_allow_html=True)
 
