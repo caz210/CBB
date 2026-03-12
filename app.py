@@ -429,6 +429,34 @@ def get_vegas_lines():
     return fetch_vegas_lines()
 
 
+@st.cache_data(ttl=1800, show_spinner=False)
+def get_snapshot_lines(date_str: str) -> dict:
+    """
+    Pull today's snapshot lines from Supabase daily_snapshots.
+    Returns a dict keyed by (team1, team2) → {vegas_spread, vegas_fav, vegas_total, game_time}
+    Used as fallback when live Odds API lines have dropped off post-tip.
+    """
+    try:
+        from results_tracker import _get_supabase
+        db = _get_supabase()
+        resp = db.table("daily_snapshots").select(
+            "team1,team2,vegas_spread,vegas_fav,vegas_total,game_time"
+        ).eq("snapshot_date", date_str).execute()
+        out = {}
+        for row in (resp.data or []):
+            if row.get("vegas_spread") is not None:
+                key = (row["team1"], row["team2"])
+                out[key] = {
+                    "vegas_spread": row["vegas_spread"],
+                    "vegas_fav":    row["vegas_fav"],
+                    "vegas_total":  row["vegas_total"],
+                    "game_time":    row.get("game_time"),
+                }
+        return out
+    except Exception:
+        return {}
+
+
 @st.cache_data(ttl=900, show_spinner=False)
 def run_base_projections(today_str):
     """KenPom projections only - cached 1hr. Vegas matching done separately so it can refresh."""
@@ -676,6 +704,9 @@ if st.session_state.page == "main":
         # --- Game Cards ---
         st.markdown("<div class='section-title'>TODAY'S PROJECTIONS</div>", unsafe_allow_html=True)
 
+        # Load snapshot lines once — used as fallback when live Odds API lines have dropped
+        _snap_lines = get_snapshot_lines(today)
+
         if not results:
             st.info("No games match your filters.")
         else:
@@ -693,7 +724,7 @@ if st.session_state.page == "main":
                 elif edge and edge > 0:
                     badge_cls, badge_txt = "edge-low",  f"EDGE {epct}"
                 else:
-                    badge_cls, badge_txt = "edge-low",  "NO LINE"
+                    badge_cls, badge_txt = "edge-low",  "PENDING"  # refined below after game_started check
 
                 away_score = r["team2_score"]
                 home_score = r["team1_score"]
@@ -716,13 +747,33 @@ if st.session_state.page == "main":
                 vs   = r.get("vegas_spread")
                 vt   = r.get("vegas_total")
                 vfav = r.get("vegas_fav")
+
+                # If live Odds API has no line, check snapshot for closing line
+                _used_snapshot = False
+                if vs is None:
+                    _snap_key = (r["team1"], r["team2"])
+                    _snap = _snap_lines.get(_snap_key)
+                    if _snap:
+                        vs   = _snap["vegas_spread"]
+                        vt   = _snap["vegas_total"]
+                        vfav = _snap["vegas_fav"]
+                        _used_snapshot = True
+
                 if vs is not None and vfav:
                     vtxt  = f"{vfav[:16]} {-abs(vs):+.1f}" if vs != 0 else "EVEN"
-                    vttxt = f"{vt:.1f}" if vt else "-"
+                    vttxt = f"{vt:.1f}" if vt else "—"
+                    if _used_snapshot:
+                        vtxt  += " <span style='font-size:0.6rem;color:#9b72e0;vertical-align:middle;'> CLOSING</span>"
+                        vttxt += " <span style='font-size:0.6rem;color:#9b72e0;vertical-align:middle;'> CLOSING</span>"
+                    no_line = False
                 else:
-                    vtxt, vttxt = "-", "-"
+                    vtxt = vttxt = "<span style='font-size:0.65rem;color:#7e4fcf;'>LINE PENDING</span>"
+                    no_line = True
 
-                swing_txt = f"{r['spread_edge']:+.1f}" if r.get("spread_edge") is not None else "-"
+                if no_line and badge_txt == "PENDING":
+                    badge_txt = "LINE PENDING"
+
+                swing_txt = f"{r['spread_edge']:+.1f}" if r.get("spread_edge") is not None else "—"
                 gtime = r.get("game_time") or r.get("odds_game_time") or ""
                 time_html = f"<div class='game-time'>{gtime}</div>" if gtime else ""
                 differ_html = "<span class='meta-val meta-val-differ'>SIDES DIFFER</span>" if disagree else ""
@@ -780,7 +831,6 @@ if st.session_state.page == "main":
                     f'<div class="team-row"><span class="team-name">{away_name} <span class="team-label">AWAY</span></span><span class="{away_cls}">{away_score:.1f}</span></div>',
                     f'<div class="team-row"><span class="team-name">{home_name} <span class="team-label">HOME</span></span><span class="{home_cls}">{home_score:.1f}</span></div>',
                     f'<div class="game-meta">',
-                    f'<div class="meta-item"><span class="meta-label">CZarp Side</span><span class="meta-val-spread">{czarp_side}</span></div>',
                     f'<div class="meta-item"><span class="meta-label">CZarp Spread</span><span class="meta-val-spread">{czarp_txt}</span></div>',
                     f'<div class="meta-item"><span class="meta-label">CZarp Total</span><span class="meta-val">{r["total"]:.1f}</span></div>',
                     f'<div class="meta-item"><span class="meta-label">Vegas Spread</span><span class="meta-val">{vtxt}</span></div>',
