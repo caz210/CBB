@@ -1285,6 +1285,7 @@ elif st.session_state.page == "performance":
         # Auto-snapshot during noon window (11am–3pm CT)
         if 11 <= _now_ct.hour < 15:
             _todays_results = run_projections(today_str)
+            _todays_results = [compute_bet_fields(r) for r in _todays_results]
             _snap = run_snapshot(_todays_results)
             if _snap.get("inserted", 0) > 0:
                 st.toast(f"📸 Locked {_snap['inserted']} game projections for today", icon="📸")
@@ -1302,6 +1303,7 @@ elif st.session_state.page == "performance":
         if st.button("📸 Snapshot Today's Lines", use_container_width=True):
             try:
                 _r = run_projections(today_str)
+                _r = [compute_bet_fields(r) for r in _r]
                 result = run_snapshot(_r, force=True)
                 lined = len([x for x in _r if x.get("vegas_spread") is not None])
                 st.success(f"Inserted {result['inserted']} games ({lined} with Vegas lines) | Already saved {result['skipped']}")
