@@ -379,43 +379,63 @@ def get_kenpom_data():
 @st.cache_data(ttl=900, show_spinner=False)
 def get_todays_games(today_str):
     """
-    Fetch games using run.py's games_from_fanmatch — scraper-first (today+tomorrow),
-    API-joined, with correct neutral detection built in.
+    Fetch games using games_from_fanmatch (API-based), then patch neutral/NCAA
+    flags by running the scraper directly for today+tomorrow. This way the
+    scraper failure for a date with no games doesn't kill tomorrow's detection.
     """
     import os
     try:
         from run import games_from_fanmatch
-        return games_from_fanmatch(today_str)
+        games = games_from_fanmatch(today_str)
     except Exception as e:
-        print(f"  [games] games_from_fanmatch failed: {e} — falling back to API-only")
-        import pandas as pd
-        def _fetch_date(d_str):
-            try:
-                return fetch_fanmatch(d_str)
-            except Exception:
-                fanmatch_csv = f"data/fanmatch_{d_str}.csv"
-                if os.path.exists(fanmatch_csv):
-                    return pd.read_csv(fanmatch_csv)
-                return None
-        tomorrow_str = (date.fromisoformat(today_str) + timedelta(days=1)).isoformat()
-        frames = [f for f in [_fetch_date(today_str), _fetch_date(tomorrow_str)]
-                  if f is not None and not f.empty]
-        if not frames:
+        print(f"  [games] games_from_fanmatch failed: {e}")
+        games = []
+
+    # If no games, try tomorrow directly
+    if not games:
+        try:
+            tomorrow_str = (date.fromisoformat(today_str) + timedelta(days=1)).isoformat()
+            from run import games_from_fanmatch
+            games = games_from_fanmatch(tomorrow_str)
+        except Exception as e:
+            print(f"  [games] tomorrow games_from_fanmatch also failed: {e}")
             return []
-        combined = pd.concat(frames, ignore_index=True)
-        if "GameID" in combined.columns:
-            combined = combined.drop_duplicates(subset="GameID")
-        return [{
-            "team1": str(row.get("Home", "")).strip(),
-            "team2": str(row.get("Visitor", "")).strip(),
-            "team1_is_home": True,
-            "is_neutral": False,
-            "kp_home_score": row.get("HomePred"),
-            "kp_away_score": row.get("VisitorPred"),
-            "kp_home_wp":    row.get("HomeWP"),
-            "kp_tempo":      row.get("PredTempo"),
-            "game_time":     row.get("GameTime", row.get("Time", None)),
-        } for _, row in combined.iterrows()]
+
+    # ── Patch neutral + NCAA flags via scraper for today AND tomorrow ─────────
+    # Run scraper for both dates, merge results into a lookup by team pair.
+    # We do this separately so a scraper failure for one date doesn't block the other.
+    _scraper_map = {}  # frozenset(team1.lower, team2.lower) → scraper game dict
+    tomorrow_str = (date.fromisoformat(today_str) + timedelta(days=1)).isoformat()
+    for _d in [today_str, tomorrow_str]:
+        try:
+            from kenpom_scraper import scrape_fanmatch_games as _sfg
+            for sg in _sfg(_d):
+                key = frozenset([sg["team1"].lower(), sg["team2"].lower()])
+                _scraper_map[key] = sg
+            print(f"  [neutral] scraper patch: {len(_scraper_map)} pairs from {_d}")
+        except Exception as _se:
+            print(f"  [neutral] scraper patch failed for {_d}: {_se}")
+
+    # Patch each game with scraper data if available
+    patched = []
+    for g in games:
+        key = frozenset([g["team1"].lower(), g["team2"].lower()])
+        sg  = _scraper_map.get(key)
+        if sg:
+            g = dict(g)
+            g["is_neutral"]         = sg["neutral"]
+            g["is_ncaa_tournament"] = sg.get("is_ncaa_tournament", False)
+            g["team1_is_home"]      = None if sg["neutral"] else True
+            if not g.get("game_time") and sg.get("game_time"):
+                g["game_time"] = sg["game_time"]
+        else:
+            if "is_neutral" not in g:
+                g["is_neutral"]         = False
+            if "is_ncaa_tournament" not in g:
+                g["is_ncaa_tournament"] = False
+        patched.append(g)
+
+    return patched
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_vegas_lines():
