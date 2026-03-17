@@ -9,7 +9,7 @@ Two simulation modes:
                     team has a better selected trait, the result is flipped.
 
 Trait options:
-  3-Point %, Free Throw %, Adj Off Efficiency, Adj Def Efficiency,
+  Adj Off Efficiency, Adj Def Efficiency,
   Height, Experience
 """
 
@@ -87,8 +87,6 @@ FINAL_FOUR_MATCHUPS = [("East", "South"), ("West", "Midwest")]
 
 TRAITS: dict[str, dict] = {
     "CZarp Model":          {"field": None,       "higher_better": None,  "source": None},
-    "3-Point %":            {"field": "3PFG%",    "higher_better": True,  "source": "misc"},
-    "Free Throw %":         {"field": "FT%",      "higher_better": True,  "source": "misc"},
     "Off Reb %":            {"field": "or_pct",   "higher_better": True,  "source": "debug"},
     "Turnover %":           {"field": "to_pct",   "higher_better": False, "source": "debug"},
     "FT Rate":              {"field": "ft_rate",  "higher_better": True,  "source": "debug"},
@@ -354,8 +352,9 @@ def simulate_game(
 
     winner      = projected_winner
     loser       = projected_loser
-    trait_upset = False
-    flip_trait  = None
+    trait_upset   = False
+    trait_favored = False
+    flip_trait    = None
 
     # Trait upset rule: only if margin ≤ flip_threshold AND mode is trait-based
     if mode == "trait" and trait_name != "CZarp Model" and margin <= flip_threshold:
@@ -387,12 +386,16 @@ def simulate_game(
             l_val = get_trait_value(loser,  trait_name, kp_data, misc_df, height_df)
 
         if w_val is not None and l_val is not None:
-            loser_better = (l_val > w_val) if higher_better else (l_val < w_val)
+            loser_better   = (l_val > w_val) if higher_better else (l_val < w_val)
+            winner_better  = (w_val > l_val) if higher_better else (w_val < l_val)
 
             if loser_better:
-                winner, loser = loser, winner
-                trait_upset   = True
-                flip_trait    = f"{trait_name} ({l_val:.2f} vs {w_val:.2f})"
+                winner, loser  = loser, winner
+                trait_upset    = True
+                flip_trait     = f"{trait_name} ({l_val:.2f} vs {w_val:.2f})"
+            elif winner_better:
+                trait_favored  = True
+                flip_trait     = f"{trait_name} ({w_val:.2f} vs {l_val:.2f})"
 
     return {
         "team1":             team1,
@@ -406,6 +409,7 @@ def simulate_game(
         "loser":             loser,
         "margin":            round(margin, 1),
         "trait_upset":       trait_upset,
+        "trait_favored":     trait_favored,
         "flip_trait":        flip_trait,
     }
 
