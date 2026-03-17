@@ -1543,8 +1543,11 @@ elif st.session_state.page == "bracket":
                 w2 = "700" if t2 == w else "400"
                 heat  = _spice_badge(margin)
                 upset_row = ""
+                favored = g.get("trait_favored", False)
                 if upset:
-                    upset_row = f"<tr><td colspan='2' style='font-size:0.6rem;color:#fb923c;padding:2px 0 0 0;'>🔀 TRAIT UPSET — {g.get('flip_trait','')}</td></tr>"
+                    upset_row = f"<tr><td colspan='2' style='font-size:0.6rem;color:#fb923c;padding:2px 0 0 0;'>🔀 ENHANCER UPSET — {g.get('flip_trait','')}</td></tr>"
+                elif favored:
+                    upset_row = f"<tr><td colspan='2' style='font-size:0.6rem;color:#4ade80;padding:2px 0 0 0;'>✅ ENHANCER FAVORED — {g.get('flip_trait','')}</td></tr>"
 
                 return (
                     f"<table style='width:100%;background:#140d26;border:1px solid #3d2080;"
