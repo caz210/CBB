@@ -5,7 +5,7 @@ bracket_simulator.py
 
 Two simulation modes:
   1. CZarp Model  — uses project_game() for all matchups (all neutral site)
-  2. Trait mode   — CZarp model base, but if margin ≤ 5 pts AND the losing
+  2. Trait mode   — CZarp model base, but if margin ≤ 3 pts AND the losing
                     team has a better selected trait, the result is flipped.
 
 Trait options:
@@ -319,7 +319,7 @@ def simulate_game(
     flip_trait  = None
 
     # Trait upset rule: only if margin ≤ 5 AND mode is trait-based
-    if mode == "trait" and trait_name != "CZarp Model" and margin <= 5.0:
+    if mode == "trait" and trait_name != "CZarp Model" and margin <= 3.0:
         field  = TRAITS[trait_name]["field"]
         source = TRAITS[trait_name]["source"]
         higher_better = TRAITS[trait_name]["higher_better"]
