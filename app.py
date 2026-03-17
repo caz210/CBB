@@ -94,6 +94,7 @@ h1, h2, h3 { font-family: 'Bebas Neue', sans-serif; letter-spacing: 2px; }
 .game-card-match { border-color: #f0b429 !important; box-shadow: 0 0 0 1px #f0b42966; }
 .game-card-neutral { border-left: 4px solid #a050f0 !important; }
 .neutral-badge { display: inline-block; background: #a050f022; color: #c484ff; border: 1px solid #a050f055; padding: 2px 10px; border-radius: 20px; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.5px; margin-bottom: 6px; }
+.ncaa-badge { display: inline-block; background: #f0b42922; color: #f0b429; border: 1px solid #f0b42966; padding: 2px 10px; border-radius: 20px; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.5px; margin-right: 4px; }
 .upset-badge { display: inline-block; background: #e05c5c22; color: #e05c5c; border: 1px solid #e05c5c55; padding: 2px 10px; border-radius: 20px; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.5px; margin-right: 4px; }
 .dog-ats-badge { display: inline-block; background: #f97c2222; color: #fb923c; border: 1px solid #f97c2255; padding: 2px 10px; border-radius: 20px; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.5px; margin-right: 4px; }
 .fav-ats-badge { display: inline-block; background: #22c55e22; color: #4ade80; border: 1px solid #22c55e55; padding: 2px 10px; border-radius: 20px; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.5px; margin-right: 4px; }
@@ -466,10 +467,11 @@ def run_base_projections(today_str):
         try:
             r = project_game(game["team1"], game["team2"], game["team1_is_home"], data,
                              game_time=game.get("game_time"))
-            r["kp_home_score"] = game["kp_home_score"]
-            r["kp_away_score"] = game["kp_away_score"]
-            r["kp_home_wp"]    = game["kp_home_wp"]
-            r["kp_tempo"]      = game["kp_tempo"]
+            r["kp_home_score"]      = game["kp_home_score"]
+            r["kp_away_score"]      = game["kp_away_score"]
+            r["kp_home_wp"]         = game["kp_home_wp"]
+            r["kp_tempo"]           = game["kp_tempo"]
+            r["is_ncaa_tournament"] = game.get("is_ncaa_tournament", False)
             # Set location from the pre-stamped team1_is_home
             t1_is_home = game["team1_is_home"]
             if t1_is_home is None:
@@ -780,7 +782,10 @@ if st.session_state.page == "main":
                 bet_type      = r.get("bet_type")       # "fav_ats" | "dog_ats" | None
                 bet_side_name = r.get("bet_side")
                 is_upset      = r.get("is_upset_pick", False)
+                is_ncaa       = r.get("is_ncaa_tournament", False)
                 badge_html = ""
+                if is_ncaa:
+                    badge_html += "<span class='ncaa-badge'>🏆 MARCH MADNESS</span> "
                 if is_neutral:
                     badge_html += "<span class='neutral-badge'>🏟️ NEUTRAL SITE</span> "
                 if is_upset and bet_side_name:
@@ -1301,6 +1306,21 @@ elif st.session_state.page == "performance":
                 st.error(str(e))
                 import traceback
                 st.code(traceback.format_exc())
+        if st.button("🔎 Debug API Columns", use_container_width=True,
+                     help="Shows raw columns returned by KenPom REST API for today+tomorrow — helps diagnose neutral detection"):
+            try:
+                tomorrow_dbg = (datetime.now(CENTRAL).date() + timedelta(days=1)).isoformat()
+                today_dbg    = datetime.now(CENTRAL).date().isoformat()
+                for lbl, d in [("Today", today_dbg), ("Tomorrow", tomorrow_dbg)]:
+                    try:
+                        fm = fetch_fanmatch(d)
+                        st.markdown(f"**{lbl} ({d})** — {len(fm)} rows, columns: `{list(fm.columns)}`")
+                        st.dataframe(fm.head(3), use_container_width=True)
+                    except Exception as ex:
+                        st.warning(f"{lbl}: {ex}")
+            except Exception as e:
+                st.error(str(e))
+
         if st.button("🔬 Debug Supabase", use_container_width=True):
             try:
                 from results_tracker import _get_supabase
