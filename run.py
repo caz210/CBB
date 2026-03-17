@@ -78,12 +78,15 @@ def games_from_fanmatch(today: str) -> list[dict]:
 
     # ── Step 1: Scrape full game list from HTML (today + tomorrow) ────────────
     scraped_games = []
+    scraper_errors = []
     try:
         scraped_today = scrape_fanmatch_games(today)
         scraped_games.extend(scraped_today)
         print(f"    Scraper ({today}): {len(scraped_today)} games")
     except Exception as e:
-        print(f"    Scraper failed for {today}: {e}")
+        import traceback
+        scraper_errors.append(f"{today}: {type(e).__name__}: {e}")
+        print(f"    Scraper failed for {today}: {e}\n{traceback.format_exc()}")
 
     try:
         scraped_tomorrow = scrape_fanmatch_games(tomorrow)
@@ -95,7 +98,9 @@ def games_from_fanmatch(today: str) -> list[dict]:
             scraped_games.extend(new_games)
             print(f"    Scraper ({tomorrow}): {len(scraped_tomorrow)} games ({len(new_games)} new)")
     except Exception as e:
-        print(f"    Scraper failed for {tomorrow}: {e}")
+        import traceback
+        scraper_errors.append(f"{tomorrow}: {type(e).__name__}: {e}")
+        print(f"    Scraper failed for {tomorrow}: {e}\n{traceback.format_exc()}")
 
     if scraped_games:
         neutral_count = sum(1 for g in scraped_games if g["neutral"])
