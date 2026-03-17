@@ -1440,26 +1440,31 @@ elif st.session_state.page == "bracket":
                 w     = g["winner"]
                 upset = g.get("trait_upset", False)
 
-                s1_txt = f"({s1}) " if s1 else ""
-                s2_txt = f"({s2}) " if s2 else ""
-                c1 = "#f0b429" if t1 == w else "#6b4fa0"
-                c2 = "#f0b429" if t2 == w else "#6b4fa0"
-                upset_html = ""
+                s1_txt = f"({s1}) " if (s1 and show_seeds) else ""
+                s2_txt = f"({s2}) " if (s2 and show_seeds) else ""
+                c1 = "#f0b429" if t1 == w else "#7e4fcf"
+                c2 = "#f0b429" if t2 == w else "#7e4fcf"
+                w1 = "700" if t1 == w else "400"
+                w2 = "700" if t2 == w else "400"
+                upset_row = ""
                 if upset:
-                    upset_html = f"<div style='font-size:0.6rem;color:#fb923c;margin-top:2px;'>🔀 TRAIT UPSET ({g.get('flip_trait','')})</div>"
+                    upset_row = f"<tr><td colspan='2' style='font-size:0.6rem;color:#fb923c;padding:2px 0 0 0;'>🔀 TRAIT UPSET — {g.get('flip_trait','')}</td></tr>"
 
-                return f"""<div style='background:#140d26;border:1px solid #3d2080;
-                             border-radius:8px;padding:8px 12px;margin-bottom:6px;'>
-                  <div style='display:flex;justify-content:space-between;margin-bottom:2px;'>
-                    <span style='color:{c1};font-weight:700;font-size:0.85rem;'>{s1_txt}{t1}</span>
-                    <span style='color:{c1};font-weight:700;'>{sc1}</span>
-                  </div>
-                  <div style='display:flex;justify-content:space-between;'>
-                    <span style='color:{c2};font-weight:700;font-size:0.85rem;'>{s2_txt}{t2}</span>
-                    <span style='color:{c2};font-weight:700;'>{sc2}</span>
-                  </div>
-                  {upset_html}
-                </div>"""
+                return (
+                    f"<table style='width:100%;background:#140d26;border:1px solid #3d2080;"
+                    f"border-radius:8px;padding:8px 12px;margin-bottom:6px;"
+                    f"border-collapse:separate;border-spacing:0;'>"
+                    f"<tr>"
+                    f"<td style='color:{c1};font-weight:{w1};font-size:0.85rem;padding:4px 8px 1px 8px;'>{s1_txt}{t1}</td>"
+                    f"<td style='color:{c1};font-weight:{w1};text-align:right;padding:4px 8px 1px 0;'>{sc1}</td>"
+                    f"</tr>"
+                    f"<tr>"
+                    f"<td style='color:{c2};font-weight:{w2};font-size:0.85rem;padding:1px 8px 4px 8px;'>{s2_txt}{t2}</td>"
+                    f"<td style='color:{c2};font-weight:{w2};text-align:right;padding:1px 8px 4px 0;'>{sc2}</td>"
+                    f"</tr>"
+                    f"{upset_row}"
+                    f"</table>"
+                )
 
             # ── Final Four ───────────────────────────────────────────────────
             st.markdown("<div class='section-title' style='font-size:1rem;'>🏟️ FINAL FOUR</div>", unsafe_allow_html=True)
