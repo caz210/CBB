@@ -381,6 +381,7 @@ def get_todays_games(today_str):
     Fetch games for today_str. Also checks the NEXT calendar date when it's
     evening CT (after 8 PM) because KenPom stores game dates in UTC — a 10 PM CT
     game is 4 AM UTC the next day, so KenPom may list it under tomorrow's date.
+    Neutral site flag is stamped here using the scraper's home/away map.
     """
     import os, pandas as pd
 
@@ -395,11 +396,10 @@ def get_todays_games(today_str):
             return None
 
     now_ct = datetime.now(CENTRAL)
-    frames = [_fetch_date(today_str)]
-
-    # Always fetch tomorrow too — 10pm CT games appear under UTC next day (4am UTC)
     tomorrow_str = (date.fromisoformat(today_str) + timedelta(days=1)).isoformat()
-    tomorrow_fm  = _fetch_date(tomorrow_str)
+
+    frames = [_fetch_date(today_str)]
+    tomorrow_fm = _fetch_date(tomorrow_str)
     if tomorrow_fm is not None and not tomorrow_fm.empty:
         frames.append(tomorrow_fm)
 
@@ -410,12 +410,31 @@ def get_todays_games(today_str):
     if "GameID" in combined.columns:
         combined = combined.drop_duplicates(subset="GameID")
 
+    # ── Build neutral lookup from scraper for both dates ─────────────────────
+    _ha_map = {}
+    try:
+        from kenpom_scraper import get_home_away_map as _gham
+        _ha_map.update(_gham(today_str) or {})
+        _ha_map.update(_gham(tomorrow_str) or {})
+        print(f"  [neutral] home_away_map: {len(_ha_map)//2} games across {today_str} + {tomorrow_str}")
+    except Exception as _ne:
+        print(f"  [neutral] home_away_map scrape failed: {_ne}")
+
     games = []
     for _, row in combined.iterrows():
+        t1 = str(row.get("Home", "")).strip()
+        t2 = str(row.get("Visitor", "")).strip()
+
+        # Look up neutral from scraper map (try both orderings)
+        _info = _ha_map.get((t1.lower(), t2.lower())) or _ha_map.get((t2.lower(), t1.lower()))
+        is_neutral_game = bool(_info and _info[2]) if _info else False
+        team1_is_home   = None if is_neutral_game else True
+
         games.append({
-            "team1":         str(row.get("Home", "")).strip(),
-            "team2":         str(row.get("Visitor", "")).strip(),
-            "team1_is_home": True,  # neutral detection happens in run_base_projections
+            "team1":         t1,
+            "team2":         t2,
+            "team1_is_home": team1_is_home,
+            "is_neutral":    is_neutral_game,
             "kp_home_score": row.get("HomePred"),
             "kp_away_score": row.get("VisitorPred"),
             "kp_home_wp":    row.get("HomeWP"),
@@ -465,27 +484,13 @@ def run_base_projections(today_str):
     if not games:
         return []
 
-    # ── Neutral site detection — scrape for selected date AND tomorrow ────────
-    # get_todays_games always merges today + tomorrow, so we need pairs for both.
-    neutral_pairs = _NEUTRAL_PAIRS  # startup fallback
-    try:
-        from kenpom_scraper import get_neutral_pairs as _gnp
-        tomorrow_str = (date.fromisoformat(today_str) + timedelta(days=1)).isoformat()
-        _pairs_today    = _gnp(today_str)    or set()
-        _pairs_tomorrow = _gnp(tomorrow_str) or set()
-        neutral_pairs   = _pairs_today | _pairs_tomorrow
-        print(f"  [neutral] {today_str}: {len(_pairs_today)} + tomorrow {len(_pairs_tomorrow)} = {len(neutral_pairs)} total")
-    except Exception as _ne:
-        print(f"  [neutral] date-aware scrape failed, using startup pairs: {_ne}")
+    # ── Neutral site detection — already stamped in game dict by get_todays_games
+    neutral_pairs = _NEUTRAL_PAIRS  # kept as fallback reference but not primary path
 
     results = []
     errors  = []
     for game in games:
-        # Apply neutral flag: override team1_is_home before project_game runs
-        pair = frozenset([game["team1"].lower(), game["team2"].lower()])
-        if pair in neutral_pairs:
-            game = dict(game)  # don't mutate cached list
-            game["team1_is_home"] = None
+        # team1_is_home is already None for neutral games (stamped by get_todays_games)
         try:
             r = project_game(game["team1"], game["team2"], game["team1_is_home"], data,
                              game_time=game.get("game_time"))
@@ -493,7 +498,7 @@ def run_base_projections(today_str):
             r["kp_away_score"] = game["kp_away_score"]
             r["kp_home_wp"]    = game["kp_home_wp"]
             r["kp_tempo"]      = game["kp_tempo"]
-            # Always set location explicitly so compute_bet_fields and narrative are correct
+            # Set location from the pre-stamped team1_is_home
             t1_is_home = game["team1_is_home"]
             if t1_is_home is None:
                 r["location"] = "neutral"
