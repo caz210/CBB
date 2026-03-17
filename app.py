@@ -438,7 +438,9 @@ def get_todays_games(today_str):
             "kp_away_score":      pred.get("VisitorPred") if pred else None,
             "kp_home_wp":         pred.get("HomeWP")      if pred else None,
             "kp_tempo":           pred.get("PredTempo")   if pred else None,
-            "game_time":          (pred.get("GameTime") or pred.get("Time")) if pred else None,
+            "game_time":          sg.get("game_time") or
+                                  ((pred.get("GameTime") or pred.get("Time")) if pred else None),
+            "tv_channel":         sg.get("tv_channel"),
         })
 
     neutral_ct = sum(1 for g in games if g["is_neutral"])
@@ -500,6 +502,7 @@ def run_base_projections(today_str):
             r["kp_home_wp"]         = game["kp_home_wp"]
             r["kp_tempo"]           = game["kp_tempo"]
             r["is_ncaa_tournament"] = game.get("is_ncaa_tournament", False)
+            r["tv_channel"]         = game.get("tv_channel")
             # Set location from the pre-stamped team1_is_home
             t1_is_home = game["team1_is_home"]
             if t1_is_home is None:
@@ -821,7 +824,11 @@ if st.session_state.page == "main":
 
                 swing_txt = f"{r['spread_edge']:+.1f}" if r.get("spread_edge") is not None else "—"
                 gtime = r.get("game_time") or r.get("odds_game_time") or ""
-                time_html = f"<div class='game-time'>{gtime}</div>" if gtime else ""
+                tv    = r.get("tv_channel") or ""
+                time_parts = []
+                if gtime: time_parts.append(gtime)
+                if tv:    time_parts.append(f"<span style='color:#9b72e0;font-weight:400;'>{tv}</span>")
+                time_html = f"<div class='game-time'>{' · '.join(time_parts)}</div>" if time_parts else ""
                 differ_html = "<span class='meta-val meta-val-differ'>SIDES DIFFER</span>" if disagree else ""
                 differ_block = '<div class="meta-item"><span class="meta-label">&nbsp;</span>' + differ_html + '</div>' if disagree else ""
                 edge_block = f'<div class="meta-item"><span class="meta-label">Edge</span><span class="edge-badge {badge_cls}">{badge_txt}</span></div>'
