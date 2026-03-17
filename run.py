@@ -211,15 +211,16 @@ def games_from_fanmatch(today: str) -> list[dict]:
             game_time     = None
 
         games.append({
-            "team1":         t1,
-            "team2":         t2,
-            "team1_is_home": team1_is_home,
-            "kp_home_score": kp_home_score,
-            "kp_away_score": kp_away_score,
-            "kp_home_wp":    kp_home_wp,
-            "kp_tempo":      kp_tempo,
-            "game_id":       game_id,
-            "game_time":     game_time,
+            "team1":              t1,
+            "team2":              t2,
+            "team1_is_home":      team1_is_home,
+            "is_ncaa_tournament": g.get("is_ncaa_tournament", False),
+            "kp_home_score":      kp_home_score,
+            "kp_away_score":      kp_away_score,
+            "kp_home_wp":         kp_home_wp,
+            "kp_tempo":           kp_tempo,
+            "game_id":            game_id,
+            "game_time":          game_time,
         })
 
     neutral_final = sum(1 for g in games if g["team1_is_home"] is None)
