@@ -378,70 +378,43 @@ def get_kenpom_data():
 @st.cache_data(ttl=900, show_spinner=False)
 def get_todays_games(today_str):
     """
-    Fetch games for today_str. Also checks the NEXT calendar date when it's
-    evening CT (after 8 PM) because KenPom stores game dates in UTC — a 10 PM CT
-    game is 4 AM UTC the next day, so KenPom may list it under tomorrow's date.
-    Neutral site flag is stamped here using the scraper's home/away map.
+    Fetch games using run.py's games_from_fanmatch — scraper-first (today+tomorrow),
+    API-joined, with correct neutral detection built in.
     """
-    import os, pandas as pd
-
-    def _fetch_date(d_str):
-        try:
-            return fetch_fanmatch(d_str)
-        except Exception as e:
-            fanmatch_csv = f"data/fanmatch_{d_str}.csv"
-            if os.path.exists(fanmatch_csv):
-                st.info(f"Using saved games from {d_str}")
-                return pd.read_csv(fanmatch_csv)
-            return None
-
-    now_ct = datetime.now(CENTRAL)
-    tomorrow_str = (date.fromisoformat(today_str) + timedelta(days=1)).isoformat()
-
-    frames = [_fetch_date(today_str)]
-    tomorrow_fm = _fetch_date(tomorrow_str)
-    if tomorrow_fm is not None and not tomorrow_fm.empty:
-        frames.append(tomorrow_fm)
-
-    combined = pd.concat([f for f in frames if f is not None and not f.empty], ignore_index=True)
-    if combined.empty:
-        return []
-
-    if "GameID" in combined.columns:
-        combined = combined.drop_duplicates(subset="GameID")
-
-    # ── Build neutral lookup from scraper for both dates ─────────────────────
-    _ha_map = {}
+    import os
     try:
-        from kenpom_scraper import get_home_away_map as _gham
-        _ha_map.update(_gham(today_str) or {})
-        _ha_map.update(_gham(tomorrow_str) or {})
-        print(f"  [neutral] home_away_map: {len(_ha_map)//2} games across {today_str} + {tomorrow_str}")
-    except Exception as _ne:
-        print(f"  [neutral] home_away_map scrape failed: {_ne}")
-
-    games = []
-    for _, row in combined.iterrows():
-        t1 = str(row.get("Home", "")).strip()
-        t2 = str(row.get("Visitor", "")).strip()
-
-        # Look up neutral from scraper map (try both orderings)
-        _info = _ha_map.get((t1.lower(), t2.lower())) or _ha_map.get((t2.lower(), t1.lower()))
-        is_neutral_game = bool(_info and _info[2]) if _info else False
-        team1_is_home   = None if is_neutral_game else True
-
-        games.append({
-            "team1":         t1,
-            "team2":         t2,
-            "team1_is_home": team1_is_home,
-            "is_neutral":    is_neutral_game,
+        from run import games_from_fanmatch
+        return games_from_fanmatch(today_str)
+    except Exception as e:
+        print(f"  [games] games_from_fanmatch failed: {e} — falling back to API-only")
+        import pandas as pd
+        def _fetch_date(d_str):
+            try:
+                return fetch_fanmatch(d_str)
+            except Exception:
+                fanmatch_csv = f"data/fanmatch_{d_str}.csv"
+                if os.path.exists(fanmatch_csv):
+                    return pd.read_csv(fanmatch_csv)
+                return None
+        tomorrow_str = (date.fromisoformat(today_str) + timedelta(days=1)).isoformat()
+        frames = [f for f in [_fetch_date(today_str), _fetch_date(tomorrow_str)]
+                  if f is not None and not f.empty]
+        if not frames:
+            return []
+        combined = pd.concat(frames, ignore_index=True)
+        if "GameID" in combined.columns:
+            combined = combined.drop_duplicates(subset="GameID")
+        return [{
+            "team1": str(row.get("Home", "")).strip(),
+            "team2": str(row.get("Visitor", "")).strip(),
+            "team1_is_home": True,
+            "is_neutral": False,
             "kp_home_score": row.get("HomePred"),
             "kp_away_score": row.get("VisitorPred"),
             "kp_home_wp":    row.get("HomeWP"),
             "kp_tempo":      row.get("PredTempo"),
             "game_time":     row.get("GameTime", row.get("Time", None)),
-        })
-    return games
+        } for _, row in combined.iterrows()]
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_vegas_lines():
@@ -484,8 +457,7 @@ def run_base_projections(today_str):
     if not games:
         return []
 
-    # ── Neutral site detection — already stamped in game dict by get_todays_games
-    neutral_pairs = _NEUTRAL_PAIRS  # kept as fallback reference but not primary path
+    # ── Neutral already stamped in each game dict by games_from_fanmatch ──────
 
     results = []
     errors  = []
