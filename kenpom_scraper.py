@@ -244,6 +244,21 @@ def scrape_fanmatch_games(date_str: str | None = None) -> list[dict]:
             # Detect NCAA tournament tag — KenPom appends "NCAA" to cell text
             is_ncaa = bool(re.search(r'\bNCAA\b', cell_text, re.IGNORECASE))
 
+            # Grab game time and TV channel from sibling cells in the same row
+            game_time = None
+            tv_channel = None
+            for sibling in cells:
+                sib_text = sibling.get_text(separator=" ", strip=True)
+                t_match = re.search(r'(\d{1,2}:\d{2}\s*(?:am|pm))', sib_text, re.IGNORECASE)
+                if t_match:
+                    game_time = t_match.group(1).strip().upper().replace(" ", "")
+                    game_time = re.sub(r'(\d+:\d+)(AM|PM)', r'\1 \2', game_time) + " ET"
+                    # Channel is any remaining text after stripping the time
+                    remainder = re.sub(r'\d{1,2}:\d{2}\s*(?:am|pm)', '', sib_text, flags=re.IGNORECASE).strip()
+                    if remainder:
+                        tv_channel = remainder
+                    break
+
             # Deduplicate across tables
             pair_key = frozenset([team1.lower(), team2.lower()])
             if pair_key in seen_pairs:
@@ -259,6 +274,8 @@ def scrape_fanmatch_games(date_str: str | None = None) -> list[dict]:
                 "home_team":          home_team,
                 "away_team":          away_team,
                 "is_ncaa_tournament": is_ncaa,
+                "game_time":          game_time,
+                "tv_channel":         tv_channel,
             })
             break   # found the matchup cell for this row — move to next row
 
