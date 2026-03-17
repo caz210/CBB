@@ -1340,7 +1340,7 @@ elif st.session_state.page == "bracket":
     # ── Load data ─────────────────────────────────────────────────────────────
     try:
         from bracket_simulator import (
-            run_bracket, TRAITS, FINAL_FOUR_MATCHUPS, REGIONS, FIRST_FOUR
+            run_bracket, TRAITS, SPICE_THRESHOLDS, FINAL_FOUR_MATCHUPS, REGIONS, FIRST_FOUR
         )
     except ImportError as _ie:
         st.error(f"bracket_simulator.py not found: {_ie}")
@@ -1358,41 +1358,97 @@ elif st.session_state.page == "bracket":
 
     # ── Controls ──────────────────────────────────────────────────────────────
     st.markdown("---")
-    ctrl1, ctrl2, ctrl3 = st.columns([2, 2, 1])
-    with ctrl1:
-        mode = st.radio("Simulation Mode", ["CZarp Model", "Trait-Based"],
-                        horizontal=True, key="bracket_mode")
-    with ctrl2:
-        trait_options = list(TRAITS.keys())
-        trait_name = st.selectbox("Select Trait", trait_options,
-                                  disabled=(mode == "CZarp Model"),
-                                  key="bracket_trait")
-    with ctrl3:
-        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-        run_sim = st.button("🏀 Simulate", use_container_width=True, type="primary", key="run_bracket")
 
-    if mode == "CZarp Model":
-        trait_name = "CZarp Model"
+    # ── Step 1: Enhancer selector ─────────────────────────────────────────────
+    st.markdown("""
+    <p style='color:#f0b429; font-size:0.7rem; letter-spacing:2px; margin-bottom:2px;'>
+    STEP 1 — CHOOSE YOUR ENHANCER</p>
+    <p style='color:#9b72e0; font-size:0.75rem; margin:0 0 8px 0;'>
+    When a trait is selected, close games can flip to the team with the edge in that stat.</p>
+    """, unsafe_allow_html=True)
+    enhancer_options = ["No Enhancer (CZarp Model)"] + [k for k in TRAITS.keys() if k != "CZarp Model"]
+    enhancer = st.selectbox("Enhancer", enhancer_options, key="bracket_enhancer", label_visibility="collapsed")
 
-    if mode == "Trait-Based" and trait_name != "CZarp Model":
-        trait_src = TRAITS[trait_name]["source"]
-        if trait_src in ("misc",):
-            st.caption(f"ℹ️ **{trait_name}** — if the projected margin is ≤5 pts and the losing team is better at this stat, the result flips.")
-        else:
-            st.caption(f"ℹ️ **{trait_name}** — flip rule applies when margin ≤5 pts and the loser has the edge.")
+    has_enhancer = enhancer != "No Enhancer (CZarp Model)"
+    trait_name   = enhancer if has_enhancer else "CZarp Model"
+    mode         = "trait" if has_enhancer else "czarp"
+
+    # ── Step 2: Spice level (only when enhancer selected) ────────────────────
+    spice_label    = None
+    flip_threshold = 0.0
+
+    if has_enhancer:
+        hib       = TRAITS[trait_name]["higher_better"]
+        direction = "higher" if hib else "lower"
+        st.markdown(f"""
+        <p style='color:#f0b429; font-size:0.7rem; letter-spacing:2px; margin:16px 0 2px;'>
+        STEP 2 — SET YOUR UPSET SPICE LEVEL</p>
+        <p style='color:#9b72e0; font-size:0.75rem; margin:0 0 4px 0;'>
+        Controls how close a game must be for the trait edge to flip the winner.
+        Higher spice = more upsets possible. Thresholds tighten each round.</p>
+        """, unsafe_allow_html=True)
+
+        # Spice legend row
+        st.markdown("""
+        <div style='display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;'>
+          <span style='font-size:0.7rem;color:#4ade80;'>🌶 <b>MILD</b> 0–1.5 pts</span>
+          <span style='font-size:0.7rem;color:#fbbf24;'>🌶🌶 <b>MEDIUM</b> 0–3.1 pts</span>
+          <span style='font-size:0.7rem;color:#f97316;'>🌶🌶🌶 <b>HOT</b> 0–4.1 pts</span>
+          <span style='font-size:0.7rem;color:#ef4444;'>🔥 <b>EXTRA SPICY</b> 0–5.5 pts</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        spice_labels = list(SPICE_THRESHOLDS.keys())
+        spice_label = st.select_slider(
+            "Spice Level",
+            options=spice_labels,
+            value=spice_labels[1],
+            key="bracket_spice",
+            label_visibility="collapsed",
+        )
+        thresholds = SPICE_THRESHOLDS[spice_label]
+        st.caption(
+            f"**{trait_name}** ({direction} = better)  ·  "
+            f"R64 ±{thresholds['r64']}  →  R32 ±{thresholds['r32']}  →  "
+            f"S16 ±{thresholds['s16']}  →  E8 ±{thresholds['e8']}  →  "
+            f"FF ±{thresholds['final_four']}  →  🏆 ±{thresholds['championship']} pts"
+        )
+        flip_threshold = thresholds["r64"]
+
+    # ── Step 3: Simulate button ───────────────────────────────────────────────
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+    run_sim = st.button("🏀 Simulate Bracket", use_container_width=False, type="primary", key="run_bracket")
 
     # ── Trait debug expander ──────────────────────────────────────────────────
-    with st.expander("🔍 Debug: Trait Values", expanded=False):
+    with st.expander("🔍 Debug: Scraped stat pages", expanded=False):
         try:
+            from bracket_simulator import fetch_misc_stats as _fms, fetch_height_stats as _fhs
             import pandas as _pd
-            from bracket_simulator import get_trait_value
-            kp_data_dbg = get_kenpom_data()
-            ratings_dbg = kp_data_dbg.get("ratings")
-            st.write(f"**Ratings columns:** {list(ratings_dbg.columns) if ratings_dbg is not None else 'None'}")
-            for team in ["Gonzaga", "Florida"]:
-                for trait in ["Height", "Experience", "Adj Off Efficiency", "Adj Def Efficiency"]:
-                    val = get_trait_value(team, trait, kp_data_dbg, _pd.DataFrame(), _pd.DataFrame())
-                    st.write(f"**{team} / {trait}:** {val}")
+
+            st.markdown("**misc.php (3P%, FT%, etc.):**")
+            _mdf = _fms(y=2026)
+            if _mdf.empty:
+                st.error("misc.php returned empty — scrape failed or login issue")
+            else:
+                st.success(f"✅ {len(_mdf)} teams loaded")
+                st.write(f"Columns: `{list(_mdf.columns)}`")
+                # Show row for a known team
+                _row = _mdf[_mdf["TeamName"].str.contains("Gonzaga", case=False, na=False)]
+                if not _row.empty:
+                    st.write("Gonzaga row:", _row.iloc[0].to_dict())
+
+            st.markdown("---")
+            st.markdown("**height.php (Avg Height, Experience):**")
+            _hdf = _fhs(y=2026)
+            if _hdf.empty:
+                st.error("height.php returned empty — scrape failed or login issue")
+            else:
+                st.success(f"✅ {len(_hdf)} teams loaded")
+                st.write(f"Columns: `{list(_hdf.columns)}`")
+                _row2 = _hdf[_hdf["TeamName"].str.contains("Gonzaga", case=False, na=False)]
+                if not _row2.empty:
+                    st.write("Gonzaga row:", _row2.iloc[0].to_dict())
+
         except Exception as _dbg_e:
             st.error(f"Debug error: {_dbg_e}")
             import traceback; st.code(traceback.format_exc())
@@ -1410,23 +1466,29 @@ elif st.session_state.page == "bracket":
                     misc_df    = get_misc_stats()
                     height_df  = get_height_stats()
                     bres = run_bracket(
-                        mode="trait" if mode == "Trait-Based" else "czarp",
+                        mode=mode,
                         trait_name=trait_name,
                         kp_data=kp_data,
                         misc_df=misc_df,
                         height_df=height_df,
+                        flip_threshold=flip_threshold,
+                        spice_label=spice_label,
                     )
-                    st.session_state["bracket_results"] = bres
-                    st.session_state["bracket_trait_label"] = trait_name
-                    st.session_state["bracket_mode_label"]  = mode
+                    st.session_state["bracket_results"]      = bres
+                    st.session_state["bracket_trait_label"]  = trait_name
+                    st.session_state["bracket_mode_label"]   = mode
+                    st.session_state["bracket_spice_label"]  = spice_label if has_enhancer else None
+                    st.session_state["bracket_threshold"]    = flip_threshold
                 except Exception as _be:
                     st.error(f"Simulation failed: {_be}")
                     import traceback; st.code(traceback.format_exc())
                     st.stop()
 
         bres        = st.session_state.get("bracket_results")
-        trait_label = st.session_state.get("bracket_trait_label", "CZarp Model")
-        mode_label  = st.session_state.get("bracket_mode_label", "CZarp Model")
+        trait_label  = st.session_state.get("bracket_trait_label", "CZarp Model")
+        mode_label   = st.session_state.get("bracket_mode_label",  "czarp")
+        spice_label  = st.session_state.get("bracket_spice_label", None)
+        threshold    = st.session_state.get("bracket_threshold",   3.0)
 
         if not bres:
             st.info("Hit **🏀 Simulate** to run the bracket.")
@@ -1445,10 +1507,24 @@ elif st.session_state.page == "bracket":
               <div style="font-family:'Bebas Neue',sans-serif; font-size:2.2rem;
                           color:#f0b429; letter-spacing:2px;">{champ}</div>
               <div style="font-size:0.75rem; color:#7e4fcf; margin-top:6px;">
-                Mode: {mode_label}{f' · Trait: {trait_label}' if mode_label == 'Trait-Based' else ''}
+                {f'{trait_label} · {spice_label}' if spice_label else 'No Enhancer · CZarp Model'}
               </div>
             </div>
             """, unsafe_allow_html=True)
+
+            # ── Helper: margin → spice badge ─────────────────────────────────
+            def _spice_badge(margin: float) -> str:
+                """Return a colored spice heat badge based on point differential."""
+                if margin <= 1.5:
+                    return "<span style='font-size:0.6rem;color:#4ade80;background:#4ade8022;border:1px solid #4ade8055;padding:1px 7px;border-radius:10px;margin-left:6px;'>🌶 MILD</span>"
+                elif margin <= 3.1:
+                    return "<span style='font-size:0.6rem;color:#fbbf24;background:#fbbf2422;border:1px solid #fbbf2455;padding:1px 7px;border-radius:10px;margin-left:6px;'>🌶🌶 MEDIUM</span>"
+                elif margin <= 4.1:
+                    return "<span style='font-size:0.6rem;color:#f97316;background:#f9731622;border:1px solid #f9731655;padding:1px 7px;border-radius:10px;margin-left:6px;'>🌶🌶🌶 HOT</span>"
+                elif margin <= 5.5:
+                    return "<span style='font-size:0.6rem;color:#ef4444;background:#ef444422;border:1px solid #ef444455;padding:1px 7px;border-radius:10px;margin-left:6px;'>🔥 EXTRA SPICY</span>"
+                else:
+                    return ""   # comfortable win — no badge
 
             # ── Helper: render a game result ─────────────────────────────────
             def _game_card(g: dict, show_seeds: bool = True) -> str:
@@ -1456,6 +1532,7 @@ elif st.session_state.page == "bracket":
                 s1    = g.get("seed1"); s2 = g.get("seed2")
                 sc1   = g["t1_score"]; sc2 = g["t2_score"]
                 w     = g["winner"]
+                margin = g.get("margin", abs(sc1 - sc2))
                 upset = g.get("trait_upset", False)
 
                 s1_txt = f"({s1}) " if (s1 and show_seeds) else ""
@@ -1464,6 +1541,7 @@ elif st.session_state.page == "bracket":
                 c2 = "#f0b429" if t2 == w else "#7e4fcf"
                 w1 = "700" if t1 == w else "400"
                 w2 = "700" if t2 == w else "400"
+                heat  = _spice_badge(margin)
                 upset_row = ""
                 if upset:
                     upset_row = f"<tr><td colspan='2' style='font-size:0.6rem;color:#fb923c;padding:2px 0 0 0;'>🔀 TRAIT UPSET — {g.get('flip_trait','')}</td></tr>"
@@ -1473,11 +1551,13 @@ elif st.session_state.page == "bracket":
                     f"border-radius:8px;padding:8px 12px;margin-bottom:6px;"
                     f"border-collapse:separate;border-spacing:0;'>"
                     f"<tr>"
-                    f"<td style='color:{c1};font-weight:{w1};font-size:0.85rem;padding:4px 8px 1px 8px;'>{s1_txt}{t1}</td>"
+                    f"<td style='color:{c1};font-weight:{w1};font-size:0.85rem;padding:4px 8px 1px 8px;'>"
+                    f"{s1_txt}{t1}{heat if t1 == w else ''}</td>"
                     f"<td style='color:{c1};font-weight:{w1};text-align:right;padding:4px 8px 1px 0;'>{sc1}</td>"
                     f"</tr>"
                     f"<tr>"
-                    f"<td style='color:{c2};font-weight:{w2};font-size:0.85rem;padding:1px 8px 4px 8px;'>{s2_txt}{t2}</td>"
+                    f"<td style='color:{c2};font-weight:{w2};font-size:0.85rem;padding:1px 8px 4px 8px;'>"
+                    f"{s2_txt}{t2}{heat if t2 == w else ''}</td>"
                     f"<td style='color:{c2};font-weight:{w2};text-align:right;padding:1px 8px 4px 0;'>{sc2}</td>"
                     f"</tr>"
                     f"{upset_row}"
