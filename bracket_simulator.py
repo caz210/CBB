@@ -5,7 +5,7 @@ bracket_simulator.py
 
 Two simulation modes:
   1. CZarp Model  — uses project_game() for all matchups (all neutral site)
-  2. Trait mode   — CZarp model base, but if margin ≤ 3 pts AND the losing
+  2. Trait mode   — CZarp model base, but if margin ≤ 5 pts AND the losing
                     team has a better selected trait, the result is flipped.
 
 Trait options:
@@ -87,6 +87,8 @@ FINAL_FOUR_MATCHUPS = [("East", "South"), ("West", "Midwest")]
 
 TRAITS: dict[str, dict] = {
     "CZarp Model":          {"field": None,       "higher_better": None,  "source": None},
+    "3-Point %":            {"field": "3PFG%",    "higher_better": True,  "source": "misc"},
+    "Free Throw %":         {"field": "FT%",      "higher_better": True,  "source": "misc"},
     "Off Reb %":            {"field": "or_pct",   "higher_better": True,  "source": "debug"},
     "Turnover %":           {"field": "to_pct",   "higher_better": False, "source": "debug"},
     "FT Rate":              {"field": "ft_rate",  "higher_better": True,  "source": "debug"},
@@ -129,44 +131,71 @@ KENPOM_NAME_OVERRIDES: dict[str, str] = {
 
 # ── Data fetching ─────────────────────────────────────────────────────────────
 
-def fetch_misc_stats(y: int = 2026) -> pd.DataFrame:
-    """Fetch KenPom miscellaneous stats (3P%, FT%, etc.) for the given season."""
+def _scrape_kenpom_table(url: str, label: str) -> pd.DataFrame:
+    """Scrape a KenPom HTML stats table, returning a DataFrame with TeamName + all numeric cols."""
     try:
         from kenpom_scraper import _login
+        from bs4 import BeautifulSoup
         session = _login()
-        resp = session.get(
-            "https://kenpom.com/api.php",
-            params={"endpoint": "misc-stats", "y": y},
-            timeout=20
-        )
+        resp = session.get(url, timeout=20)
         resp.raise_for_status()
-        data = resp.json()
-        df = pd.DataFrame(data)
-        print(f"  [misc-stats] loaded {len(df)} teams")
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        # KenPom tables have id="ratings-table" or just the first big table
+        table = soup.find("table", {"id": "ratings-table"}) or soup.find("table")
+        if table is None:
+            print(f"  [{label}] no table found")
+            return pd.DataFrame()
+
+        headers = [th.get_text(strip=True) for th in table.find("thead").find_all("th")]
+        rows = []
+        for tr in table.find("tbody").find_all("tr"):
+            cells = [td.get_text(strip=True) for td in tr.find_all("td")]
+            if cells:
+                rows.append(cells)
+
+        if not rows:
+            print(f"  [{label}] no rows found")
+            return pd.DataFrame()
+
+        df = pd.DataFrame(rows, columns=headers[:len(rows[0])])
+
+        # Normalise team name column
+        for col in df.columns:
+            if col.lower() in ("team", "teamname", "name"):
+                df = df.rename(columns={col: "TeamName"})
+                break
+
+        # Strip rank prefixes from TeamName (e.g. "1Duke" → "Duke")
+        if "TeamName" in df.columns:
+            df["TeamName"] = df["TeamName"].str.replace(r"^\d+", "", regex=True).str.strip()
+
+        # Convert numeric columns
+        for col in df.columns:
+            if col != "TeamName":
+                df[col] = pd.to_numeric(df[col], errors="ignore")
+
+        print(f"  [{label}] loaded {len(df)} teams, cols: {list(df.columns)}")
         return df
     except Exception as e:
-        print(f"  [misc-stats] failed: {e}")
+        print(f"  [{label}] failed: {e}")
         return pd.DataFrame()
+
+
+def fetch_misc_stats(y: int = 2026) -> pd.DataFrame:
+    """Fetch KenPom misc stats page (includes 3P%, FT%, etc.)"""
+    return _scrape_kenpom_table(
+        f"https://kenpom.com/misc.php?y={y}",
+        "misc-stats"
+    )
 
 
 def fetch_height_stats(y: int = 2026) -> pd.DataFrame:
-    """Fetch KenPom height/experience stats for the given season."""
-    try:
-        from kenpom_scraper import _login
-        session = _login()
-        resp = session.get(
-            "https://kenpom.com/api.php",
-            params={"endpoint": "height", "y": y},
-            timeout=20
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        df = pd.DataFrame(data)
-        print(f"  [height-stats] loaded {len(df)} teams")
-        return df
-    except Exception as e:
-        print(f"  [height-stats] failed: {e}")
-        return pd.DataFrame()
+    """Fetch KenPom height/experience stats page."""
+    return _scrape_kenpom_table(
+        f"https://kenpom.com/height.php?y={y}",
+        "height-stats"
+    )
 
 
 # ── Name matching ──────────────────────────────────────────────────────────────
@@ -221,13 +250,22 @@ def get_trait_value(
     try:
         if source == "misc":
             if misc_df.empty or "TeamName" not in misc_df.columns:
+                print(f"  [misc] DataFrame empty or no TeamName col. Cols: {list(misc_df.columns) if not misc_df.empty else 'EMPTY'}")
                 return None
             kp_names = misc_df["TeamName"].tolist()
             kp_name  = resolve_kp_name(team_name, kp_names)
             row = misc_df[misc_df["TeamName"] == kp_name]
             if row.empty:
                 return None
-            return float(row.iloc[0][field])
+            # Try exact field, then case-insensitive, then partial match
+            if field in row.columns:
+                return float(row.iloc[0][field])
+            for col in row.columns:
+                if col.lower().replace(" ", "").replace("%", "") == field.lower().replace(" ", "").replace("%", ""):
+                    return float(row.iloc[0][col])
+            # Log available columns to help diagnose
+            print(f"  [misc] field '{field}' not found. Available: {list(row.columns)}")
+            return None
 
         elif source == "height":
             if height_df.empty or "TeamName" not in height_df.columns:
@@ -282,6 +320,7 @@ def simulate_game(
     kp_data: dict,
     misc_df: pd.DataFrame,
     height_df: pd.DataFrame,
+    flip_threshold: float = 3.0,
 ) -> dict:
     """
     Simulate a single game. All tournament games are neutral site.
@@ -318,8 +357,8 @@ def simulate_game(
     trait_upset = False
     flip_trait  = None
 
-    # Trait upset rule: only if margin ≤ 5 AND mode is trait-based
-    if mode == "trait" and trait_name != "CZarp Model" and margin <= 3.0:
+    # Trait upset rule: only if margin ≤ flip_threshold AND mode is trait-based
+    if mode == "trait" and trait_name != "CZarp Model" and margin <= flip_threshold:
         field  = TRAITS[trait_name]["field"]
         source = TRAITS[trait_name]["source"]
         higher_better = TRAITS[trait_name]["higher_better"]
@@ -373,9 +412,32 @@ def simulate_game(
 
 # ── Full bracket simulation ───────────────────────────────────────────────────
 
-def _sim(t1, t2, s1, s2, mode, trait, kp_data, misc_df, height_df):
+def _sim(t1, t2, s1, s2, mode, trait, kp_data, misc_df, height_df, flip_threshold=3.0):
     """Shorthand wrapper."""
-    return simulate_game(t1, t2, s1, s2, mode, trait, kp_data, misc_df, height_df)
+    return simulate_game(t1, t2, s1, s2, mode, trait, kp_data, misc_df, height_df, flip_threshold)
+
+
+# ── Per-round spice thresholds ─────────────────────────────────────────────
+# Each spice level maps to a dict of round → flip margin threshold.
+# Later rounds have tighter thresholds — upsets harder to achieve deep in tournament.
+SPICE_THRESHOLDS: dict[str, dict[str, float]] = {
+    "🌶  Mild": {
+        "first_four": 1.5, "r64": 1.5, "r32": 1.2,
+        "s16": 1.0, "e8": 0.75, "final_four": 0.5, "championship": 0.5,
+    },
+    "🌶🌶  Medium": {
+        "first_four": 3.1, "r64": 3.1, "r32": 2.5,
+        "s16": 2.0, "e8": 1.5, "final_four": 1.2, "championship": 1.0,
+    },
+    "🌶🌶🌶  Hot": {
+        "first_four": 4.1, "r64": 4.1, "r32": 3.5,
+        "s16": 3.0, "e8": 2.5, "final_four": 2.0, "championship": 1.5,
+    },
+    "🔥  Extra Spicy": {
+        "first_four": 5.5, "r64": 5.5, "r32": 4.5,
+        "s16": 4.0, "e8": 3.5, "final_four": 3.0, "championship": 2.5,
+    },
+}
 
 
 def run_bracket(
@@ -384,6 +446,8 @@ def run_bracket(
     kp_data: dict,
     misc_df: pd.DataFrame,
     height_df: pd.DataFrame,
+    flip_threshold: float = 3.0,   # kept for backward compat (used as flat fallback)
+    spice_label: str = None,        # e.g. "🌶🌶  Medium" — enables per-round scaling
 ) -> dict:
     """
     Simulate the full 2026 NCAA Tournament bracket.
@@ -400,6 +464,13 @@ def run_bracket(
         "champion": team_name,
       }
     """
+    # Resolve per-round thresholds
+    per_round = SPICE_THRESHOLDS.get(spice_label) if spice_label else None
+
+    def _thresh(round_key: str) -> float:
+        if per_round:
+            return per_round.get(round_key, flip_threshold)
+        return flip_threshold
     results = {
         "first_four":  [],
         "regions":     {r: {} for r in REGIONS},
@@ -412,7 +483,7 @@ def run_bracket(
     ff_winners: dict[str, str] = {}
     for ff in FIRST_FOUR:
         g = _sim(ff["team1"], ff["team2"], ff["seed"], ff["seed"],
-                 mode, trait_name, kp_data, misc_df, height_df)
+                 mode, trait_name, kp_data, misc_df, height_df, _thresh("first_four"))
         ff_winners[ff["slot"]] = g["winner"]
         results["first_four"].append(g)
 
@@ -433,26 +504,26 @@ def run_bracket(
         # Round of 64
         r64 = []
         for (s1, t1, s2, t2) in matchups:
-            r64.append(_sim(t1, t2, s1, s2, mode, trait_name, kp_data, misc_df, height_df))
+            r64.append(_sim(t1, t2, s1, s2, mode, trait_name, kp_data, misc_df, height_df, _thresh("r64")))
 
         # Round of 32 — pair adjacent r64 games: (0,1), (2,3), (4,5), (6,7)
         r32 = []
         for i in range(0, 8, 2):
             w1, s1 = r64[i]["winner"],   r64[i]["seed1"]   if r64[i]["winner"] == r64[i]["team1"] else r64[i]["seed2"]
             w2, s2 = r64[i+1]["winner"], r64[i+1]["seed1"] if r64[i+1]["winner"] == r64[i+1]["team1"] else r64[i+1]["seed2"]
-            r32.append(_sim(w1, w2, s1, s2, mode, trait_name, kp_data, misc_df, height_df))
+            r32.append(_sim(w1, w2, s1, s2, mode, trait_name, kp_data, misc_df, height_df, _thresh("r32")))
 
         # Sweet 16 — pair r32 games: (0,1), (2,3)
         s16 = []
         for i in range(0, 4, 2):
             w1, s1 = r32[i]["winner"],   r32[i]["seed1"]   if r32[i]["winner"] == r32[i]["team1"] else r32[i]["seed2"]
             w2, s2 = r32[i+1]["winner"], r32[i+1]["seed1"] if r32[i+1]["winner"] == r32[i+1]["team1"] else r32[i+1]["seed2"]
-            s16.append(_sim(w1, w2, s1, s2, mode, trait_name, kp_data, misc_df, height_df))
+            s16.append(_sim(w1, w2, s1, s2, mode, trait_name, kp_data, misc_df, height_df, _thresh("s16")))
 
         # Elite Eight
         w1, s1 = s16[0]["winner"], s16[0]["seed1"] if s16[0]["winner"] == s16[0]["team1"] else s16[0]["seed2"]
         w2, s2 = s16[1]["winner"], s16[1]["seed1"] if s16[1]["winner"] == s16[1]["team1"] else s16[1]["seed2"]
-        e8 = _sim(w1, w2, s1, s2, mode, trait_name, kp_data, misc_df, height_df)
+        e8 = _sim(w1, w2, s1, s2, mode, trait_name, kp_data, misc_df, height_df, _thresh("e8"))
 
         region_winners[region] = e8["winner"]
         results["regions"][region] = {
@@ -465,7 +536,7 @@ def run_bracket(
     for (r1, r2) in FINAL_FOUR_MATCHUPS:
         t1 = region_winners[r1]
         t2 = region_winners[r2]
-        g  = _sim(t1, t2, None, None, mode, trait_name, kp_data, misc_df, height_df)
+        g  = _sim(t1, t2, None, None, mode, trait_name, kp_data, misc_df, height_df, _thresh("final_four"))
         g["semifinal"] = f"{r1} vs {r2}"
         ff_games.append(g)
         final_four_winners.append(g["winner"])
@@ -474,7 +545,7 @@ def run_bracket(
     # ── Step 5: Championship ────────────────────────────────────────────────
     champ_game = _sim(
         final_four_winners[0], final_four_winners[1],
-        None, None, mode, trait_name, kp_data, misc_df, height_df
+        None, None, mode, trait_name, kp_data, misc_df, height_df, _thresh("championship")
     )
     results["championship"] = champ_game
     results["champion"]     = champ_game["winner"]
