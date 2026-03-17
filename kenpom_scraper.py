@@ -217,9 +217,10 @@ def scrape_fanmatch_games(date_str: str | None = None) -> list[dict]:
             def _strip_rank(name: str) -> str:
                 name = re.sub(r"^\(?\d{1,3}\)?\s*", "", name)
                 name = re.sub(r"^#\d{1,3}\s*", "", name)
-                # Strip trailing conference tournament suffix like " sb-t", " wcc-t", " mvc-t"
-                # KenPom appends these to team names on the fanmatch page
+                # Strip trailing conference tournament suffix like " sb-t", " wcc-t"
                 name = re.sub(r"\s+[a-z0-9]{2,8}-t$", "", name, flags=re.IGNORECASE)
+                # Strip trailing NCAA tournament tag — KenPom appends this to team name
+                name = re.sub(r"\s+NCAA$", "", name, flags=re.IGNORECASE)
                 return name.strip()
 
             team1 = _strip_rank(raw_t1)
