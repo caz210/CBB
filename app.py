@@ -457,15 +457,25 @@ def get_snapshot_lines(date_str: str) -> dict:
         return {}
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def run_base_projections(today_str):
-    """KenPom projections only - cached 1hr. Vegas matching done separately so it can refresh."""
+    """KenPom projections only - cached 30min. Vegas matching done separately so it can refresh."""
     data = get_kenpom_data()
     games = get_todays_games(today_str)
     if not games:
         return []
-    # ── Neutral site detection — use pairs scraped at startup ────────────────
-    neutral_pairs = _NEUTRAL_PAIRS  # populated at module level on every boot
+
+    # ── Neutral site detection — scrape for the selected date ────────────────
+    # Fall back to startup pairs if scraper fails (e.g. KenPom login down)
+    neutral_pairs = _NEUTRAL_PAIRS  # startup fallback
+    try:
+        from kenpom_scraper import get_neutral_pairs as _gnp
+        scraped = _gnp(today_str)
+        if scraped is not None:
+            neutral_pairs = scraped
+            print(f"  [neutral] date-aware scrape for {today_str}: {len(neutral_pairs)} neutral pair(s)")
+    except Exception as _ne:
+        print(f"  [neutral] date-aware scrape failed, using startup pairs: {_ne}")
 
     results = []
     errors  = []
