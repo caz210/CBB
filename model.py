@@ -237,7 +237,7 @@ def unit_score(avg_hgt: float, exp: float, bench: float, avgs: dict, n_teams: fl
 
 def unit_score_adjustments(u1: float, u2: float) -> tuple[float, float]:
     """Returns (team1_bonus, team2_bonus) added to final projected scores."""
-    return (u1 - u2) * 0.5, (u2 - u1) * 0.5
+    return (u1 - u2) * 0.25, (u2 - u1) * 0.25
 
 
 def hca_adjustments(hca: float, team1_is_home: bool | None) -> tuple[float, float]:
