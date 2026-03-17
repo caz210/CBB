@@ -240,6 +240,9 @@ def scrape_fanmatch_games(date_str: str | None = None) -> list[dict]:
             home_team = None if neutral else team2
             away_team = None if neutral else team1
 
+            # Detect NCAA tournament tag — KenPom appends "NCAA" to cell text
+            is_ncaa = bool(re.search(r'\bNCAA\b', cell_text, re.IGNORECASE))
+
             # Deduplicate across tables
             pair_key = frozenset([team1.lower(), team2.lower()])
             if pair_key in seen_pairs:
@@ -247,13 +250,14 @@ def scrape_fanmatch_games(date_str: str | None = None) -> list[dict]:
             seen_pairs.add(pair_key)
 
             games.append({
-                "date":      date_str,
-                "team1":     team1,
-                "team2":     team2,
-                "connector": connector,
-                "neutral":   neutral,
-                "home_team": home_team,
-                "away_team": away_team,
+                "date":               date_str,
+                "team1":              team1,
+                "team2":              team2,
+                "connector":          connector,
+                "neutral":            neutral,
+                "home_team":          home_team,
+                "away_team":          away_team,
+                "is_ncaa_tournament": is_ncaa,
             })
             break   # found the matchup cell for this row — move to next row
 
