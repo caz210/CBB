@@ -465,15 +465,16 @@ def run_base_projections(today_str):
     if not games:
         return []
 
-    # ── Neutral site detection — scrape for the selected date ────────────────
-    # Fall back to startup pairs if scraper fails (e.g. KenPom login down)
+    # ── Neutral site detection — scrape for selected date AND tomorrow ────────
+    # get_todays_games always merges today + tomorrow, so we need pairs for both.
     neutral_pairs = _NEUTRAL_PAIRS  # startup fallback
     try:
         from kenpom_scraper import get_neutral_pairs as _gnp
-        scraped = _gnp(today_str)
-        if scraped is not None:
-            neutral_pairs = scraped
-            print(f"  [neutral] date-aware scrape for {today_str}: {len(neutral_pairs)} neutral pair(s)")
+        tomorrow_str = (date.fromisoformat(today_str) + timedelta(days=1)).isoformat()
+        _pairs_today    = _gnp(today_str)    or set()
+        _pairs_tomorrow = _gnp(tomorrow_str) or set()
+        neutral_pairs   = _pairs_today | _pairs_tomorrow
+        print(f"  [neutral] {today_str}: {len(_pairs_today)} + tomorrow {len(_pairs_tomorrow)} = {len(neutral_pairs)} total")
     except Exception as _ne:
         print(f"  [neutral] date-aware scrape failed, using startup pairs: {_ne}")
 
