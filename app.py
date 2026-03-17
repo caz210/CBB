@@ -708,16 +708,18 @@ if st.session_state.page == "main":
                     "is_ncaa_tournament": g.get("is_ncaa_tournament"),
                     "game_time":          g.get("game_time"),
                 })
-            st.write(f"**results[] has {len(results)} games after filters**")
-            if results:
-                r0 = results[0]
-                st.json({
-                    "team1":              r0.get("team1"),
-                    "team2":              r0.get("team2"),
-                    "location":           r0.get("location"),
-                    "is_neutral":         r0.get("is_neutral"),
-                    "is_ncaa_tournament": r0.get("is_ncaa_tournament"),
-                })
+            st.markdown("---")
+            st.write("**Direct scraper test:**")
+            tomorrow_dbg = (datetime.now(CENTRAL).date() + timedelta(days=1)).isoformat()
+            for lbl, d in [("Today", today), ("Tomorrow", tomorrow_dbg)]:
+                try:
+                    from kenpom_scraper import scrape_fanmatch_games as _sfg
+                    scraped = _sfg(d)
+                    st.success(f"{lbl} ({d}): {len(scraped)} games — sample: {scraped[:2] if scraped else 'none'}")
+                except Exception as ex:
+                    import traceback
+                    st.error(f"{lbl} ({d}) scraper FAILED: {type(ex).__name__}: {ex}")
+                    st.code(traceback.format_exc())
         # ── END DIAGNOSTIC ────────────────────────────────────────────────────
 
         # Load snapshot lines once — used as fallback when live Odds API lines have dropped
