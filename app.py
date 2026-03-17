@@ -730,31 +730,9 @@ if st.session_state.page == "main":
         # --- Game Cards ---
         st.markdown("<div class='section-title'>TODAY'S PROJECTIONS</div>", unsafe_allow_html=True)
 
-        # ── DIAGNOSTIC — remove after debugging ──────────────────────────────
-        with st.expander("🔧 Debug: Raw Game Data", expanded=False):
-            raw_games = get_todays_games(today)
-            st.write(f"**get_todays_games returned {len(raw_games)} games**")
-            for g in raw_games[:3]:
-                st.json({
-                    "team1":              g.get("team1"),
-                    "team2":              g.get("team2"),
-                    "team1_is_home":      g.get("team1_is_home"),
-                    "is_neutral":         g.get("is_neutral"),
-                    "is_ncaa_tournament": g.get("is_ncaa_tournament"),
-                    "game_time":          g.get("game_time"),
-                })
-            st.markdown("---")
-            st.write("**Direct scraper test:**")
-            tomorrow_dbg = (datetime.now(CENTRAL).date() + timedelta(days=1)).isoformat()
-            for lbl, d in [("Today", today), ("Tomorrow", tomorrow_dbg)]:
-                try:
-                    from kenpom_scraper import scrape_fanmatch_games as _sfg
-                    scraped = _sfg(d)
-                    st.success(f"{lbl} ({d}): {len(scraped)} games — sample: {scraped[:2] if scraped else 'none'}")
-                except Exception as ex:
-                    import traceback
-                    st.error(f"{lbl} ({d}) scraper FAILED: {type(ex).__name__}: {ex}")
-                    st.code(traceback.format_exc())
+        # ── DIAGNOSTIC (commented out) ───────────────────────────────────────
+        # with st.expander("🔧 Debug: Raw Game Data", expanded=False):
+        #     ... (see git history)
         # ── END DIAGNOSTIC ────────────────────────────────────────────────────
 
         # Load snapshot lines once — used as fallback when live Odds API lines have dropped
@@ -1266,33 +1244,9 @@ if st.session_state.page == "main":
 
     st.markdown(f"<div style='margin-top:40px; padding-top:20px; border-top:1px solid #3d2080; font-size:0.75rem; color:#9b72e0; text-align:center;'>CZarp Analytics Club &nbsp;·&nbsp; CBB Model &nbsp;·&nbsp; 2025-26 &nbsp;·&nbsp; Last updated {datetime.now().strftime('%I:%M %p CT')}</div>", unsafe_allow_html=True)
 
-    # ── KenPom Scraper Test ───────────────────────────────────────────────────────
-    with st.expander("🧪 KenPom Scraper Test", expanded=False):
-        st.caption("Tests direct login + fanmatch scraping to detect neutral sites via 'at' vs 'vs' notation.")
-        test_date = st.text_input("Date to test (YYYY-MM-DD, blank = today)", value="", key="scraper_test_date")
-        if st.button("Run Scraper Test", key="run_scraper_test"):
-            try:
-                from kenpom_scraper import scrape_fanmatch_games
-                with st.spinner("Logging into KenPom and scraping FanMatch..."):
-                    target = test_date.strip() or None
-                    games = scrape_fanmatch_games(target)
-                neutrals = [g for g in games if g["neutral"]]
-                homes    = [g for g in games if not g["neutral"]]
-                st.success(f"Found {len(games)} games — {len(neutrals)} neutral, {len(homes)} home")
-                if neutrals:
-                    st.markdown("**Neutral Site Games:**")
-                    for g in neutrals:
-                        st.markdown(f"- **{g['team1']}** vs **{g['team2']}**")
-                if homes:
-                    st.markdown("**Home Games (first 8):**")
-                    for g in homes[:8]:
-                        st.markdown(f"- {g['away_team']} at {g['home_team']}")
-                    if len(homes) > 8:
-                        st.caption(f"...and {len(homes)-8} more")
-            except Exception as e:
-                st.error(f"Scraper failed: {e}")
-                import traceback
-                st.code(traceback.format_exc())
+    # ── KenPom Scraper Test (commented out) ─────────────────────────────────
+    # with st.expander("🧪 KenPom Scraper Test", expanded=False):
+    #     ... (see git history)
 
     # ── Performance Tab ───────────────────────────────────────────────────────────
     with tab3:
@@ -1419,39 +1373,9 @@ elif st.session_state.page == "bracket":
     st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
     run_sim = st.button("🏀 Simulate Bracket", use_container_width=False, type="primary", key="run_bracket")
 
-    # ── Trait debug expander ──────────────────────────────────────────────────
-    with st.expander("🔍 Debug: Scraped stat pages", expanded=False):
-        try:
-            from bracket_simulator import fetch_misc_stats as _fms, fetch_height_stats as _fhs
-            import pandas as _pd
-
-            st.markdown("**misc.php (3P%, FT%, etc.):**")
-            _mdf = _fms(y=2026)
-            if _mdf.empty:
-                st.error("misc.php returned empty — scrape failed or login issue")
-            else:
-                st.success(f"✅ {len(_mdf)} teams loaded")
-                st.write(f"Columns: `{list(_mdf.columns)}`")
-                # Show row for a known team
-                _row = _mdf[_mdf["TeamName"].str.contains("Gonzaga", case=False, na=False)]
-                if not _row.empty:
-                    st.write("Gonzaga row:", _row.iloc[0].to_dict())
-
-            st.markdown("---")
-            st.markdown("**height.php (Avg Height, Experience):**")
-            _hdf = _fhs(y=2026)
-            if _hdf.empty:
-                st.error("height.php returned empty — scrape failed or login issue")
-            else:
-                st.success(f"✅ {len(_hdf)} teams loaded")
-                st.write(f"Columns: `{list(_hdf.columns)}`")
-                _row2 = _hdf[_hdf["TeamName"].str.contains("Gonzaga", case=False, na=False)]
-                if not _row2.empty:
-                    st.write("Gonzaga row:", _row2.iloc[0].to_dict())
-
-        except Exception as _dbg_e:
-            st.error(f"Debug error: {_dbg_e}")
-            import traceback; st.code(traceback.format_exc())
+    # ── Bracket debug expander (commented out) ──────────────────────────────
+    # with st.expander("🔍 Debug: Scraped stat pages", expanded=False):
+    #     ... (see git history)
 
     st.markdown("---")
 
@@ -1679,20 +1603,8 @@ elif st.session_state.page == "performance":
                 st.error(str(e))
                 import traceback
                 st.code(traceback.format_exc())
-        if st.button("🔎 Debug API Columns", use_container_width=True,
-                     help="Shows raw columns returned by KenPom REST API for today+tomorrow — helps diagnose neutral detection"):
-            try:
-                tomorrow_dbg = (datetime.now(CENTRAL).date() + timedelta(days=1)).isoformat()
-                today_dbg    = datetime.now(CENTRAL).date().isoformat()
-                for lbl, d in [("Today", today_dbg), ("Tomorrow", tomorrow_dbg)]:
-                    try:
-                        fm = fetch_fanmatch(d)
-                        st.markdown(f"**{lbl} ({d})** — {len(fm)} rows, columns: `{list(fm.columns)}`")
-                        st.dataframe(fm.head(3), use_container_width=True)
-                    except Exception as ex:
-                        st.warning(f"{lbl}: {ex}")
-            except Exception as e:
-                st.error(str(e))
+        # Debug API Columns button (commented out)
+        # if st.button("🔎 Debug API Columns", ...): ...
 
         if st.button("🔬 Debug Supabase", use_container_width=True):
             try:
