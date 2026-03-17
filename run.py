@@ -74,16 +74,33 @@ def games_from_fanmatch(today: str) -> list[dict]:
     """
     print(f" Scraping KenPom FanMatch page ({today})...")
 
-    # ── Step 1: Scrape full game list from HTML ───────────────────────────────
+    tomorrow = (date.fromisoformat(today) + timedelta(days=1)).isoformat()
+
+    # ── Step 1: Scrape full game list from HTML (today + tomorrow) ────────────
     scraped_games = []
     try:
-        scraped_games = scrape_fanmatch_games(today)
+        scraped_today = scrape_fanmatch_games(today)
+        scraped_games.extend(scraped_today)
+        print(f"    Scraper ({today}): {len(scraped_today)} games")
+    except Exception as e:
+        print(f"    Scraper failed for {today}: {e}")
+
+    try:
+        scraped_tomorrow = scrape_fanmatch_games(tomorrow)
+        if scraped_tomorrow:
+            # Deduplicate by team pair before extending
+            existing_pairs = {frozenset([g["team1"].lower(), g["team2"].lower()]) for g in scraped_games}
+            new_games = [g for g in scraped_tomorrow
+                         if frozenset([g["team1"].lower(), g["team2"].lower()]) not in existing_pairs]
+            scraped_games.extend(new_games)
+            print(f"    Scraper ({tomorrow}): {len(scraped_tomorrow)} games ({len(new_games)} new)")
+    except Exception as e:
+        print(f"    Scraper failed for {tomorrow}: {e}")
+
+    if scraped_games:
         neutral_count = sum(1 for g in scraped_games if g["neutral"])
         home_count    = len(scraped_games) - neutral_count
-        print(f"    Scraper: {len(scraped_games)} games ({neutral_count} neutral, {home_count} home/away)")
-    except Exception as e:
-        print(f"    Scraper failed: {e}")
-        print(f"    Falling back to API-only game list (neutral detection may be wrong)")
+        print(f"    Scraper total: {len(scraped_games)} games ({neutral_count} neutral, {home_count} home/away)")
 
     # ── Step 2: Fetch API predictions ────────────────────────────────────────
     api_lookup: dict[tuple, dict] = {}   # (home_lower, visitor_lower) → row dict
@@ -98,18 +115,15 @@ def games_from_fanmatch(today: str) -> list[dict]:
     except Exception as e:
         print(f"    API fanmatch fetch failed for {today}: {e}")
 
-    # After 8 PM CT also check tomorrow (UTC rollover for late games)
-    now_ct = datetime.now(CENTRAL)
-    if now_ct.hour >= 20:
-        tomorrow = (date.fromisoformat(today) + timedelta(days=1)).isoformat()
-        print(f"    After 8 PM CT — also checking API for {tomorrow}...")
-        try:
-            fm_tomorrow = fetch_fanmatch(tomorrow)
-            if not fm_tomorrow.empty:
-                frames.append(fm_tomorrow)
-                fm_tomorrow.to_csv(f"data/fanmatch_{tomorrow}.csv", index=False)
-        except Exception as e:
-            print(f"    API fanmatch fetch failed for {tomorrow}: {e}")
+    # Always check tomorrow too — covers UTC rollover + date-picker-ahead use
+    try:
+        fm_tomorrow = fetch_fanmatch(tomorrow)
+        if not fm_tomorrow.empty:
+            frames.append(fm_tomorrow)
+            fm_tomorrow.to_csv(f"data/fanmatch_{tomorrow}.csv", index=False)
+            print(f"    API ({tomorrow}): {len(fm_tomorrow)} games")
+    except Exception as e:
+        print(f"    API fanmatch fetch failed for {tomorrow}: {e}")
 
     if frames:
         combined = pd.concat(frames, ignore_index=True)
