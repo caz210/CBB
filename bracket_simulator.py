@@ -296,10 +296,12 @@ def simulate_game(
     kp_t2 = resolve_kp_name(team2, kp_names)
 
     # Run projection (neutral site → team1_is_home=None)
+    debug = {}
     try:
         result   = project_game(kp_t1, kp_t2, team1_is_home=None, data=kp_data)
         t1_score = result["team1_score"]
         t2_score = result["team2_score"]
+        debug    = result.get("debug", {})
     except Exception as e:
         print(f"  [sim] projection failed {team1} vs {team2}: {e}")
         # Fallback: higher seed wins by 5
@@ -317,17 +319,34 @@ def simulate_game(
 
     # Trait upset rule: only if margin ≤ 5 AND mode is trait-based
     if mode == "trait" and trait_name != "CZarp Model" and margin <= 5.0:
-        w_val = get_trait_value(winner, trait_name, kp_data, misc_df, height_df)
-        l_val = get_trait_value(loser,  trait_name, kp_data, misc_df, height_df)
+        field  = TRAITS[trait_name]["field"]
+        source = TRAITS[trait_name]["source"]
+        higher_better = TRAITS[trait_name]["higher_better"]
+
+        # Map winner/loser to t1/t2 to look up debug values
+        if winner == team1:
+            w_key, l_key = "t1", "t2"
+        else:
+            w_key, l_key = "t2", "t1"
+
+        # Height and Experience live in project_game debug dict as t1_hgt / t1_exp
+        debug_field_map = {"AvgHgt": "hgt", "Exp": "exp"}
+        if field in debug_field_map:
+            dkey  = debug_field_map[field]
+            w_val = debug.get(f"{w_key}_{dkey}")
+            l_val = debug.get(f"{l_key}_{dkey}")
+            print(f"  [trait] {trait_name}: winner={winner}({w_val}) loser={loser}({l_val}) margin={margin}")
+        else:
+            w_val = get_trait_value(winner, trait_name, kp_data, misc_df, height_df)
+            l_val = get_trait_value(loser,  trait_name, kp_data, misc_df, height_df)
 
         if w_val is not None and l_val is not None:
-            higher_better = TRAITS[trait_name]["higher_better"]
-            loser_better  = (l_val > w_val) if higher_better else (l_val < w_val)
+            loser_better = (l_val > w_val) if higher_better else (l_val < w_val)
 
             if loser_better:
                 winner, loser = loser, winner
                 trait_upset   = True
-                flip_trait    = trait_name
+                flip_trait    = f"{trait_name} ({l_val:.2f} vs {w_val:.2f})"
 
     return {
         "team1":             team1,
