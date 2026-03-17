@@ -695,6 +695,31 @@ if st.session_state.page == "main":
         # --- Game Cards ---
         st.markdown("<div class='section-title'>TODAY'S PROJECTIONS</div>", unsafe_allow_html=True)
 
+        # ── DIAGNOSTIC — remove after debugging ──────────────────────────────
+        with st.expander("🔧 Debug: Raw Game Data", expanded=False):
+            raw_games = get_todays_games(today)
+            st.write(f"**get_todays_games returned {len(raw_games)} games**")
+            for g in raw_games[:3]:
+                st.json({
+                    "team1":              g.get("team1"),
+                    "team2":              g.get("team2"),
+                    "team1_is_home":      g.get("team1_is_home"),
+                    "is_neutral":         g.get("is_neutral"),
+                    "is_ncaa_tournament": g.get("is_ncaa_tournament"),
+                    "game_time":          g.get("game_time"),
+                })
+            st.write(f"**results[] has {len(results)} games after filters**")
+            if results:
+                r0 = results[0]
+                st.json({
+                    "team1":              r0.get("team1"),
+                    "team2":              r0.get("team2"),
+                    "location":           r0.get("location"),
+                    "is_neutral":         r0.get("is_neutral"),
+                    "is_ncaa_tournament": r0.get("is_ncaa_tournament"),
+                })
+        # ── END DIAGNOSTIC ────────────────────────────────────────────────────
+
         # Load snapshot lines once — used as fallback when live Odds API lines have dropped
         _snap_lines = get_snapshot_lines(today)
 
