@@ -379,63 +379,71 @@ def get_kenpom_data():
 @st.cache_data(ttl=900, show_spinner=False)
 def get_todays_games(today_str):
     """
-    Fetch games using games_from_fanmatch (API-based), then patch neutral/NCAA
-    flags by running the scraper directly for today+tomorrow. This way the
-    scraper failure for a date with no games doesn't kill tomorrow's detection.
+    Primary source: HTML scraper (today + tomorrow) for game list + neutral/NCAA detection.
+    Secondary: REST API joined by team name for KenPom predictions.
+    Scraper failure for one date is silently skipped — the other date still works.
     """
-    import os
-    try:
-        from run import games_from_fanmatch
-        games = games_from_fanmatch(today_str)
-    except Exception as e:
-        print(f"  [games] games_from_fanmatch failed: {e}")
-        games = []
+    import pandas as pd
+    from kenpom_scraper import scrape_fanmatch_games as _sfg
 
-    # If no games, try tomorrow directly
-    if not games:
-        try:
-            tomorrow_str = (date.fromisoformat(today_str) + timedelta(days=1)).isoformat()
-            from run import games_from_fanmatch
-            games = games_from_fanmatch(tomorrow_str)
-        except Exception as e:
-            print(f"  [games] tomorrow games_from_fanmatch also failed: {e}")
-            return []
-
-    # ── Patch neutral + NCAA flags via scraper for today AND tomorrow ─────────
-    # Run scraper for both dates, merge results into a lookup by team pair.
-    # We do this separately so a scraper failure for one date doesn't block the other.
-    _scraper_map = {}  # frozenset(team1.lower, team2.lower) → scraper game dict
     tomorrow_str = (date.fromisoformat(today_str) + timedelta(days=1)).isoformat()
+
+    # ── Step 1: Scrape game list from HTML for today + tomorrow ───────────────
+    scraped = []
+    seen    = set()
     for _d in [today_str, tomorrow_str]:
         try:
-            from kenpom_scraper import scrape_fanmatch_games as _sfg
             for sg in _sfg(_d):
                 key = frozenset([sg["team1"].lower(), sg["team2"].lower()])
-                _scraper_map[key] = sg
-            print(f"  [neutral] scraper patch: {len(_scraper_map)} pairs from {_d}")
-        except Exception as _se:
-            print(f"  [neutral] scraper patch failed for {_d}: {_se}")
+                if key not in seen:
+                    seen.add(key)
+                    scraped.append(sg)
+            print(f"  [scraper] {_d}: {len(scraped)} total so far")
+        except Exception as _e:
+            print(f"  [scraper] {_d} skipped ({type(_e).__name__}): {_e}")
 
-    # Patch each game with scraper data if available
-    patched = []
-    for g in games:
-        key = frozenset([g["team1"].lower(), g["team2"].lower()])
-        sg  = _scraper_map.get(key)
-        if sg:
-            g = dict(g)
-            g["is_neutral"]         = sg["neutral"]
-            g["is_ncaa_tournament"] = sg.get("is_ncaa_tournament", False)
-            g["team1_is_home"]      = None if sg["neutral"] else True
-            if not g.get("game_time") and sg.get("game_time"):
-                g["game_time"] = sg["game_time"]
-        else:
-            if "is_neutral" not in g:
-                g["is_neutral"]         = False
-            if "is_ncaa_tournament" not in g:
-                g["is_ncaa_tournament"] = False
-        patched.append(g)
+    if not scraped:
+        print("  [scraper] no games found from scraper for either date")
+        return []
 
-    return patched
+    # ── Step 2: Fetch API predictions for both dates ───────────────────────────
+    api_lookup = {}  # keyed both orderings for fuzzy match
+    for _d in [today_str, tomorrow_str]:
+        try:
+            fm = fetch_fanmatch(_d)
+            if fm is not None and not fm.empty:
+                for _, row in fm.iterrows():
+                    h = str(row.get("Home", "")).strip().lower()
+                    v = str(row.get("Visitor", "")).strip().lower()
+                    if h and v:
+                        api_lookup[(h, v)] = row.to_dict()
+                        api_lookup[(v, h)] = row.to_dict()
+        except Exception as _e:
+            print(f"  [api] {_d} failed: {_e}")
+
+    # ── Step 3: Join scraper games with API predictions ───────────────────────
+    games = []
+    for sg in scraped:
+        t1   = sg["team1"]
+        t2   = sg["team2"]
+        pred = api_lookup.get((t1.lower(), t2.lower())) or                api_lookup.get((t2.lower(), t1.lower()))
+
+        games.append({
+            "team1":              t1,
+            "team2":              t2,
+            "team1_is_home":      None if sg["neutral"] else True,
+            "is_neutral":         sg["neutral"],
+            "is_ncaa_tournament": sg.get("is_ncaa_tournament", False),
+            "kp_home_score":      pred.get("HomePred")    if pred else None,
+            "kp_away_score":      pred.get("VisitorPred") if pred else None,
+            "kp_home_wp":         pred.get("HomeWP")      if pred else None,
+            "kp_tempo":           pred.get("PredTempo")   if pred else None,
+            "game_time":          (pred.get("GameTime") or pred.get("Time")) if pred else None,
+        })
+
+    neutral_ct = sum(1 for g in games if g["is_neutral"])
+    print(f"  [games] returning {len(games)} games ({neutral_ct} neutral)")
+    return games
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_vegas_lines():
