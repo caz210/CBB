@@ -174,7 +174,9 @@ def games_from_fanmatch(today: str) -> list[dict]:
 
         # Neutral flag comes directly from scraper ("vs" = neutral, "at" = home game)
         neutral       = g["neutral"]
-        team1_is_home = None if neutral else True
+        # Scraper: team1 = visitor ("Auburn at Alabama"), team2 = home
+        # team1_is_home=False → model gives HCA to team2 (correct)
+        team1_is_home = None if neutral else False
 
         # Try to find matching API row (exact first, then fuzzy)
         pred_row = None
