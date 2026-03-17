@@ -91,8 +91,8 @@ TRAITS: dict[str, dict] = {
     "Free Throw %":         {"field": "FTPct",   "higher_better": True,  "source": "misc"},
     "Adj Off Efficiency":   {"field": "AdjOE",   "higher_better": True,  "source": "ratings"},
     "Adj Def Efficiency":   {"field": "AdjDE",   "higher_better": False, "source": "ratings"},
-    "Height":               {"field": "AvgHgt",  "higher_better": True,  "source": "height"},
-    "Experience":           {"field": "Exp",     "higher_better": True,  "source": "height"},
+    "Height":               {"field": "AvgHgt",  "higher_better": True,  "source": "ratings"},
+    "Experience":           {"field": "Exp",     "higher_better": True,  "source": "ratings"},
 }
 
 # KenPom name overrides for bracket names that differ from KenPom database
@@ -248,11 +248,19 @@ def get_trait_value(
             row = ratings[ratings["TeamName"] == kp_name]
             if row.empty:
                 return None
-            # AdjOE / AdjDE column names in KenPom ratings
-            col_map = {"AdjOE": ["AdjOE", "AdjO", "Adj. O"], "AdjDE": ["AdjDE", "AdjD", "Adj. D"],
-                       "AvgHgt": ["AvgHgt", "Hgt", "AvgHgt"], "Exp": ["Exp", "Experience"]}
+            # Try multiple possible column names for each field
+            col_map = {
+                "AdjOE":   ["AdjOE", "AdjO", "Adj. O", "OE"],
+                "AdjDE":   ["AdjDE", "AdjD", "Adj. D", "DE"],
+                "AvgHgt":  ["AvgHgt", "Hgt", "AvgHgt", "HgtEff"],
+                "Exp":     ["Exp", "Experience"],
+            }
             for col in col_map.get(field, [field]):
                 if col in row.columns:
+                    return float(row.iloc[0][col])
+            # Last resort: check all columns case-insensitively
+            for col in row.columns:
+                if col.lower() == field.lower():
                     return float(row.iloc[0][col])
             return None
 
