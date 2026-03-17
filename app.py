@@ -1512,19 +1512,24 @@ elif st.session_state.page == "bracket":
             </div>
             """, unsafe_allow_html=True)
 
-            # ── Helper: margin → spice badge ─────────────────────────────────
-            def _spice_badge(margin: float) -> str:
-                """Return a colored spice heat badge based on point differential."""
-                if margin <= 1.5:
-                    return "<span style='font-size:0.6rem;color:#4ade80;background:#4ade8022;border:1px solid #4ade8055;padding:1px 7px;border-radius:10px;margin-left:6px;'>🌶 MILD</span>"
-                elif margin <= 3.1:
-                    return "<span style='font-size:0.6rem;color:#fbbf24;background:#fbbf2422;border:1px solid #fbbf2455;padding:1px 7px;border-radius:10px;margin-left:6px;'>🌶🌶 MEDIUM</span>"
-                elif margin <= 4.1:
-                    return "<span style='font-size:0.6rem;color:#f97316;background:#f9731622;border:1px solid #f9731655;padding:1px 7px;border-radius:10px;margin-left:6px;'>🌶🌶🌶 HOT</span>"
-                elif margin <= 5.5:
-                    return "<span style='font-size:0.6rem;color:#ef4444;background:#ef444422;border:1px solid #ef444455;padding:1px 7px;border-radius:10px;margin-left:6px;'>🔥 EXTRA SPICY</span>"
-                else:
-                    return ""   # comfortable win — no badge
+            # ── Helper: spice badge — only shown when game was in the flip window ─
+            _SPICE_STYLE = {
+                "🌶  Mild":        ("🌶 MILD",        "#4ade80", "#4ade8022", "#4ade8055"),
+                "🌶🌶  Medium":    ("🌶🌶 MEDIUM",     "#fbbf24", "#fbbf2422", "#fbbf2455"),
+                "🌶🌶🌶  Hot":     ("🌶🌶🌶 HOT",      "#f97316", "#f9731622", "#f9731655"),
+                "🔥  Extra Spicy": ("🔥 EXTRA SPICY",  "#ef4444", "#ef444422", "#ef444455"),
+            }
+            def _spice_badge(margin: float, game_threshold: float) -> str:
+                """Show badge only if this game was actually inside the flip window."""
+                if not spice_label or margin > game_threshold:
+                    return ""   # not in play — no badge
+                style = _SPICE_STYLE.get(spice_label)
+                if not style:
+                    return ""
+                label, color, bg, border = style
+                return (f"<span style='font-size:0.6rem;color:{color};background:{bg};"
+                        f"border:1px solid {border};padding:1px 7px;border-radius:10px;"
+                        f"margin-left:6px;'>{label}</span>")
 
             # ── Helper: render a game result ─────────────────────────────────
             def _game_card(g: dict, show_seeds: bool = True) -> str:
@@ -1541,7 +1546,8 @@ elif st.session_state.page == "bracket":
                 c2 = "#f0b429" if t2 == w else "#7e4fcf"
                 w1 = "700" if t1 == w else "400"
                 w2 = "700" if t2 == w else "400"
-                heat  = _spice_badge(margin)
+                game_threshold = g.get("flip_threshold", 0)
+                heat  = _spice_badge(margin, game_threshold)
                 upset_row = ""
                 favored = g.get("trait_favored", False)
                 if upset:
