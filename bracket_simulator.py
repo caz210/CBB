@@ -411,6 +411,7 @@ def simulate_game(
         "trait_upset":       trait_upset,
         "trait_favored":     trait_favored,
         "flip_trait":        flip_trait,
+        "flip_threshold":    flip_threshold,
     }
 
 
