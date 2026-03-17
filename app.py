@@ -1381,11 +1381,29 @@ elif st.session_state.page == "bracket":
         else:
             st.caption(f"ℹ️ **{trait_name}** — flip rule applies when margin ≤5 pts and the loser has the edge.")
 
+    # ── Trait debug expander ──────────────────────────────────────────────────
+    with st.expander("🔍 Debug: Trait Values", expanded=False):
+        try:
+            import pandas as _pd
+            from bracket_simulator import get_trait_value
+            kp_data_dbg = get_kenpom_data()
+            ratings_dbg = kp_data_dbg.get("ratings")
+            st.write(f"**Ratings columns:** {list(ratings_dbg.columns) if ratings_dbg is not None else 'None'}")
+            for team in ["Gonzaga", "Florida"]:
+                for trait in ["Height", "Experience", "Adj Off Efficiency", "Adj Def Efficiency"]:
+                    val = get_trait_value(team, trait, kp_data_dbg, _pd.DataFrame(), _pd.DataFrame())
+                    st.write(f"**{team} / {trait}:** {val}")
+        except Exception as _dbg_e:
+            st.error(f"Debug error: {_dbg_e}")
+            import traceback; st.code(traceback.format_exc())
+
     st.markdown("---")
 
     # ── Run simulation ────────────────────────────────────────────────────────
     if run_sim or "bracket_results" in st.session_state:
         if run_sim:
+            # Always clear old result so fresh simulation runs
+            st.session_state.pop("bracket_results", None)
             with st.spinner("Simulating 67 games..."):
                 try:
                     kp_data    = get_kenpom_data()
