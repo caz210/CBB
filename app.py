@@ -556,6 +556,10 @@ with st.sidebar:
                  type="primary" if st.session_state.page == "main" else "secondary"):
         st.session_state.page = "main"
         st.rerun()
+    if st.button("🏆  Bracket", use_container_width=True, key="nav_bracket",
+                 type="primary" if st.session_state.page == "bracket" else "secondary"):
+        st.session_state.page = "bracket"
+        st.rerun()
     if st.button("📊  Performance", use_container_width=True, key="nav_perf",
                  type="primary" if st.session_state.page == "performance" else "secondary"):
         st.session_state.page = "performance"
@@ -1328,6 +1332,201 @@ if st.session_state.page == "main":
       </div>
     </div>
     """, unsafe_allow_html=True)
+
+elif st.session_state.page == "bracket":
+    st.markdown("<div class='section-title'>🏆 2026 MARCH MADNESS BRACKET SIMULATOR</div>", unsafe_allow_html=True)
+    st.markdown("<p style='color:#9b72e0; font-size:0.85rem; margin-top:-8px;'>Simulate the full 68-team NCAA Tournament using the CZarp model or a single dominant trait.</p>", unsafe_allow_html=True)
+
+    # ── Load data ─────────────────────────────────────────────────────────────
+    try:
+        from bracket_simulator import (
+            run_bracket, TRAITS, FINAL_FOUR_MATCHUPS, REGIONS, FIRST_FOUR
+        )
+    except ImportError as _ie:
+        st.error(f"bracket_simulator.py not found: {_ie}")
+        st.stop()
+
+    @st.cache_data(ttl=3600, show_spinner=False)
+    def get_misc_stats():
+        from bracket_simulator import fetch_misc_stats
+        return fetch_misc_stats(y=2026)
+
+    @st.cache_data(ttl=3600, show_spinner=False)
+    def get_height_stats():
+        from bracket_simulator import fetch_height_stats
+        return fetch_height_stats(y=2026)
+
+    # ── Controls ──────────────────────────────────────────────────────────────
+    st.markdown("---")
+    ctrl1, ctrl2, ctrl3 = st.columns([2, 2, 1])
+    with ctrl1:
+        mode = st.radio("Simulation Mode", ["CZarp Model", "Trait-Based"],
+                        horizontal=True, key="bracket_mode")
+    with ctrl2:
+        trait_options = list(TRAITS.keys())
+        trait_name = st.selectbox("Select Trait", trait_options,
+                                  disabled=(mode == "CZarp Model"),
+                                  key="bracket_trait")
+    with ctrl3:
+        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+        run_sim = st.button("🏀 Simulate", use_container_width=True, type="primary", key="run_bracket")
+
+    if mode == "CZarp Model":
+        trait_name = "CZarp Model"
+
+    if mode == "Trait-Based" and trait_name != "CZarp Model":
+        trait_src = TRAITS[trait_name]["source"]
+        if trait_src in ("misc",):
+            st.caption(f"ℹ️ **{trait_name}** — if the projected margin is ≤5 pts and the losing team is better at this stat, the result flips.")
+        else:
+            st.caption(f"ℹ️ **{trait_name}** — flip rule applies when margin ≤5 pts and the loser has the edge.")
+
+    st.markdown("---")
+
+    # ── Run simulation ────────────────────────────────────────────────────────
+    if run_sim or "bracket_results" in st.session_state:
+        if run_sim:
+            with st.spinner("Simulating 67 games..."):
+                try:
+                    kp_data    = get_kenpom_data()
+                    misc_df    = get_misc_stats()
+                    height_df  = get_height_stats()
+                    bres = run_bracket(
+                        mode="trait" if mode == "Trait-Based" else "czarp",
+                        trait_name=trait_name,
+                        kp_data=kp_data,
+                        misc_df=misc_df,
+                        height_df=height_df,
+                    )
+                    st.session_state["bracket_results"] = bres
+                    st.session_state["bracket_trait_label"] = trait_name
+                    st.session_state["bracket_mode_label"]  = mode
+                except Exception as _be:
+                    st.error(f"Simulation failed: {_be}")
+                    import traceback; st.code(traceback.format_exc())
+                    st.stop()
+
+        bres        = st.session_state.get("bracket_results")
+        trait_label = st.session_state.get("bracket_trait_label", "CZarp Model")
+        mode_label  = st.session_state.get("bracket_mode_label", "CZarp Model")
+
+        if not bres:
+            st.info("Hit **🏀 Simulate** to run the bracket.")
+        else:
+            # ── Champion display ─────────────────────────────────────────────
+            champ = bres["champion"]
+            st.markdown(f"""
+            <div style="background:linear-gradient(135deg,#1a0e30,#2a1560);
+                        border:2px solid #f0b429; border-radius:12px;
+                        padding:20px; text-align:center; margin-bottom:24px;">
+              <div style="font-size:2.5rem;">🏆</div>
+              <div style="font-family:'Bebas Neue',sans-serif; font-size:1rem;
+                          letter-spacing:3px; color:#9b72e0; margin-bottom:4px;">
+                2026 CZARP CHAMPION
+              </div>
+              <div style="font-family:'Bebas Neue',sans-serif; font-size:2.2rem;
+                          color:#f0b429; letter-spacing:2px;">{champ}</div>
+              <div style="font-size:0.75rem; color:#7e4fcf; margin-top:6px;">
+                Mode: {mode_label}{f' · Trait: {trait_label}' if mode_label == 'Trait-Based' else ''}
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # ── Helper: render a game result ─────────────────────────────────
+            def _game_card(g: dict, show_seeds: bool = True) -> str:
+                t1    = g["team1"];  t2    = g["team2"]
+                s1    = g.get("seed1"); s2 = g.get("seed2")
+                sc1   = g["t1_score"]; sc2 = g["t2_score"]
+                w     = g["winner"]
+                upset = g.get("trait_upset", False)
+
+                s1_txt = f"({s1}) " if s1 else ""
+                s2_txt = f"({s2}) " if s2 else ""
+                c1 = "#f0b429" if t1 == w else "#6b4fa0"
+                c2 = "#f0b429" if t2 == w else "#6b4fa0"
+                upset_html = ""
+                if upset:
+                    upset_html = f"<div style='font-size:0.6rem;color:#fb923c;margin-top:2px;'>🔀 TRAIT UPSET ({g.get('flip_trait','')})</div>"
+
+                return f"""<div style='background:#140d26;border:1px solid #3d2080;
+                             border-radius:8px;padding:8px 12px;margin-bottom:6px;'>
+                  <div style='display:flex;justify-content:space-between;margin-bottom:2px;'>
+                    <span style='color:{c1};font-weight:700;font-size:0.85rem;'>{s1_txt}{t1}</span>
+                    <span style='color:{c1};font-weight:700;'>{sc1}</span>
+                  </div>
+                  <div style='display:flex;justify-content:space-between;'>
+                    <span style='color:{c2};font-weight:700;font-size:0.85rem;'>{s2_txt}{t2}</span>
+                    <span style='color:{c2};font-weight:700;'>{sc2}</span>
+                  </div>
+                  {upset_html}
+                </div>"""
+
+            # ── Final Four ───────────────────────────────────────────────────
+            st.markdown("<div class='section-title' style='font-size:1rem;'>🏟️ FINAL FOUR</div>", unsafe_allow_html=True)
+            ff_cols = st.columns(2)
+            for i, ffg in enumerate(bres["final_four"]):
+                with ff_cols[i]:
+                    st.markdown(f"<div style='font-size:0.7rem;color:#9b72e0;margin-bottom:4px;'>{ffg.get('semifinal','')}</div>", unsafe_allow_html=True)
+                    st.markdown(_game_card(ffg, show_seeds=False), unsafe_allow_html=True)
+
+            # Championship
+            st.markdown("<div class='section-title' style='font-size:1rem;margin-top:16px;'>🏅 CHAMPIONSHIP</div>", unsafe_allow_html=True)
+            st.markdown(_game_card(bres["championship"], show_seeds=False), unsafe_allow_html=True)
+
+            st.markdown("---")
+
+            # ── First Four ───────────────────────────────────────────────────
+            with st.expander("🎯 First Four Results", expanded=False):
+                ff4_cols = st.columns(2)
+                for i, ffg in enumerate(bres["first_four"]):
+                    with ff4_cols[i % 2]:
+                        st.markdown(f"<div style='font-size:0.7rem;color:#9b72e0;margin-bottom:4px;'>{FIRST_FOUR[i]['region']} — Seed {FIRST_FOUR[i]['seed']}</div>", unsafe_allow_html=True)
+                        st.markdown(_game_card(ffg, show_seeds=False), unsafe_allow_html=True)
+
+            # ── Regional Results ──────────────────────────────────────────────
+            region_tabs = st.tabs(["🔵 East", "🟢 West", "🟡 Midwest", "🔴 South"])
+            region_names = ["East", "West", "Midwest", "South"]
+            region_emojis = {"East": "🔵", "West": "🟢", "Midwest": "🟡", "South": "🔴"}
+
+            for tab, region in zip(region_tabs, region_names):
+                with tab:
+                    rdata  = bres["regions"][region]
+                    winner = rdata["e8"]["winner"]
+                    st.markdown(f"<div style='color:#f0b429;font-size:0.85rem;font-weight:700;margin-bottom:8px;'>Region Winner: {winner}</div>", unsafe_allow_html=True)
+
+                    round_labels = [
+                        ("r64", "Round of 64"),
+                        ("r32", "Round of 32"),
+                        ("s16", "Sweet 16"),
+                    ]
+                    for rkey, rlabel in round_labels:
+                        games = rdata.get(rkey, [])
+                        if not games:
+                            continue
+                        st.markdown(f"<div style='font-size:0.75rem;color:#9b72e0;letter-spacing:1px;margin:10px 0 4px;font-family:Bebas Neue,sans-serif;'>{rlabel}</div>", unsafe_allow_html=True)
+                        gcols = st.columns(2)
+                        for gi, g in enumerate(games):
+                            with gcols[gi % 2]:
+                                st.markdown(_game_card(g), unsafe_allow_html=True)
+
+                    # Elite Eight
+                    e8 = rdata.get("e8")
+                    if e8:
+                        st.markdown("<div style='font-size:0.75rem;color:#f0b429;letter-spacing:1px;margin:10px 0 4px;font-family:Bebas Neue,sans-serif;'>ELITE EIGHT</div>", unsafe_allow_html=True)
+                        st.markdown(_game_card(e8, show_seeds=False), unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div style='text-align:center;padding:40px;color:#7e4fcf;'>
+          <div style='font-size:3rem;margin-bottom:12px;'>🏀</div>
+          <div style='font-family:Bebas Neue,sans-serif;font-size:1.2rem;letter-spacing:2px;color:#9b72e0;'>
+            SELECT A MODE AND HIT SIMULATE
+          </div>
+          <div style='font-size:0.8rem;margin-top:8px;color:#5a3090;'>
+            CZarp Model runs every matchup through the projection engine.<br>
+            Trait mode flips close games (≤5 pts) if the loser has the better stat.
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
 
 elif st.session_state.page == "performance":
     st.markdown("<div class='section-title'>📊 CZARP PERFORMANCE</div>", unsafe_allow_html=True)
