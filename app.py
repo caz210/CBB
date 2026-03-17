@@ -757,14 +757,25 @@ if st.session_state.page == "main":
                 else:
                     badge_cls, badge_txt = "edge-low",  "PENDING"  # refined below after game_started check
 
-                away_score = r["team2_score"]
-                home_score = r["team1_score"]
-                away_name  = r["team2"]
-                home_name  = r["team1"]
+                # Orient home/away using location stamped by run.py
+                # scraper: team1 = visitor, team2 = home → location="away" means team1 is AWAY
+                _loc = r.get("location", "home")
+                if _loc == "away":
+                    # team1 is the VISITOR, team2 is the HOME team
+                    away_name  = r["team1"];  home_name  = r["team2"]
+                    away_score = r["team1_score"]; home_score = r["team2_score"]
+                else:
+                    # neutral or home (API fallback): team1 listed first as home
+                    away_name  = r["team2"];  home_name  = r["team1"]
+                    away_score = r["team2_score"]; home_score = r["team1_score"]
                 away_cls = "team-score team-score-winner" if away_score > home_score else "team-score"
                 home_cls = "team-score team-score-winner" if home_score > away_score else "team-score"
 
-                s = r["spread"]
+                # spread = team1_score - team2_score (always)
+                # When loc=="away": team1=away, team2=home → positive s means AWAY team winning
+                # Re-orient so positive means HOME team winning
+                _raw_s = r["spread"]
+                s = _raw_s if _loc != "away" else -_raw_s
                 if s > 0:
                     czarp_txt  = f"{home_name[:16]} {-abs(s):+.1f}"
                     czarp_side = f"{home_name[:18]} - {abs(s):.1f}"
@@ -890,7 +901,9 @@ if st.session_state.page == "main":
                         _tab_breakdown, _tab_prediction = st.tabs(["📊 Breakdown", "🔮 Prediction"])
 
                         with _tab_breakdown:
-                            hk, ak = "t1", "t2"   # team1 = home in daily projections
+                            # Orient stats to home/away based on scraper location
+                            # loc="away" → team1 is visitor (away), team2 is home
+                            hk, ak = ("t2", "t1") if _loc == "away" else ("t1", "t2")
 
                             h_rank  = d.get(f"kenpom_rank_{hk}"); a_rank  = d.get(f"kenpom_rank_{ak}")
                             h_net   = d.get(f"net_rank_{hk}");    a_net   = d.get(f"net_rank_{ak}")
@@ -912,9 +925,9 @@ if st.session_state.page == "main":
                             h_ft_proj = d.get(f"{hk}_ft");       a_ft_proj = d.get(f"{ak}_ft")
                             h_hgt     = d.get(f"{hk}_hgt");       a_hgt     = d.get(f"{ak}_hgt")
                             h_exp     = d.get(f"{hk}_exp");       a_exp     = d.get(f"{ak}_exp")
-                            h_unt     = r.get("team1_unit_score");a_unt     = r.get("team2_unit_score")
-                            h_ppp     = r.get("team1_ppp", 0);   a_ppp     = r.get("team2_ppp", 0)
-                            h_hadj    = d.get("h1_adj", 0)
+                            h_unt     = r.get("team1_unit_score" if hk=="t1" else "team2_unit_score"); a_unt = r.get("team2_unit_score" if hk=="t1" else "team1_unit_score")
+                            h_ppp     = r.get("team1_ppp" if hk=="t1" else "team2_ppp", 0); a_ppp = r.get("team2_ppp" if hk=="t1" else "team1_ppp", 0)
+                            h_hadj    = d.get("h1_adj" if hk=="t1" else "h2_adj", 0)
 
                             def _c(val, opp, hib=True):
                                 if val is None or opp is None: return "#7e4fcf"
