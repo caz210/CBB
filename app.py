@@ -431,7 +431,7 @@ def get_todays_games(today_str):
         games.append({
             "team1":              t1,
             "team2":              t2,
-            "team1_is_home":      None if sg["neutral"] else True,
+            "team1_is_home":      None if sg["neutral"] else False,
             "is_neutral":         sg["neutral"],
             "is_ncaa_tournament": sg.get("is_ncaa_tournament", False),
             "kp_home_score":      pred.get("HomePred")    if pred else None,
