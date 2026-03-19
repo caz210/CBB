@@ -112,11 +112,11 @@ KENPOM_NAME_OVERRIDES: dict[str, str] = {
     "Wright St.":           "Wright St.",
     "Kennesaw St.":         "Kennesaw St.",
     "Queens (NC)":          "Queens (NC)",
-    "McNeese St.":          "McNeese St.",
+    "McNeese St.":          "McNeese",        # ← BUG FIX: KenPom stores as "McNeese" not "McNeese St."
     "Prairie View A&M":     "Prairie View A&M",
     "Saint Louis":          "Saint Louis",
-    "Miami (FL)":           "Miami (FL)",
-    "Miami (OH)":           "Miami (OH)",
+    "Miami (FL)":           "Miami FL",       # ← BUG FIX: model.py TEAM_NAME_MAP uses no parens
+    "Miami (OH)":           "Miami OH",       # ← BUG FIX: model.py TEAM_NAME_MAP uses no parens
     "North Carolina":       "North Carolina",
     "BYU":                  "BYU",
     "VCU":                  "VCU",
@@ -341,7 +341,10 @@ def simulate_game(
         t2_score = result["team2_score"]
         debug    = result.get("debug", {})
     except Exception as e:
-        print(f"  [sim] projection failed {team1} vs {team2}: {e}")
+        import traceback
+        print(f"  [sim] ⚠ PROJECTION FAILED — {team1} vs {team2}: {e}")
+        print(f"        kp_t1='{kp_t1}'  kp_t2='{kp_t2}'  ← check KENPOM_NAME_OVERRIDES")
+        traceback.print_exc()
         # Fallback: higher seed wins by 5
         t1_score = 70.0 if (seed1 or 99) < (seed2 or 99) else 65.0
         t2_score = 65.0 if (seed1 or 99) < (seed2 or 99) else 70.0
