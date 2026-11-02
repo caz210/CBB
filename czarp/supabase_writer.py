@@ -16,6 +16,7 @@ import requests
 
 SPORT, LEAGUE = "cbb", "ncaam"
 V1_VERSION = "czarp-v1-totals"
+DEFAULT_VERSION = "czarp-v2"      # model shown on the public slate (model_configs.is_default)
 
 
 def _clean(v):
@@ -67,6 +68,10 @@ class Client:
                     out.extend(r.json())
         return out
 
+    def delete(self, table: str, **params) -> None:
+        r = self.s.delete(f"{self.base}/{table}", params=params, timeout=30)
+        self._check(r, table)
+
     def insert(self, table: str, rows: list[dict]) -> None:
         self.upsert(table, rows, returning=False, ignore_duplicates=True)
 
@@ -97,12 +102,13 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
     # model configs
     mc = []
     if cfg is not None:
-        mc.append({**base, "model_version": getattr(cfg, "model_version", "czarp-v2"),
+        ver = getattr(cfg, "model_version", "czarp-v2")
+        mc.append({**base, "model_version": ver,
                    "description": "CZarp v2 (sides): config-driven features", "features": cfg.features,
-                   "weights": cfg.weights_dict(), "updated_at": ts})
+                   "weights": cfg.weights_dict(), "is_default": ver == DEFAULT_VERSION, "updated_at": ts})
     mc.append({**base, "model_version": V1_VERSION, "description": "Original v1 formula (main:model.py), totals only",
                "features": [{"name": "v1_formula", "kind": "legacy", "weight": 1.0, "enabled": True}],
-               "weights": {}, "updated_at": ts})
+               "weights": {}, "is_default": False, "updated_at": ts})
     c.upsert("model_configs", mc, on_conflict="model_version", returning=False)
 
     # teams + games (today's slate, plus any ledger games not yet mirrored)
@@ -209,6 +215,16 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
                    "created_at": r.created_ct,
                    "result": r.result if isinstance(r.result, str) else None,
                    "closing_line": _clean(r.close_line), "clv": _clean(r.clv_pts), "pnl": _clean(r.pnl),
-                   "graded_at": r.graded_ct if isinstance(r.graded_ct, str) else None})
+                   "graded_at": r.graded_ct if isinstance(r.graded_ct, str) else None,
+                   "model_prob": _clean(pd.to_numeric(r.get("p_est"), errors="coerce")),
+                   "bankroll_at_pick": _clean(pd.to_numeric(r.get("bankroll_at_pick"), errors="coerce")),
+                   "is_paper": True})
     c.upsert("picks", pk, on_conflict="pick_key", returning=False)
-    return f"{len(grows)} games, {len(proj)} projections, {len(ml)} market lines, {len(pk)} picks"
+    # ledger is the source of truth: drop mirrored picks that are no longer in it (e.g. a re-run with a new rule)
+    keep = {str(x) for x in ledger.pick_id}
+    remote = {x["pick_key"] for x in c.get("picks", select="pick_key", league=f"eq.{LEAGUE}")}
+    stale = sorted(remote - keep)
+    for i in range(0, len(stale), 100):
+        c.delete("picks", pick_key="in.(" + ",".join(f'"{k}"' for k in stale[i:i + 100]) + ")")
+    return (f"{len(grows)} games, {len(proj)} projections, {len(ml)} market lines, {len(pk)} picks"
+            + (f", removed {len(stale)} stale picks" if stale else ""))

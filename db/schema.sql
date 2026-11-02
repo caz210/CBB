@@ -3,8 +3,10 @@
 -- No raw KenPom (or other licensed) team statistics are stored here.
 -- The CSV ledger (data/ledger/ledger.csv) stays the source of truth; daily_run.py mirrors
 -- into these tables when SUPABASE_URL + SUPABASE_SERVICE_KEY are set.
--- Security: RLS on every table; anon/authenticated get read-only SELECT policies;
--- writes come only from the service role (which bypasses RLS). Idempotent: safe to re-run.
+-- Security: RLS on every table. Model outputs are read-only for anon/authenticated and written only
+-- by the service role (bypasses RLS); picks are hidden until tip-off unless profiles.tier is pro/syndicate.
+-- profiles/user_models are per-user (auth.uid()). Requires Supabase auth (auth.users, auth.uid()).
+-- Front-end views: slate_games, value_bets, ledger. Idempotent: safe to re-run.
 
 -- ── reference tables ────────────────────────────────────────────────────────
 create table if not exists sports (
@@ -61,9 +63,12 @@ create table if not exists model_configs (
     description   text,
     features      jsonb not null,                 -- [{"name","kind","weight","enabled",...}]
     weights       jsonb not null,                 -- all numeric coefficients (calibration, sd, kelly, ...)
+    is_default    boolean not null default false, -- the model shown on the public slate for its league
     created_at    timestamptz not null default now(),
     updated_at    timestamptz not null default now()
 );
+alter table model_configs add column if not exists is_default boolean not null default false;
+create unique index if not exists model_configs_one_default on model_configs (league) where is_default;
 
 -- ── projections (one row per game x model x run) ────────────────────────────
 create table if not exists projections (
@@ -123,8 +128,14 @@ create table if not exists picks (
     closing_line   numeric(8,2),
     clv            numeric(6,2),                  -- points, positive = beat the close
     pnl            numeric(10,2),
-    graded_at      timestamptz
+    graded_at      timestamptz,
+    model_prob       numeric(5,4),                -- hit-rate estimate used for Kelly (conservative, per rule)
+    bankroll_at_pick numeric(12,2),               -- paper bankroll when placed; 1 unit = 1% of it
+    is_paper         boolean not null default true
 );
+alter table picks add column if not exists model_prob numeric(5,4);
+alter table picks add column if not exists bankroll_at_pick numeric(12,2);
+alter table picks add column if not exists is_paper boolean not null default true;
 create index if not exists picks_league_created_idx on picks (league, created_at desc);
 
 -- ── convenience view (security_invoker keeps the caller's RLS) ──────────────
@@ -140,18 +151,143 @@ select p.league, p.season, p.model_version, p.market,
 from picks p
 group by 1, 2, 3, 4;
 
--- ── RLS: public read-only, service-role writes ──────────────────────────────
+-- ── accounts: profiles + user_models (Supabase auth) ────────────────────────
+create table if not exists profiles (
+    user_id             uuid primary key references auth.users(id) on delete cascade,
+    tier                text not null default 'free' check (tier in ('free','pro','syndicate')),
+    stripe_customer_id  text unique,
+    created_at          timestamptz not null default now(),
+    updated_at          timestamptz not null default now()
+);
+
+create table if not exists user_models (
+    id          uuid primary key default gen_random_uuid(),
+    user_id     uuid not null default auth.uid() references auth.users(id) on delete cascade,
+    sport       text not null references sports(code),
+    name        text not null,
+    features    jsonb not null default '[]'::jsonb,   -- same shape as model_configs.features
+    weights     jsonb not null default '{}'::jsonb,
+    created_at  timestamptz not null default now(),
+    updated_at  timestamptz not null default now(),
+    unique (user_id, sport, name)
+);
+
+-- new auth user -> free profile (tier/stripe id are changed only by the service role, e.g. a Stripe webhook)
+create or replace function public.handle_new_user() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.profiles (user_id) values (new.id) on conflict (user_id) do nothing;
+  return new;
+end $$;
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created after insert on auth.users
+  for each row execute function public.handle_new_user();
+
+-- paid tier check, used by the picks policy (security definer so it can read profiles under RLS)
+create or replace function public.is_pro() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.profiles p where p.user_id = auth.uid() and p.tier in ('pro','syndicate'));
+$$;
+grant execute on function public.is_pro() to anon, authenticated;
+
+-- ── RLS ─────────────────────────────────────────────────────────────────────
+-- Outputs: public read-only; all writes via the service role (bypasses RLS).
 do $$
 declare t text;
 begin
   foreach t in array array['sports','leagues','teams','games','model_configs','projections','market_lines','picks'] loop
     execute format('alter table %I enable row level security', t);
     execute format('drop policy if exists %I on %I', t || '_read', t);
-    execute format('create policy %I on %I for select to anon, authenticated using (true)', t || '_read', t);
+    execute format('revoke insert, update, delete on %I from anon, authenticated', t);
     execute format('grant select on %I to anon, authenticated', t);
+    if t <> 'picks' then
+      execute format('create policy %I on %I for select to anon, authenticated using (true)', t || '_read', t);
+    end if;
   end loop;
 end $$;
-grant select on pick_record to anon, authenticated;
+-- picks (value bets): everyone sees a pick once its game has tipped; Pro/Syndicate see it immediately.
+create policy picks_read on picks for select to anon, authenticated using (
+  public.is_pro()
+  or exists (select 1 from games g where g.id = picks.game_id and g.tipoff is not null and g.tipoff <= now())
+);
+
+-- profiles: read your own row only; no client writes (tier is set server-side)
+alter table profiles enable row level security;
+drop policy if exists profiles_read_own on profiles;
+create policy profiles_read_own on profiles for select to authenticated using (user_id = auth.uid());
+revoke all on profiles from anon;
+revoke insert, update, delete on profiles from authenticated;
+grant select on profiles to authenticated;
+
+-- user_models: full CRUD on your own rows only
+alter table user_models enable row level security;
+drop policy if exists user_models_own on user_models;
+create policy user_models_own on user_models for all to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+revoke all on user_models from anon;
+grant select, insert, update, delete on user_models to authenticated;
+
+-- ── front-end read views (names/columns match czarp-web src/lib/supabase/README.md) ─
+-- security_invoker: the caller's RLS applies (so value_bets/ledger inherit the picks tier gate).
+create or replace view slate_games with (security_invoker = true) as
+select s.code                       as sport,
+       g.date                       as game_date,
+       g.id                         as game_id,
+       g.home, g.away,
+       p.proj_home, p.proj_away,
+       p.spread                     as proj_spread,       -- home line notation
+       p.total                      as proj_total,
+       p.home_win_prob, p.home_cover_prob,
+       p.archetype_tags             as archetypes,        -- {"home": [...], "away": [...], "tentative": bool, "notes": [...]}
+       m.spread                     as market_spread,     -- home line, negative = home favored
+       m.total                      as market_total,
+       m.source                     as market_source      -- 'vegas' (book in market_lines.book)
+from games g
+join sports s on s.id = g.sport_id
+left join lateral (
+  select pr.* from projections pr
+  join model_configs mc on mc.model_version = pr.model_version and mc.is_default and mc.league = g.league
+  where pr.game_id = g.id order by pr.created_at desc limit 1) p on true
+left join lateral (
+  select ml.* from market_lines ml
+  where ml.game_id = g.id and ml.source = 'vegas' and ml.line_type = 'current'
+  order by ml.fetched_at desc limit 1) m on true;
+
+create or replace view value_bets with (security_invoker = true) as
+select s.code                                     as sport,
+       pk.game_id,
+       pk.market,                                  -- 'spread' | 'total' | 'moneyline'
+       pk.bet                                     as side,      -- e.g. 'Tulane -6.5', 'Under 162.5'
+       pk.model_prob,
+       round(case when pk.price < 0 then -pk.price / (-pk.price + 100) else 100 / (pk.price + 100) end, 4)
+                                                  as market_prob,  -- implied by the price taken (incl. vig)
+       round(pk.model_prob - case when pk.price < 0 then -pk.price / (-pk.price + 100) else 100 / (pk.price + 100) end, 4)
+                                                  as edge,         -- model_prob - market_prob (front-end definition)
+       round(pk.kelly_stake / nullif(pk.bankroll_at_pick / 100, 0), 2)
+                                                  as kelly_quarter_units   -- 1u = 1% of bankroll
+from picks pk
+join games g  on g.id = pk.game_id
+join sports s on s.id = pk.sport_id
+where pk.result is null
+  and g.date >= (now() at time zone 'America/Chicago')::date;
+
+create or replace view ledger with (security_invoker = true) as
+select s.code                                          as sport,
+       g.date                                          as game_date,
+       pk.game_id,
+       pk.bet                                          as pick,
+       pk.line_or_price                                as line,
+       pk.price                                        as odds,
+       round(pk.kelly_stake / nullif(pk.bankroll_at_pick / 100, 0), 2) as stake_units,
+       case pk.result when 'win' then 'W' when 'loss' then 'L' when 'push' then 'P' end as result,  -- null = pending
+       round(pk.pnl / nullif(pk.bankroll_at_pick / 100, 0), 2)         as profit_units,
+       pk.is_paper
+from picks pk
+join games g  on g.id = pk.game_id
+join sports s on s.id = pk.sport_id
+where pk.result is distinct from 'void';
+
+grant select on slate_games, value_bets, ledger, pick_record to anon, authenticated;
 -- (To restrict reads to signed-in users only, change "to anon, authenticated" to "to authenticated".)
 
 -- ── seed: CBB ───────────────────────────────────────────────────────────────

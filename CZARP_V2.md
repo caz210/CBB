@@ -85,3 +85,9 @@ The default list reproduces v2 exactly (verified: max diff 0.0 on the 11/02 slat
 picks + `pick_record` view; RLS read-only for anon/authenticated, service-role writes; seeds CBB).
 `daily_run.py` mirrors outputs via PostgREST only when `SUPABASE_URL` and `SUPABASE_SERVICE_KEY`
 are set (`czarp/supabase_writer.py`); the CSV ledger stays the source of truth. No raw KenPom stats.
+
+Front-end (czarp-web) contract: read-only views `slate_games`, `value_bets`, `ledger` (columns exactly as in
+czarp-web `src/lib/supabase/README.md`), plus per-user tables `profiles` (own row, read-only to the user;
+tier set server-side) and `user_models` (own rows, full CRUD). Picks (and so value_bets/ledger rows) are
+visible to everyone after tip-off and immediately to pro/syndicate tiers (`public.is_pro()`). Units: 1u = 1%
+of the paper bankroll at pick time. The writer deletes mirrored picks no longer in the CSV ledger.
