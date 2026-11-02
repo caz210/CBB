@@ -64,7 +64,7 @@ python -m pytest -q tests
 One command: refresh KenPom (ratings/prior/HCA) + FanMatch → ESPN slate + DraftKings open/current
 lines (free) → Odds API fallback only if ESPN lacks lines for ≥25% of D-I games (≤1 call/day,
 100-credit reserve, usage in `data/ledger/odds_api_usage.json`) → Kalshi reference prices →
-v2 sides + original-v1 totals → plays (sides edge% ≥4%, totals edge% ≥3%) with quarter-Kelly
+v2 sides + original-v1 totals → plays (sides edge% ≥4%, totals edge% ≥3%, vs BOTH open and current line) with quarter-Kelly
 paper stakes (conservative 54.5% / 53.5% hit-rate estimates, 2.5% cap, plays under $1 skipped)
 → `data/ledger/ledger.csv` (one pick per game+market, first price kept; per-run snapshots in
 `data/ledger/snapshots/`) → grades earlier plays (final score, DK closing line, CLV, P&L) →

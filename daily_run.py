@@ -17,6 +17,8 @@ Steps
   (g) write outputs/daily/YYYY-MM-DD.md
 
 Rules (from the walk-forward backtest, Jan 2025 – Apr 2026, see outputs/walkforward/):
+  Both rules require the edge to clear the threshold vs the OPENING line AND the current line
+  (same side), exactly as backtested; no opening line -> no play.
   SIDES  — v2 model-only margin vs the DK line; edge% = |model − line| / DK total >= 4%
            (vs open: n=85, 60.0% ATS, CLV +1.1; vs close it lost — bet early).
   TOTALS — original v1 total vs the DK total; edge% = |model − total| / total >= 3%
@@ -389,14 +391,16 @@ def flag_plays(games, bankroll, board, now) -> list[dict]:
         if L is not None and T and hm is not None:
             gap = hm + L                                     # model home margin − market home margin
             edge = abs(gap) / T
-            if edge >= thr:
+            Lo = g.get("open_home_spread")
+            To = g.get("open_total") or T
+            eo = abs(hm + Lo) / To if Lo is not None else None
+            # must clear the threshold vs the OPENING line too, same side (matches the backtest)
+            same_side = Lo is not None and (hm + Lo > 0) == (gap > 0)
+            if edge >= thr and eo is not None and eo >= thr and same_side:
                 home = gap > 0
                 team = g["kp_home"] if home else g["kp_away"]
                 line = L if home else -L
                 price = g.get("current_home_spread_price" if home else "current_away_spread_price") or -110
-                Lo = g.get("open_home_spread")
-                To = g.get("open_total") or T
-                eo = abs(hm + Lo) / To if Lo is not None else None
                 plays.append(dict(market="spread", rule=f"v2 edge%>={thr:.0%}", side=team, line=line, price=price,
                                   open_line=(Lo if home else -Lo) if Lo is not None else None,
                                   model_value=hm if home else -hm, market_value=-line, edge_pct=edge,
@@ -406,13 +410,14 @@ def flag_plays(games, bankroll, board, now) -> list[dict]:
         mt = g.get(f"{mdl}_total")
         if T and mt is not None:
             edge = abs(mt - T) / T
-            if edge >= thr:
+            To = g.get("open_total")
+            eo = abs(mt - To) / To if To else None
+            if edge >= thr and eo is not None and eo >= thr and (mt > To) == (mt > T):
                 over = mt > T
-                To = g.get("open_total")
                 plays.append(dict(market="total", rule=f"v1 edge%>={thr:.0%}", side="Over" if over else "Under",
                                   line=T, price=g.get("current_over_price" if over else "current_under_price") or -110,
                                   open_line=To, model_value=mt, market_value=T, edge_pct=edge,
-                                  edge_pct_vs_open=abs(mt - To) / To if To else None, p_est=p, g=g, ts=ts))
+                                  edge_pct_vs_open=eo, p_est=p, g=g, ts=ts))
     rows = []
     for pl in sorted(plays, key=lambda x: -x["edge_pct"]):
         g = pl.pop("g")
@@ -571,8 +576,9 @@ def write_summary(today: str, now: datetime, games, new_rows, ledger, graded_idx
     L.append("")
     L.append("## Notes")
     L.append(f"- Rules: sides = v2 model-only vs DK line, edge% = |model − line| / DK total ≥ {RULES['spread'][1]:.0%}; "
-             f"totals = original v1 total vs DK total, edge% ≥ {RULES['total'][1]:.0%}. Both edges only showed up against "
-             "*opening* lines in the backtest (they lost vs the close), so run this as early as possible.")
+             f"totals = original v1 total vs DK total, edge% ≥ {RULES['total'][1]:.0%}; each must clear its threshold vs BOTH "
+             "the opening and the current line (same side). Edges only showed up vs *opening* lines in the backtest "
+             "(they lost vs the close), so run this as early as possible.")
     L.append("- Stakes: quarter Kelly with a conservative hit-rate estimate "
              f"({RULES['spread'][2]:.1%} sides / {RULES['total'][2]:.1%} totals), capped at 2.5% of bankroll.")
     for n in notes:
