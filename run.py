@@ -19,14 +19,19 @@ import pandas as pd
 from datetime import date, datetime, timedelta
 from difflib import SequenceMatcher
 from zoneinfo import ZoneInfo
-from kenpom_fetcher import fetch_all, fetch_fanmatch, save_data
+import argparse
+
+from kenpom_fetcher import fetch_all, fetch_fanmatch, save_data, fetch_prior, SEASON as KP_SEASON
 from kenpom_scraper import scrape_fanmatch_games
 from net_fetcher import fetch_net_rankings
 from model import load_data, project_game
 from debug_logger import write_debug_excel
 from odds_fetcher import fetch_vegas_lines, match_vegas_to_game
+from czarp.betting import evaluate_game, best_bets
+from czarp.config import load_config
+from czarp import kalshi as kx
 
-SEASON = 2026  # Current season (2025-26)
+SEASON = KP_SEASON  # derived from today's date (Nov 2026 -> 2027)
 CENTRAL = ZoneInfo("America/Chicago")
 
 
@@ -238,13 +243,25 @@ def games_from_fanmatch(today: str) -> list[dict]:
 
 # ── Main runner ───────────────────────────────────────────────────────────────
 
-def run(refresh_data: bool = True, target_date: str = None):
-    today = target_date or str(date.today())
+def run(refresh_data: bool = True, target_date: str = None, price_source: str | None = None,
+        refresh_hca: bool = False):
+    today = target_date or datetime.now(CENTRAL).strftime("%Y-%m-%d")
+    cfg = load_config()
+    price_source = price_source or cfg.betting.price_source
 
     if refresh_data:
-        # 1. Pull fresh KenPom ratings, four factors, height
+        # 1. Pull fresh KenPom ratings, four factors, height, misc-stats
         kp_data = fetch_all(year=SEASON)
         save_data(kp_data)
+        # Prior season stats: fill-in while current-season stats are placeholders
+        if not os.path.exists("data/prior/ratings.csv"):
+            save_data(fetch_prior(SEASON), os.path.join("data", "prior"))
+        # Per-team HCA (needs KENPOM_EMAIL/PASSWORD; falls back to average)
+        try:
+            from hca_fetcher import load_hca
+            load_hca(refresh=refresh_hca or not os.path.exists("data/hca.csv"))
+        except Exception as e:
+            print(f"    HCA refresh skipped: {e}")
 
         # 2. Pull NCAA NET rankings
         print(" Fetching NCAA NET rankings...")
@@ -254,6 +271,7 @@ def run(refresh_data: bool = True, target_date: str = None):
 
     # 3. Load all model data
     data = load_data()
+    data["config"] = cfg
 
     # 4. Get today's games (scraper for full list + neutral detection, API for predictions)
     games = games_from_fanmatch(today)
@@ -273,6 +291,7 @@ def run(refresh_data: bool = True, target_date: str = None):
                 team1_is_home=game["team1_is_home"],
                 data=data,
                 game_time=game.get("game_time"),
+                game_date=today,
             )
 
             # Attach KenPom's own predictions for easy side-by-side comparison
@@ -291,15 +310,40 @@ def run(refresh_data: bool = True, target_date: str = None):
 
             spread_team = r['team1'] if r['spread'] > 0 else r['team2']
             print(f"      Spread: {spread_team} -{abs(r['spread']):.1f}  |  Total: {r['total']:.1f}  |  KP Tempo: {game['kp_tempo']}")
+            tags = f"{r['team1']}: {', '.join(r['team1_tags']) or '-'} | {r['team2']}: {', '.join(r['team2_tags']) or '-'}"
+            print(f"      Win%: {r['team1_win_prob']:.1%}  |  Cards: {tags}")
+            if r["matchup_notes"]:
+                print(f"      Matchups: {'; '.join(r['matchup_notes'])}")
             print()
 
         except Exception as e:
             print(f"    {game['team1']} vs {game['team2']}: {e}\n")
 
-    # 6. Match Vegas lines to results
-    print(" Fetching Vegas lines...")
-    vegas_df = fetch_vegas_lines()
-    results = [match_vegas_to_game(r, vegas_df) for r in results]
+    # 6. Prices: Vegas (The Odds API) or prediction market (Kalshi / Robinhood)
+    if price_source == "vegas":
+        print(" Fetching Vegas lines...")
+        vegas_df = fetch_vegas_lines()
+        results = [match_vegas_to_game(r, vegas_df) for r in results]
+    else:
+        print(f" Fetching Kalshi CBB board (fees: {price_source})...")
+        board = kx.fetch_cbb_board()
+        for r in results:
+            r["bets"] = evaluate_game(r, price_source, kalshi_board=board, cfg=cfg.betting)
+
+    picks = []
+    for r in results:
+        for b in best_bets(r.get("bets") or []):
+            picks.append({"game": f"{r['team1']} vs {r['team2']}", **b})
+    if picks:
+        picks.sort(key=lambda b: b["edge"], reverse=True)
+        print(f"\n BET BOARD ({price_source}) — edge = model prob − break-even prob (vig/fees incl.)")
+        print(f"  {'Game':<30} {'Bet':<30} {'Price':>7} {'Model':>6} {'BE':>6} {'Edge':>6} {'Tier':<7} {'Stake':>6}")
+        for b in picks:
+            label = f"{b['market']} {b['side']}"
+            if b["market"] == "spread" and price_source == "vegas" and b["line"] is not None:
+                label += " %+g" % b["line"]
+            print(f"  {b['game'][:29]:<30} {label[:29]:<30} "
+                  f"{b['price']:>7} {b['model_prob']:>6.1%} {b['implied_prob']:>6.1%} {b['edge']:>6.1%} {b['tier']:<7} {b['stake_pct']:>6.2%}")
 
     # Print edge scores sorted best to worst
     if any(r.get("edge_score") is not None for r in results):
@@ -332,7 +376,16 @@ def run(refresh_data: bool = True, target_date: str = None):
 
 
 if __name__ == "__main__":
-    run(refresh_data=True)
+    ap = argparse.ArgumentParser(description="CZarp daily projections")
+    ap.add_argument("--no-refresh", action="store_true", help="use cached CSVs in data/")
+    ap.add_argument("--date", help="YYYY-MM-DD (Central)")
+    ap.add_argument("--price-source", choices=["vegas", "kalshi", "robinhood"],
+                    help="vegas = The Odds API (sportsbooks); kalshi = Kalshi taker fees; "
+                         "robinhood = Kalshi contracts with Robinhood commission")
+    ap.add_argument("--refresh-hca", action="store_true")
+    a = ap.parse_args()
+    run(refresh_data=not a.no_refresh, target_date=a.date, price_source=a.price_source,
+        refresh_hca=a.refresh_hca)
 
     # To run for a specific past date (useful for backtesting):
     # run(refresh_data=False, target_date="2025-02-15")

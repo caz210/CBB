@@ -37,6 +37,7 @@ MATCH_THRESHOLD = 0.72   # lowered — better normalization compensates
 TEAM_MAP_PATH   = "data/team_map.csv"
 
 _odds_last_fetched: str = ""
+_odds_credits_remaining = None
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MASTER SEED TABLE  —  KenPom name  →  exact Odds API full_name
@@ -612,6 +613,8 @@ def fetch_vegas_lines() -> pd.DataFrame:
     resp.raise_for_status()
 
     games = resp.json()
+    global _odds_credits_remaining
+    _odds_credits_remaining = resp.headers.get("x-requests-remaining")
     remaining = resp.headers.get("x-requests-remaining", "?")
     print(f"    Vegas lines fetched ({len(games)} games) | Credits remaining: {remaining}")
 
@@ -636,6 +639,9 @@ def fetch_vegas_lines() -> pd.DataFrame:
         vegas_spread  = None
         vegas_total   = None
         vegas_home_ml = None
+        vegas_away_ml = None
+        home_spread_price = away_spread_price = None
+        over_price = under_price = None
         source_book   = None
 
         for book_key in BOOK_PRIORITY:
@@ -644,24 +650,31 @@ def fetch_vegas_lines() -> pd.DataFrame:
                 continue
             markets = {m["key"]: m["outcomes"] for m in book["markets"]}
 
+            # v2: keep the prices (juice) too so edges can be measured in
+            # probability after vig, not just points.
             if vegas_spread is None and "spreads" in markets:
                 for outcome in markets["spreads"]:
                     if outcome["name"] == home:
                         vegas_spread = outcome["point"]
+                        home_spread_price = outcome.get("price")
                         source_book  = book["title"]
-                        break
+                    elif outcome["name"] == away:
+                        away_spread_price = outcome.get("price")
 
             if vegas_total is None and "totals" in markets:
                 for outcome in markets["totals"]:
                     if outcome["name"] == "Over":
                         vegas_total = outcome["point"]
-                        break
+                        over_price = outcome.get("price")
+                    elif outcome["name"] == "Under":
+                        under_price = outcome.get("price")
 
             if vegas_home_ml is None and "h2h" in markets:
                 for outcome in markets["h2h"]:
                     if outcome["name"] == home:
                         vegas_home_ml = outcome["price"]
-                        break
+                    elif outcome["name"] == away:
+                        vegas_away_ml = outcome["price"]
 
             if vegas_spread is not None and vegas_total is not None:
                 break
@@ -672,6 +685,11 @@ def fetch_vegas_lines() -> pd.DataFrame:
             "vegas_spread":   vegas_spread,
             "vegas_total":    vegas_total,
             "vegas_home_ml":  vegas_home_ml,
+            "vegas_away_ml":  vegas_away_ml,
+            "home_spread_price": home_spread_price,
+            "away_spread_price": away_spread_price,
+            "over_price":     over_price,
+            "under_price":    under_price,
             "source_book":    source_book,
             "odds_game_time": game_time_ct,
         })
@@ -749,7 +767,9 @@ def match_vegas_to_game(result: dict, vegas_df: pd.DataFrame) -> dict:
         "vegas_spread": None, "vegas_total": None, "vegas_home_ml": None,
         "spread_edge": None, "total_edge": None, "edge_score": None,
         "vegas_fav": None, "my_fav": None, "sides_agree": None,
-        "source_book": None, "odds_game_time": None}
+        "source_book": None, "odds_game_time": None,
+        "vegas_t1_ml": None, "vegas_t2_ml": None, "t1_spread_price": None,
+        "t2_spread_price": None, "over_price": None, "under_price": None, "bets": []}
 
     if vegas_df.empty:
         return _null(result)
@@ -811,11 +831,20 @@ def match_vegas_to_game(result: dict, vegas_df: pd.DataFrame) -> dict:
     result["vegas_spread"]   = v_spread
     result["vegas_total"]    = v_total
     result["vegas_home_ml"]  = best_match["vegas_home_ml"]
+    g = best_match.get
+    if best_flipped:
+        result["vegas_t1_ml"], result["vegas_t2_ml"] = g("vegas_away_ml"), g("vegas_home_ml")
+        result["t1_spread_price"], result["t2_spread_price"] = g("away_spread_price"), g("home_spread_price")
+    else:
+        result["vegas_t1_ml"], result["vegas_t2_ml"] = g("vegas_home_ml"), g("vegas_away_ml")
+        result["t1_spread_price"], result["t2_spread_price"] = g("home_spread_price"), g("away_spread_price")
+    result["over_price"], result["under_price"] = g("over_price"), g("under_price")
     result["source_book"]    = best_match["source_book"]
     result["odds_game_time"] = best_match.get("odds_game_time", "")
 
     if v_spread is not None and v_total and v_total > 0:
-        my_spread = result["spread"]
+        # v2: compare at full precision, not the 0.5-rounded display value
+        my_spread = result.get("spread_raw", result["spread"])
         my_vs     = -my_spread
 
         spread_diff = abs(v_spread - my_vs)
@@ -823,7 +852,7 @@ def match_vegas_to_game(result: dict, vegas_df: pd.DataFrame) -> dict:
         my_fav      = result["team1"] if my_spread > 0 else (result["team2"] if my_spread < 0 else "Pick")
 
         result["spread_edge"] = round(spread_diff, 2)
-        result["total_edge"]  = round(abs(result["total"] - v_total), 2)
+        result["total_edge"]  = round(abs(result.get("total_raw", result["total"]) - v_total), 2)
         result["edge_score"]  = round(spread_diff / v_total, 4)
         result["vegas_fav"]   = vegas_fav
         result["my_fav"]      = my_fav
@@ -836,4 +865,11 @@ def match_vegas_to_game(result: dict, vegas_df: pd.DataFrame) -> dict:
         result["my_fav"]      = None
         result["sides_agree"] = None
 
+    # v2: probability edges vs the actual prices (after vig), tiers + Kelly stake
+    try:
+        from czarp.betting import evaluate_vegas_game
+        result["bets"] = evaluate_vegas_game(result)
+    except Exception as e:  # never break the app over the betting layer
+        print(f"    bet evaluation failed: {e}")
+        result["bets"] = []
     return result

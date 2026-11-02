@@ -142,7 +142,9 @@ except ImportError as e:
     MODULES_OK = False
     st.error(f"Import error: {e}")
 
-SEASON = 2026
+from czarp.season import season_for_date, season_label
+SEASON = season_for_date()          # derived from today's Central date (Nov 2026 -> 2027)
+SEASON_LABEL = season_label(SEASON)  # "2026-27"
 CENTRAL = ZoneInfo("America/Chicago")
 
 # ── Inject KenPom credentials into env vars at startup ───────────────────────
@@ -373,6 +375,13 @@ def compute_bet_fields(r: dict) -> dict:
 def get_kenpom_data():
     data = fetch_all(year=SEASON)
     save_data(data)
+    # v2: last season's stat tables fill early-season placeholders (flagged in output)
+    if not os.path.exists(os.path.join("data", "prior", "ratings.csv")):
+        try:
+            from kenpom_fetcher import fetch_prior
+            save_data(fetch_prior(SEASON), os.path.join("data", "prior"))
+        except Exception as e:
+            print(f"prior-season fetch failed: {e}")
     return load_data()
 
 
@@ -496,7 +505,7 @@ def run_base_projections(today_str):
         # team1_is_home is already None for neutral games (stamped by get_todays_games)
         try:
             r = project_game(game["team1"], game["team2"], game["team1_is_home"], data,
-                             game_time=game.get("game_time"))
+                             game_time=game.get("game_time"), game_date=today_str)
             r["kp_home_score"]      = game["kp_home_score"]
             r["kp_away_score"]      = game["kp_away_score"]
             r["kp_home_wp"]         = game["kp_home_wp"]
@@ -547,7 +556,7 @@ with st.sidebar:
     )
     st.markdown("<hr style='border-color:#3d2080; margin: 0 0 16px 0;'>", unsafe_allow_html=True)
     st.markdown("<span style='font-family:Bebas Neue; font-size:1.1rem; letter-spacing:2px; color:#f0b429;'>CBB MODEL</span>", unsafe_allow_html=True)
-    st.markdown(f"**Season:** 2025-26")
+    st.markdown(f"**Season:** {SEASON_LABEL}")
     st.markdown("---")
 
     # ── Page navigation ───────────────────────────────────────────────────────
@@ -637,7 +646,7 @@ with col_logo:
     )
 with col_title:
     st.markdown("<h1 style='color:#f0b429; margin-bottom:2px; margin-top:0;'>CZARP CBB MODEL</h1>", unsafe_allow_html=True)
-    st.markdown(f"<p style='color:#9b72e0; margin-top:0;'>{selected_date.strftime('%A, %B %d, %Y')} &nbsp; 2025-26 Season</p>", unsafe_allow_html=True)
+    st.markdown(f"<p style='color:#9b72e0; margin-top:0;'>{selected_date.strftime('%A, %B %d, %Y')} &nbsp; {SEASON_LABEL} Season</p>", unsafe_allow_html=True)
 
 if not MODULES_OK:
     st.stop()
@@ -1004,7 +1013,7 @@ if st.session_state.page == "main":
                             blurb = generate_prediction_blurb(r, home_name=home_name, away_name=away_name)
                             st.markdown(blurb, unsafe_allow_html=True)
 
-        st.markdown(f"<div style='margin-top:40px; padding-top:20px; border-top:1px solid #3d2080; font-size:0.75rem; color:#9b72e0; text-align:center;'>CZarp CBB Model &nbsp; 2025-26 &nbsp; Last updated {datetime.now().strftime('%I:%M %p')}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='margin-top:40px; padding-top:20px; border-top:1px solid #3d2080; font-size:0.75rem; color:#9b72e0; text-align:center;'>CZarp CBB Model &nbsp; {SEASON_LABEL} &nbsp; Last updated {datetime.now().strftime('%I:%M %p')}</div>", unsafe_allow_html=True)
 
     with tab2:
         st.markdown("<div class='section-title'>GAME SIMULATOR</div>", unsafe_allow_html=True)
@@ -1255,7 +1264,7 @@ if st.session_state.page == "main":
                 </body></html>
                 """, height=780, scrolling=True)
 
-    st.markdown(f"<div style='margin-top:40px; padding-top:20px; border-top:1px solid #3d2080; font-size:0.75rem; color:#9b72e0; text-align:center;'>CZarp Analytics Club &nbsp;·&nbsp; CBB Model &nbsp;·&nbsp; 2025-26 &nbsp;·&nbsp; Last updated {datetime.now().strftime('%I:%M %p CT')}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='margin-top:40px; padding-top:20px; border-top:1px solid #3d2080; font-size:0.75rem; color:#9b72e0; text-align:center;'>CZarp Analytics Club &nbsp;·&nbsp; CBB Model &nbsp;·&nbsp; {SEASON_LABEL} &nbsp;·&nbsp; Last updated {datetime.now().strftime('%I:%M %p CT')}</div>", unsafe_allow_html=True)
 
     # ── KenPom Scraper Test (commented out) ─────────────────────────────────
     # with st.expander("🧪 KenPom Scraper Test", expanded=False):
@@ -1689,7 +1698,7 @@ elif st.session_state.page == "performance":
             win_pct    = (wins / total_bets * 100) if total_bets > 0 else 0
 
             ml_df      = df[df["czarp_ml_correct"].notna()]
-            ml_correct = ml_df["czarz_ml_correct"].sum() if not ml_df.empty else 0
+            ml_correct = ml_df["czarp_ml_correct"].sum() if not ml_df.empty else 0
             ml_pct     = (ml_correct / len(ml_df) * 100) if len(ml_df) > 0 else 0
 
             m1, m2, m3, m4 = st.columns(4)
