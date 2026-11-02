@@ -136,8 +136,50 @@ class EarlySeasonConfig:
     tentative_tag_mult: float = 0.5
 
 
+# ── feature list + weights (custom models) ────────────────────────────────────
+# Every score component is a named feature with a weight, so a custom model is
+# just a different list (JSON: {"model_version": "...", "features": [...]}).
+#   built-in kinds (weight = multiplier on that component; 0 or enabled=false turns it off):
+#     efficiency  - calibrated AdjOE x AdjDE x tempo base score (weight scales the margin part)
+#     hca         - per-team KenPom home-court advantage
+#     quality_gap - KenPom percentile gap bump (also needs quality_gap.enabled)
+#     matchup     - archetype counter/exploit cards (also needs matchup.apply_to_score)
+#     unit        - height / experience / bench unit score
+#     clutch      - late-game execution composite (also needs clutch.enabled)
+#   generic kinds (any column of the canonical team table, e.g. "TO", "OR", "FTR", "AvgHgt"):
+#     stat_diff     - weight x (z(team1.stat) - z(team2.stat)) points to team1's margin
+#                     (target "total": weight x (z1 + z2) points to the total)
+#     stat_matchup  - weight x [(z(t1.off) + z(t2.def)) - (z(t2.off) + z(t1.def))] points
+#                     to team1's margin; "def" is the opponent-allowed column (e.g. off "OR", def "Opp_OR")
+BUILTIN_FEATURES = ("efficiency", "hca", "quality_gap", "matchup", "unit", "clutch")
+
+
+def default_features() -> list[dict]:
+    return [{"name": k, "kind": k, "weight": 1.0, "enabled": True} for k in BUILTIN_FEATURES]
+
+
+def feature_weights(cfg) -> dict:
+    """{builtin name: weight} (missing/disabled -> 0) plus a list of custom features."""
+    feats = getattr(cfg, "features", None) or default_features()
+    w = {k: 0.0 for k in BUILTIN_FEATURES}
+    custom = []
+    for f in feats:
+        if not f.get("enabled", True):
+            continue
+        kind = f.get("kind", f.get("name"))
+        if kind in w:
+            w[kind] += float(f.get("weight", 1.0))
+        elif kind in ("stat_diff", "stat_matchup"):
+            custom.append(f)
+        else:
+            raise ValueError(f"unknown feature kind {kind!r} in model config")
+    return {"builtin": w, "custom": custom}
+
+
 @dataclass
 class ModelConfig:
+    model_version: str = "czarp-v2"
+    features: list = field(default_factory=default_features)
     use_multiplicative_efficiency: bool = True
     # Fitted: actual margin = 1.137 x efficiency margin (+ HCA). KenPom ratings are
     # deliberately conservative; the multiplicative formula still under-spreads.
@@ -157,6 +199,13 @@ class ModelConfig:
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+    def weights_dict(self) -> dict:
+        """Numeric coefficients only (everything except the feature list) - for model_configs.weights."""
+        d = asdict(self)
+        d.pop("features", None)
+        d.pop("model_version", None)
+        return d
 
 
 def _merge(obj, overrides: dict):

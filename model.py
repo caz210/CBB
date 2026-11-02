@@ -10,7 +10,7 @@ import os
 import numpy as np
 import pandas as pd
 
-from czarp.config import ModelConfig, load_config
+from czarp.config import ModelConfig, load_config, feature_weights
 from czarp.probability import win_prob
 from czarp.season import season_progress
 from czarp import teamstats
@@ -394,6 +394,39 @@ def _unit_score_row(row, avgs, cfg) -> float:
             + (vals[2] / avgs["avg_bench"]) * u.w_bench) / 10
 
 
+def _z(tt: pd.DataFrame, col: str, team: str) -> float:
+    if col not in tt:
+        raise KeyError(f"custom feature column {col!r} not in team table")
+    s = pd.to_numeric(tt[col], errors="coerce")
+    sd = s.std()
+    v = _f(s.get(team))
+    if np.isnan(v) or not sd or np.isnan(sd):
+        return 0.0
+    return (v - s.mean()) / sd
+
+
+def custom_feature_adjustment(n1: str, n2: str, tt: pd.DataFrame, custom: list) -> tuple[float, float]:
+    """(team1 margin points, total points) from config-defined stat features."""
+    dm = dt = 0.0
+    for f in custom:
+        w = float(f.get("weight", 0.0))
+        if f["kind"] == "stat_diff":
+            z1, z2 = _z(tt, f["stat"], n1), _z(tt, f["stat"], n2)
+            if f.get("target", "margin") == "total":
+                dt += w * (z1 + z2)
+            else:
+                dm += w * (z1 - z2)
+        else:  # stat_matchup
+            o, d = f["off"], f["def"]
+            e1 = _z(tt, o, n1) + _z(tt, d, n2)
+            e2 = _z(tt, o, n2) + _z(tt, d, n1)
+            if f.get("target", "margin") == "total":
+                dt += w * (e1 + e2)
+            else:
+                dm += w * (e1 - e2)
+    return dm, dt
+
+
 def project_game(
     team1: str,
     team2: str,
@@ -418,6 +451,8 @@ def project_game(
       9. win probability from margin ~ Normal(sd)
     """
     cfg = config or data.get("config") or load_config()
+    fw = feature_weights(cfg)
+    W = fw["builtin"]
     ratings = data["ratings"]
     ff      = data.get("four_factors")
     height  = data.get("height")
@@ -455,12 +490,12 @@ def project_game(
     base1, base2 = t1_ppp * pace, t2_ppp * pace
     # fitted calibration: widen the efficiency margin, calibrate the total
     bt = cfg.total_intercept + cfg.total_slope * (base1 + base2)
-    bm = cfg.efficiency_margin_scale * (base1 - base2)
+    bm = cfg.efficiency_margin_scale * (base1 - base2) * W["efficiency"]
     base1, base2 = (bt + bm) / 2, (bt - bm) / 2
     t1_score, t2_score = base1, base2
 
     # 4. quality gap (replaces v1's TO/REB dampener)
-    qg = cfg.quality_gap.coef * (t1_pct - t2_pct) * 10 if cfg.quality_gap.enabled else 0.0
+    qg = cfg.quality_gap.coef * (t1_pct - t2_pct) * 10 * W["quality_gap"] if cfg.quality_gap.enabled else 0.0
     t1_score += qg / 2
     t2_score -= qg / 2
 
@@ -473,6 +508,7 @@ def project_game(
     tm = cfg.early.tentative_tag_mult
     if bool(g1.get("tentative", False)) or bool(g2.get("tentative", False)):
         m1, m2 = m1 * tm, m2 * tm
+    m1, m2 = m1 * W["matchup"], m2 * W["matchup"]
     t1_score += m1
     t2_score += m2
 
@@ -482,7 +518,7 @@ def project_game(
     else:
         home = n1 if team1_is_home else n2
         hca_val, hca_src = team_hca(home, data.get("hca"), cfg.default_hca)
-        hca_val *= cfg.hca_scale
+        hca_val *= cfg.hca_scale * W["hca"]
     h1_adj, h2_adj = hca_adjustments(hca_val, team1_is_home, cfg.hca_split)
 
     # 6. unit score with optional extra weight
@@ -503,15 +539,20 @@ def project_game(
     if np.isnan(u1) or np.isnan(u2):
         u1_adj = u2_adj = 0.0
     else:
-        u1_adj = (u1 - u2) * scale * mult
+        u1_adj = (u1 - u2) * scale * mult * W["unit"]
         u2_adj = -u1_adj
     t1_score += u1_adj + h1_adj
     t2_score += u2_adj + h2_adj
 
+    # custom config-defined features (z-scored team-table stats)
+    cust_m, cust_t = custom_feature_adjustment(n1, n2, tt, fw["custom"])
+    t1_score += cust_m / 2 + cust_t / 2
+    t2_score += -cust_m / 2 + cust_t / 2
+
     # 8. clutch
     c1 = float(ctx["clutch"].get(n1, 0.0))
     c2 = float(ctx["clutch"].get(n2, 0.0))
-    clutch_adj = clutch_margin_adjustment(t1_score - t2_score, c1, c2, cfg.clutch)
+    clutch_adj = clutch_margin_adjustment(t1_score - t2_score, c1, c2, cfg.clutch) * W["clutch"]
     t1_score += clutch_adj / 2
     t2_score -= clutch_adj / 2
 
@@ -534,6 +575,9 @@ def project_game(
         "team1":             team1,
         "team2":             team2,
         "game_time":         game_time,
+        "model_version":     getattr(cfg, "model_version", "czarp-v2"),
+        "custom_margin_adj": float(cust_m),
+        "custom_total_adj":  float(cust_t),
         "projected_pace":    round(pace, 1),
         # display (rounded to 0.5)
         "team1_score":       mround(float(t1_score), 0.5),

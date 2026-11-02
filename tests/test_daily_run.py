@@ -24,3 +24,21 @@ def test_grade_spread_and_total(monkeypatch):
     assert s.result == "loss" and s.pnl == -10 and s.clv_pts == -1.5      # took +6.5, closed +8
     assert t.result == "win" and abs(t.pnl - 9.09) < 0.01 and t.clv_pts == 2.5
     assert dr.bankroll(led) == 1000 - 10 + 9.09
+
+
+def test_feature_config_parsing_and_custom_features():
+    import pytest
+    from czarp.config import ModelConfig, feature_weights
+    from model import custom_feature_adjustment
+    fw = feature_weights(ModelConfig())
+    assert all(v == 1.0 for v in fw["builtin"].values()) and fw["custom"] == []
+    cfg = ModelConfig(features=[{"name": "hca", "kind": "hca", "weight": 0.5},
+                                {"name": "x", "kind": "stat_diff", "stat": "S", "weight": 2.0},
+                                {"name": "off", "kind": "unit", "enabled": False}])
+    fw = feature_weights(cfg)
+    assert fw["builtin"]["hca"] == 0.5 and fw["builtin"]["efficiency"] == 0.0 and fw["builtin"]["unit"] == 0.0
+    tt = pd.DataFrame({"S": [1.0, 2.0, 3.0]}, index=["A", "B", "C"])
+    dm, dt = custom_feature_adjustment("C", "A", tt, fw["custom"])
+    assert dm == pytest.approx(4.0) and dt == 0.0          # z(C)-z(A) = 2 sd, x weight 2
+    with pytest.raises(ValueError):
+        feature_weights(ModelConfig(features=[{"name": "bad", "kind": "nope"}]))

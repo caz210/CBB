@@ -1,0 +1,47 @@
+{
+  "model_version": "custom-example-1",
+  "features": [
+    {
+      "name": "efficiency",
+      "kind": "efficiency",
+      "weight": 1.0
+    },
+    {
+      "name": "hca",
+      "kind": "hca",
+      "weight": 1.0
+    },
+    {
+      "name": "unit",
+      "kind": "unit",
+      "weight": 0.5
+    },
+    {
+      "name": "turnover_matchup",
+      "kind": "stat_matchup",
+      "off": "TO",
+      "def": "D_TO",
+      "weight": -0.4
+    },
+    {
+      "name": "offensive_rebounding",
+      "kind": "stat_matchup",
+      "off": "OR",
+      "def": "Opp_OR",
+      "weight": 0.3
+    },
+    {
+      "name": "pace_total",
+      "kind": "stat_diff",
+      "stat": "AdjTempo",
+      "target": "total",
+      "weight": 0.5
+    }
+  ],
+  "unit": {
+    "scale": 1.0
+  },
+  "betting": {
+    "margin_sd": 11.4
+  }
+}

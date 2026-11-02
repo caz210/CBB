@@ -1,0 +1,41 @@
+{
+  "model_version": "czarp-v2",
+  "features": [
+    {
+      "name": "efficiency",
+      "kind": "efficiency",
+      "weight": 1.0,
+      "enabled": true
+    },
+    {
+      "name": "hca",
+      "kind": "hca",
+      "weight": 1.0,
+      "enabled": true
+    },
+    {
+      "name": "quality_gap",
+      "kind": "quality_gap",
+      "weight": 1.0,
+      "enabled": true
+    },
+    {
+      "name": "matchup",
+      "kind": "matchup",
+      "weight": 1.0,
+      "enabled": true
+    },
+    {
+      "name": "unit",
+      "kind": "unit",
+      "weight": 1.0,
+      "enabled": true
+    },
+    {
+      "name": "clutch",
+      "kind": "clutch",
+      "weight": 1.0,
+      "enabled": true
+    }
+  ]
+}

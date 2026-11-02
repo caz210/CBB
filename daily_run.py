@@ -65,6 +65,7 @@ RULES = {
     "spread": ("v2", 0.04, 0.545),
     "total": ("v1", 0.03, 0.535),
 }
+V1_VERSION = "czarp-v1-totals"     # original v1 formula, used for totals
 ODDS_API_MAX_CALLS_PER_DAY = 1
 ODDS_API_RESERVE = 100
 ODDS_API_MIN_MISSING = 0.25     # use the Odds API only if ESPN lacks lines for >= 25% of games
@@ -77,7 +78,7 @@ LEDGER_COLS = [
     "pick_id", "created_ct", "game_date", "event_id", "tip_ct", "away", "home", "neutral",
     "market", "rule", "side", "line", "price", "open_line", "model_value", "market_value",
     "edge_pct", "edge_pct_vs_open", "kp_margin_home", "p_est", "stake", "bankroll_at_pick",
-    "price_source", "kalshi_ref",
+    "price_source", "kalshi_ref", "model_version",
     "status", "graded_ct", "away_score", "home_score", "close_line", "close_price", "clv_pts",
     "result", "pnl",
 ]
@@ -317,6 +318,11 @@ def project_all(games: list[dict], data: dict) -> None:
             r = M.project_game(a, h, None if g["neutral"] else False, data, game_date=g["game_date"])
             g["v2_home_margin"] = -float(r.get("spread_raw", r["spread"]))
             g["v2_total"] = float(r.get("total_raw", r["total"]))
+            g["v2_home_win_prob"] = 1 - float(r.get("team1_win_prob", 0.5))
+            g["model_version"] = r.get("model_version", "czarp-v2")
+            g["archetype_tags"] = {"home": r.get("team2_tags", []), "away": r.get("team1_tags", []),
+                                   "tentative": bool(r.get("tags_tentative", False)),
+                                   "notes": r.get("matchup_notes", [])}
         except Exception as e:
             g["skip"] = f"v2 failed: {e}"
             continue
@@ -418,7 +424,9 @@ def flag_plays(games, bankroll, board, now) -> list[dict]:
             "event_id": g["event_id"], "tip_ct": g["tip_ct"], "away": g["kp_away"], "home": g["kp_home"],
             "neutral": g["neutral"], **pl, "kp_margin_home": g.get("kp_margin_home"), "stake": stake,
             "bankroll_at_pick": round(bankroll, 2), "price_source": g.get("price_source", "espn:DraftKings"),
-            "kalshi_ref": kalshi_ref(board, g, pl["market"], pl["side"], pl["line"]), "status": "open",
+            "kalshi_ref": kalshi_ref(board, g, pl["market"], pl["side"], pl["line"]),
+            "model_version": g.get("model_version", "czarp-v2") if pl["market"] == "spread" else V1_VERSION,
+            "status": "open",
         })
     return rows
 
@@ -582,7 +590,10 @@ def main(argv=None) -> int:
     ap.add_argument("--no-odds-api", action="store_true")
     ap.add_argument("--no-kalshi", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--config", help="model config JSON (feature list + weights); default czarp_config.json / built-in v2")
     a = ap.parse_args(argv)
+    if a.config:
+        os.environ["CZARP_CONFIG"] = a.config
     now = now_ct()
     today = a.date or now.date().isoformat()
     notes: list[str] = []
@@ -607,6 +618,7 @@ def main(argv=None) -> int:
     log(f"  ESPN slate: {len(games)} games ({sum(g['state'] == 'pre' for g in games)} not started)")
 
     new_rows = []
+    data = None
     if games:
         # (a) data
         try:
@@ -637,8 +649,15 @@ def main(argv=None) -> int:
                 log(f"  Kalshi board: {len(board)} games")
             except Exception as e:
                 log(f"  Kalshi fetch failed ({type(e).__name__}) — no Kalshi reference prices")
+        for g in games:
+            if board and g.get("kp_home") and g.get("kp_away"):
+                try:
+                    import czarp.kalshi as kx
+                    g["kalshi"] = kx.find_game(board, g["kp_home"], g["kp_away"])
+                except Exception:
+                    pass
         # snapshot of every projection + price (for later analysis)
-        snap = pd.DataFrame([{k: v for k, v in g.items() if k != "tip_utc"} for g in games])
+        snap = pd.DataFrame([{k: v for k, v in g.items() if k not in ("tip_utc", "kalshi")} for g in games])
         snap["snapshot_ct"] = now.isoformat(timespec="seconds")
         if not a.dry_run:
             snap.to_csv(os.path.join(SNAP_DIR, f"{today}_{now.strftime('%H%M')}.csv"), index=False)
@@ -654,9 +673,23 @@ def main(argv=None) -> int:
 
     # (e) ledger
     if new_rows:
-        ledger = pd.concat([ledger, pd.DataFrame(new_rows)[LEDGER_COLS[:24] + ["status"]]], ignore_index=True)
+        ledger = pd.concat([ledger, pd.DataFrame(new_rows)[LEDGER_COLS[:LEDGER_COLS.index("status") + 1]]], ignore_index=True)
     if not a.dry_run:
         write_ledger(ledger)
+    # optional Supabase mirror (CSV ledger stays the source of truth)
+    if not a.dry_run and os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_SERVICE_KEY"):
+        try:
+            from czarp.supabase_writer import sync
+            if data is not None:
+                cfg = data["config"]
+            else:
+                from czarp.config import load_config
+                cfg = load_config()
+            n = sync(games, ledger, cfg, now, log=log)
+            log(f"  Supabase: synced {n}")
+        except Exception as e:
+            log(f"  Supabase sync failed ({type(e).__name__}: {e}) — CSV ledger unaffected")
+            notes.append("Supabase sync failed this run (CSV ledger is unaffected).")
     # (g) summary
     path = write_summary(today, now, games, new_rows, ledger, gi, notes) if not a.dry_run else "(dry run)"
     log(f"  summary → {path}; ledger → {LEDGER} ({len(ledger)} rows)")

@@ -56,3 +56,32 @@ python walkforward.py fit                         # walk-forward fit → outputs
 python kenpom_scraper.py 2026-11-02               # FanMatch scrape incl. KenPom predicted score (kp_team1_margin / kp_total)
 python -m pytest -q tests
 ```
+
+## Daily automation (`daily_run.py`)
+
+    python daily_run.py [--date YYYY-MM-DD] [--no-refresh] [--no-odds-api] [--no-kalshi] [--dry-run] [--config FILE]
+
+One command: refresh KenPom (ratings/prior/HCA) + FanMatch → ESPN slate + DraftKings open/current
+lines (free) → Odds API fallback only if ESPN lacks lines for ≥25% of D-I games (≤1 call/day,
+100-credit reserve, usage in `data/ledger/odds_api_usage.json`) → Kalshi reference prices →
+v2 sides + original-v1 totals → plays (sides edge% ≥4%, totals edge% ≥3%) with quarter-Kelly
+paper stakes (conservative 54.5% / 53.5% hit-rate estimates, 2.5% cap, plays under $1 skipped)
+→ `data/ledger/ledger.csv` (one pick per game+market, first price kept; per-run snapshots in
+`data/ledger/snapshots/`) → grades earlier plays (final score, DK closing line, CLV, P&L) →
+`outputs/daily/YYYY-MM-DD.md`. Safe to re-run; missing games/APIs degrade gracefully.
+Run it early (e.g. cron `0 7 * * *`): the backtested edge exists only against opening lines.
+
+## Config-driven model (custom models)
+
+`ModelConfig.model_version` + `ModelConfig.features` (list of `{name, kind, weight, enabled}`).
+Built-in kinds (`efficiency, hca, quality_gap, matchup, unit, clutch`) multiply that component;
+generic `stat_diff` / `stat_matchup` kinds add z-scored team-table stats with a points weight.
+The default list reproduces v2 exactly (verified: max diff 0.0 on the 11/02 slate). Examples:
+`configs/czarp_v2.json`, `configs/example_custom.json`; select with `--config` or `CZARP_CONFIG`.
+
+## Supabase mirror (optional)
+
+`db/schema.sql` (multi-sport: sports/leagues/teams/games/model_configs/projections/market_lines/
+picks + `pick_record` view; RLS read-only for anon/authenticated, service-role writes; seeds CBB).
+`daily_run.py` mirrors outputs via PostgREST only when `SUPABASE_URL` and `SUPABASE_SERVICE_KEY`
+are set (`czarp/supabase_writer.py`); the CSV ledger stays the source of truth. No raw KenPom stats.
