@@ -172,6 +172,38 @@ create table if not exists user_models (
     unique (user_id, sport, name)
 );
 
+-- plan limit: free = 1 saved model, pro/syndicate = unlimited. Tier is read from profiles
+-- (set manually for comped friends, or by the billing webhook). A downgrade keeps existing rows
+-- but blocks new inserts. Rows can never be moved to another user.
+create or replace function public.enforce_user_model_limit() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  v_tier  text;
+  v_count int;
+begin
+  if tg_op = 'UPDATE' then
+    if new.user_id is distinct from old.user_id then
+      raise exception 'Saved models cannot be reassigned to another user'
+        using errcode = '42501';
+    end if;
+    return new;
+  end if;
+  -- serialize concurrent inserts for the same user so two requests can't both slip under the limit
+  perform pg_advisory_xact_lock(hashtextextended('user_models:' || new.user_id::text, 0));
+  select tier into v_tier from public.profiles where user_id = new.user_id;
+  if coalesce(v_tier, 'free') = 'free' then
+    select count(*) into v_count from public.user_models where user_id = new.user_id;
+    if v_count >= 1 then
+      raise exception 'Free plan allows 1 saved model; upgrade to Pro'
+        using errcode = 'P0001', hint = 'Delete your existing model or upgrade to Pro for unlimited models.';
+    end if;
+  end if;
+  return new;
+end $$;
+drop trigger if exists user_models_limit on user_models;
+create trigger user_models_limit before insert or update of user_id on user_models
+  for each row execute function public.enforce_user_model_limit();
+
 -- new auth user -> free profile (tier/stripe id are changed only by the service role, e.g. a Stripe webhook)
 create or replace function public.handle_new_user() returns trigger
 language plpgsql security definer set search_path = public as $$
