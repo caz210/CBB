@@ -299,6 +299,21 @@ def v1_frames(tt: pd.DataFrame) -> dict:
     }
 
 
+TENTATIVE_SUFFIX = " (tentative)"
+
+
+def archetypes(r: dict) -> dict:
+    """Model tag names (display suffix stripped) + per-team tentative flags for the front end."""
+    def split(tags):
+        tags = list(tags or [])
+        return [t[:-len(TENTATIVE_SUFFIX)] if t.endswith(TENTATIVE_SUFFIX) else t for t in tags], \
+            any(t.endswith(TENTATIVE_SUFFIX) for t in tags)
+    away, at = split(r.get("team1_tags"))       # team1 = away in project_all
+    home, ht = split(r.get("team2_tags"))
+    return {"home": home, "away": away, "home_tentative": ht, "away_tentative": at,
+            "tentative": bool(r.get("tags_tentative", False)) or ht or at, "notes": r.get("matchup_notes", [])}
+
+
 def project_all(games: list[dict], data: dict) -> None:
     import model as M
     import czarp.legacy_v1 as V1
@@ -322,9 +337,7 @@ def project_all(games: list[dict], data: dict) -> None:
             g["v2_total"] = float(r.get("total_raw", r["total"]))
             g["v2_home_win_prob"] = 1 - float(r.get("team1_win_prob", 0.5))
             g["model_version"] = r.get("model_version", "czarp-v2")
-            g["archetype_tags"] = {"home": r.get("team2_tags", []), "away": r.get("team1_tags", []),
-                                   "tentative": bool(r.get("tags_tentative", False)),
-                                   "notes": r.get("matchup_notes", [])}
+            g["archetype_tags"] = archetypes(r)
         except Exception as e:
             g["skip"] = f"v2 failed: {e}"
             continue

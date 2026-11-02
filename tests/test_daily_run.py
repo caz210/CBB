@@ -42,3 +42,10 @@ def test_feature_config_parsing_and_custom_features():
     assert dm == pytest.approx(4.0) and dt == 0.0          # z(C)-z(A) = 2 sd, x weight 2
     with pytest.raises(ValueError):
         feature_weights(ModelConfig(features=[{"name": "bad", "kind": "nope"}]))
+
+
+def test_archetypes_strip_tentative():
+    a = dr.archetypes({"team1_tags": ["Arc Wall (tentative)", "Track Meet"], "team2_tags": ["Lock Down"],
+                       "tags_tentative": True, "matchup_notes": []})
+    assert a["away"] == ["Arc Wall", "Track Meet"] and a["home"] == ["Lock Down"]
+    assert a["away_tentative"] and not a["home_tentative"] and a["tentative"]

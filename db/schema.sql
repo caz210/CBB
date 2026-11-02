@@ -229,16 +229,23 @@ grant select, insert, update, delete on user_models to authenticated;
 
 -- ── front-end read views (names/columns match czarp-web src/lib/supabase/README.md) ─
 -- security_invoker: the caller's RLS applies (so value_bets/ledger inherit the picks tier gate).
-create or replace view slate_games with (security_invoker = true) as
+-- dropped first so column renames/additions apply cleanly on re-run
+drop view if exists slate_games;
+drop view if exists value_bets;
+drop view if exists ledger;
+
+create view slate_games with (security_invoker = true) as
 select s.code                       as sport,
        g.date                       as game_date,
        g.id                         as game_id,
        g.home, g.away,
+       g.tipoff,                                          -- timestamptz
+       g.away || ' @ ' || g.home    as game,              -- 'Away @ Home'
        p.proj_home, p.proj_away,
        p.spread                     as proj_spread,       -- home line notation
        p.total                      as proj_total,
        p.home_win_prob, p.home_cover_prob,
-       p.archetype_tags             as archetypes,        -- {"home": [...], "away": [...], "tentative": bool, "notes": [...]}
+       p.archetype_tags             as archetypes,        -- {"home": [tag names], "away": [...], "home_tentative": bool, "away_tentative": bool, "tentative": bool, "notes": [...]}
        m.spread                     as market_spread,     -- home line, negative = home favored
        m.total                      as market_total,
        m.source                     as market_source      -- 'vegas' (book in market_lines.book)
@@ -253,7 +260,7 @@ left join lateral (
   where ml.game_id = g.id and ml.source = 'vegas' and ml.line_type = 'current'
   order by ml.fetched_at desc limit 1) m on true;
 
-create or replace view value_bets with (security_invoker = true) as
+create view value_bets with (security_invoker = true) as
 select s.code                                     as sport,
        pk.game_id,
        pk.market,                                  -- 'spread' | 'total' | 'moneyline'
@@ -262,7 +269,8 @@ select s.code                                     as sport,
        round(case when pk.price < 0 then -pk.price / (-pk.price + 100) else 100 / (pk.price + 100) end, 4)
                                                   as market_prob,  -- implied by the price taken (incl. vig)
        round(pk.model_prob - case when pk.price < 0 then -pk.price / (-pk.price + 100) else 100 / (pk.price + 100) end, 4)
-                                                  as edge,         -- model_prob - market_prob (front-end definition)
+                                                  as prob_edge,    -- model_prob - market_prob
+       pk.edge                                    as line_edge_pct,  -- |model - line| / market total (the betting rule)
        round(pk.kelly_stake / nullif(pk.bankroll_at_pick / 100, 0), 2)
                                                   as kelly_quarter_units   -- 1u = 1% of bankroll
 from picks pk
@@ -271,7 +279,7 @@ join sports s on s.id = pk.sport_id
 where pk.result is null
   and g.date >= (now() at time zone 'America/Chicago')::date;
 
-create or replace view ledger with (security_invoker = true) as
+create view ledger with (security_invoker = true) as
 select s.code                                          as sport,
        g.date                                          as game_date,
        pk.game_id,
