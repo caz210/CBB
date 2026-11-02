@@ -32,7 +32,8 @@ def test_parse_and_find():
 def test_evaluate_kalshi_game():
     board = kx.parse_markets(RAW)
     res = {"team1": "Utah", "team2": "Towson", "spread_raw": 10.0, "total_raw": 150.0}
-    bets = evaluate_kalshi_game(res, board["26NOV05TOWSUTAH"], BettingConfig(), fee_profile="kalshi_taker")
+    bets = evaluate_kalshi_game(res, board["26NOV05TOWSUTAH"], BettingConfig(blend_with_market=False),
+                                fee_profile="kalshi_taker")
     utah_yes = next(b for b in bets if b["side"] == "Utah YES")
     assert utah_yes["implied_prob"] == pytest.approx(0.70 + 0.07 * 0.7 * 0.3, abs=1e-4)
     sp = next(b for b in bets if b["market"] == "spread" and b["side"].endswith("YES"))
@@ -47,7 +48,7 @@ def test_evaluate_vegas_game():
            "vegas_spread": -3.5, "t1_spread_price": -110, "t2_spread_price": -110,
            "vegas_t1_ml": -170, "vegas_t2_ml": 145, "vegas_total": 145.5,
            "over_price": -110, "under_price": -110, "source_book": "DraftKings"}
-    bets = evaluate_vegas_game(res, BettingConfig())
+    bets = evaluate_vegas_game(res, BettingConfig(blend_with_market=False))   # raw model edges
     a_spread = next(b for b in bets if b["market"] == "spread" and b["side"] == "A")
     b_spread = next(b for b in bets if b["market"] == "spread" and b["side"] == "B")
     assert a_spread["model_prob"] + b_spread["model_prob"] == pytest.approx(1.0)
@@ -55,3 +56,37 @@ def test_evaluate_vegas_game():
     assert a_spread["edge"] > 0 > b_spread["edge"]
     under = next(b for b in bets if b["side"] == "Under")
     assert under["edge"] > 0
+
+
+def test_market_blend_shrinks_edges():
+    from czarp.betting import blended_margin, evaluate_vegas_game
+    from czarp.config import BettingConfig
+    res = {"team1": "A", "team2": "B", "spread_raw": 10.0, "total_raw": 140.0,
+           "vegas_spread": -4.0, "t1_spread_price": -110, "t2_spread_price": -110}
+    cfg = BettingConfig()
+    m, sd, how = blended_margin(res, cfg)
+    assert m == pytest.approx(0.1 * 10 + 0.9 * 4.0) and sd == cfg.blend_margin_sd
+    raw = BettingConfig(blend_with_market=False)
+    e_blend = max(b["edge"] for b in evaluate_vegas_game(dict(res), cfg))
+    e_raw = max(b["edge"] for b in evaluate_vegas_game(dict(res), raw))
+    assert e_blend < e_raw
+
+
+def test_kalshi_blend_uses_ml_implied_margin():
+    board = kx.parse_markets(RAW)
+    g = board["26NOV05TOWSUTAH"]
+    res = {"team1": "Utah", "team2": "Towson", "spread_raw": 10.0, "total_raw": 150.0}
+    raw = evaluate_kalshi_game(dict(res), g, BettingConfig(blend_with_market=False), fee_profile="kalshi_taker")
+    r2 = dict(res)
+    bl = evaluate_kalshi_game(r2, g, BettingConfig(), fee_profile="kalshi_taker")
+    assert "kalshi ML-implied" in r2["edge_margin_basis"]
+    assert max(abs(b["edge"]) for b in bl if b["market"] != "total") < max(abs(b["edge"]) for b in raw if b["market"] != "total")
+
+
+def test_fanmatch_prediction_parse():
+    from kenpom_scraper import _parse_prediction
+    p = _parse_prediction("338 Army at 1 Duke Duke 94-56 (99.96%) [70] 11/02 6:30 PM ESPNU", "Army", "Duke")
+    assert p["kp_team1_margin"] == -38 and p["kp_total"] == 150
+    assert p["kp_team1_win_prob"] == pytest.approx(0.0004)
+    p = _parse_prediction("Merrimack vs Appalachian St. Merrimack 70-67 (60%) [67]", "Merrimack", "Appalachian St.")
+    assert p["kp_team1_margin"] == 3

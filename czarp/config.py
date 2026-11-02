@@ -20,16 +20,22 @@ class QualityGapConfig:
     # e.g. coef 0.2, #20 vs #200 of 365 (gap ~0.49) -> ~+1.0 pt to the favorite.
     # Note: the multiplicative efficiency formula already widens lopsided games,
     # which was probably most of the "lines too tight" problem. FIT (may go to 0).
-    enabled: bool = True
+    # Walk-forward fit (2024-25 + 2025-26, 11.5k games): coef -0.32 (t -2.6) once the
+    # efficiency margin is scaled; dropping it does not hurt out of sample -> OFF.
+    enabled: bool = False
     coef: float = 0.2
 
 
 @dataclass
 class UnitConfig:
-    w_height: float = 40.0
-    w_exp: float = 40.0
-    w_bench: float = 20.0
-    scale: float = 0.25        # points per unit-score point of difference (original 0.25)
+    # Fitted (walk-forward, 2 seasons). With scale = 1 the weights read as
+    #   ~0.27 pts per inch of average height, ~0.48 pts per year of experience,
+    #   ~-0.05 pts per point of bench-minutes % (deeper bench slightly WORSE).
+    # Original sheet: 40/40/20 with scale 0.25.
+    w_height: float = 208.7
+    w_exp: float = 8.66
+    w_bench: float = -14.39
+    scale: float = 1.0         # points per unit-score point of difference
     # Optional extra weight (multipliers applied to `scale`). 1.0 = off.
     close_game_mult: float = 1.0     # applied when |base margin| <= close_game_threshold
     close_game_threshold: float = 6.0
@@ -40,7 +46,8 @@ class UnitConfig:
 
 @dataclass
 class ClutchConfig:
-    enabled: bool = True
+    # Fitted -0.10 pts/z (t -1.4); no out-of-sample value -> OFF by default.
+    enabled: bool = False
     spread_threshold: float = 5.0    # only applied when |projected margin| <= this
     # Composite = w_efg*z(eFG%) - w_to*z(TO%) + w_ft*z(FT%)
     w_efg: float = 1.0
@@ -52,7 +59,11 @@ class ClutchConfig:
 
 @dataclass
 class MatchupConfig:
-    enabled: bool = True
+    enabled: bool = True             # compute + show archetype tags / matchup notes
+    # Walk-forward: matchup points made projections WORSE out of sample (dMSE -0.21,
+    # CI excludes 0) and moved against the closing line (t -2.0). Tags still shown;
+    # points are not added to the score unless this is turned on.
+    apply_to_score: bool = False
     top_pct: float = 0.15            # archetype = top 15% nationally
     # Each counter pair: offense archetype vs defense archetype. When an offense
     # archetype meets its counter, its owner loses `counter` pts; when it meets an
@@ -77,25 +88,71 @@ class MatchupConfig:
 
 @dataclass
 class BettingConfig:
-    margin_sd: float = 11.0          # SD of actual margin around projection (CBB ~10-11.5)
-    total_sd: float = 15.0           # FIT: SD of actual total around projected total
+    margin_sd: float = 11.4          # fitted: SD of actual margin around the model projection
+    total_sd: float = 16.9           # fitted: SD of actual total around the calibrated model total
+    # Blend with the market line before computing edges (sportsbook lines only).
+    # Fitted convex weights: close line 0.95 market / 0.05 model, open line
+    # 0.85 / 0.15; KenPom's own prediction got weight 0 (model ~= KenPom, r=0.99).
+    blend_with_market: bool = True
+    blend_w_market: float = 0.9
+    blend_w_kenpom: float = 0.0      # needs result["kenpom_margin"] (fanmatch)
+    blend_margin_sd: float = 11.2
+    # Totals: market weight that minimised OOS RMSE of actual totals was ~0.7 vs
+    # the open total and ~1.0 vs the close (single fit on walk-forward preds).
+    blend_w_market_total: float = 0.85
     tiers: tuple = (0.03, 0.05, 0.08)   # edge thresholds (probability points)
     tier_names: tuple = ("LEAN", "VALUE", "STRONG")
     kelly_fraction: float = 0.25
     max_stake_pct: float = 0.025     # hard cap: 2.5% of bankroll
     price_source: str = "vegas"      # "vegas" | "kalshi"
-    kalshi_fee_profile: str = "robinhood"  # "kalshi_taker" | "kalshi_maker" | "robinhood" | "robinhood_gold"
+    kalshi_fee_profile: str = "robinhood"  # "kalshi_taker" | "kalshi_maker" | "robinhood" (Gold, k=5%) | "robinhood_standard" (k=10%)
+
+
+@dataclass
+class EarlySeasonConfig:
+    """How style stats (four factors, misc, height -> archetypes, clutch, unit score)
+    are filled before a team has a meaningful current-season sample.
+    Efficiency/tempo always come from KenPom's CURRENT ratings (KenPom's preseason
+    numbers are already roster-based: transfers, recruits, coaching) - never overridden.
+
+    style_fill:
+      "off"       - current-season stats only (missing -> adjustment skipped)
+      "prior"     - missing values filled with last season's raw value (v2.0 behaviour)
+      "regressed" - DEFAULT. prior_value shrunk toward the national mean:
+                       regressed = mean + keep * (prior - mean)
+                       keep = prior_keep_max * continuity   (KenPom Continuity, 0-1)
+                            = prior_keep_default            when continuity unknown
+                    then blended with the current-season value by games played:
+                       w = min(1, games / full_weight_games)
+                       value = w * current + (1 - w) * regressed
+    Archetype tags need current-season evidence: with fewer than tag_evidence_games
+    games a team's tags are shown as "(tentative)" and their matchup points are
+    multiplied by tentative_tag_mult."""
+    style_fill: str = "regressed"
+    prior_keep_max: float = 0.5
+    prior_keep_default: float = 0.25
+    full_weight_games: int = 10
+    tag_evidence_games: int = 5
+    tentative_tag_mult: float = 0.5
 
 
 @dataclass
 class ModelConfig:
     use_multiplicative_efficiency: bool = True
-    default_hca: float = 3.5         # fallback when a team is missing from hca.php
+    # Fitted: actual margin = 1.137 x efficiency margin (+ HCA). KenPom ratings are
+    # deliberately conservative; the multiplicative formula still under-spreads.
+    efficiency_margin_scale: float = 1.137
+    # Fitted total calibration: total = a + b * model total (pre-calibration)
+    total_intercept: float = 27.04
+    total_slope: float = 0.822
+    default_hca: float = 3.5         # fallback when hca.php is unavailable (else the table mean is used)
+    hca_scale: float = 1.109         # fitted multiplier on KenPom per-team HCA (avg 2.84 -> ~3.15)
     hca_split: float = 0.5           # home +hca*split, away -hca*split (full swing = hca)
     quality_gap: QualityGapConfig = field(default_factory=QualityGapConfig)
     unit: UnitConfig = field(default_factory=UnitConfig)
     clutch: ClutchConfig = field(default_factory=ClutchConfig)
     matchup: MatchupConfig = field(default_factory=MatchupConfig)
+    early: EarlySeasonConfig = field(default_factory=EarlySeasonConfig)
     betting: BettingConfig = field(default_factory=BettingConfig)
 
     def to_dict(self) -> dict:

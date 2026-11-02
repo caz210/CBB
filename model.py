@@ -317,8 +317,10 @@ def hca_adjustments(hca: float, team1_is_home: bool | None, split: float = 0.5) 
 
 
 def team_hca(team_name: str, hca_df: pd.DataFrame | None, default: float = HCA_VALUE) -> tuple[float, str]:
-    """Per-team HCA from KenPom hca.php, falling back to the league average."""
+    """Per-team HCA from KenPom hca.php; a team missing from the table gets the
+    table average; no table at all -> `default`."""
     if hca_df is not None and not hca_df.empty and "HCA" in hca_df.columns:
+        default = float(pd.to_numeric(hca_df["HCA"], errors="coerce").mean())
         try:
             row = get_team(hca_df, team_name)
             v = float(row["HCA"])
@@ -326,6 +328,7 @@ def team_hca(team_name: str, hca_df: pd.DataFrame | None, default: float = HCA_V
                 return v, "kenpom_hca"
         except ValueError:
             pass
+        return default, "kenpom_avg"
     return default, "default"
 
 
@@ -357,13 +360,14 @@ def _context(data: dict, cfg: ModelConfig) -> dict:
     """Team table + tags + clutch composite, cached per ratings frame + config."""
     ratings = data["ratings"]
     key = (id(ratings), id(data.get("four_factors")), id(data.get("misc")), id(data.get("height")),
-           id(data.get("prior")), cfg.matchup.top_pct,
+           id(data.get("prior")), cfg.matchup.top_pct, repr(cfg.early),
            cfg.clutch.w_efg, cfg.clutch.w_to, cfg.clutch.w_ft)
     hit = _CTX_CACHE.get(key)
     if hit is not None and hit["ratings"] is ratings:
         return hit
-    tt = teamstats.build_team_table(data, prior=data.get("prior"))
-    tags = teamstats.tag_teams(tt, cfg.matchup)
+    prior = data.get("prior") if cfg.early.style_fill != "off" else None
+    tt = teamstats.build_team_table(data, prior=prior, early=cfg.early)
+    tags = teamstats.mark_tentative(teamstats.tag_teams(tt, cfg.matchup), tt, cfg.early)
     clutch = teamstats.clutch_composite(tt, cfg.clutch.w_efg, cfg.clutch.w_to, cfg.clutch.w_ft)
     ctx = {"ratings": ratings, "tt": tt, "tags": tags, "clutch": clutch,
            "prior_filled": list(tt.attrs.get("prior_filled", []))}
@@ -449,6 +453,10 @@ def project_game(
         t1_ppp = points_per_possession(_f(t1_r["AdjOE"]), _f(t2_r["AdjDE"]))
         t2_ppp = points_per_possession(_f(t2_r["AdjOE"]), _f(t1_r["AdjDE"]))
     base1, base2 = t1_ppp * pace, t2_ppp * pace
+    # fitted calibration: widen the efficiency margin, calibrate the total
+    bt = cfg.total_intercept + cfg.total_slope * (base1 + base2)
+    bm = cfg.efficiency_margin_scale * (base1 - base2)
+    base1, base2 = (bt + bm) / 2, (bt - bm) / 2
     t1_score, t2_score = base1, base2
 
     # 4. quality gap (replaces v1's TO/REB dampener)
@@ -459,6 +467,12 @@ def project_game(
     # 5. matchup cards
     m1, notes1 = teamstats.matchup_adjustment(g1, g2, cfg.matchup)
     m2, notes2 = teamstats.matchup_adjustment(g2, g1, cfg.matchup)
+    # tentative archetypes (too few current-season games) count for less
+    if not getattr(cfg.matchup, "apply_to_score", True):
+        m1, m2 = 0.0, 0.0
+    tm = cfg.early.tentative_tag_mult
+    if bool(g1.get("tentative", False)) or bool(g2.get("tentative", False)):
+        m1, m2 = m1 * tm, m2 * tm
     t1_score += m1
     t2_score += m2
 
@@ -468,6 +482,7 @@ def project_game(
     else:
         home = n1 if team1_is_home else n2
         hca_val, hca_src = team_hca(home, data.get("hca"), cfg.default_hca)
+        hca_val *= cfg.hca_scale
     h1_adj, h2_adj = hca_adjustments(hca_val, team1_is_home, cfg.hca_split)
 
     # 6. unit score with optional extra weight
@@ -533,8 +548,10 @@ def project_game(
         "pace_raw":          float(pace),
         "team1_win_prob":    float(p1),
         "team2_win_prob":    float(1 - p1),
-        "team1_tags":        list(g1["tags"]),
-        "team2_tags":        list(g2["tags"]),
+        "team1_tags":        list(g1.get("tags_display", g1["tags"])),
+        "team2_tags":        list(g2.get("tags_display", g2["tags"])),
+        "tags_tentative":    bool(g1.get("tentative", False)) or bool(g2.get("tentative", False)),
+        "early_season_fill": cfg.early.style_fill,
         "matchup_notes":     notes1 + [f"{n2}: {x}" for x in notes2] if notes2 else notes1,
         "adjustments": {
             "base_margin": float(base1 - base2), "quality_gap": float(qg), "matchup_t1": m1, "matchup_t2": m2,

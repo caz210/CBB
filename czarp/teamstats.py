@@ -68,17 +68,16 @@ def _sanitize(col: pd.Series, name: str) -> pd.Series:
     return col.where(real | (col.notna() & (real.mean() > 0.95)))
 
 
-def build_team_table(data: dict, prior: dict | None = None) -> pd.DataFrame:
-    """Merge ratings/four_factors/height/misc into one frame keyed by TeamName.
+# style stats that get early-season treatment (everything except current ratings)
+STYLE_COLS = [c for c in ALIASES if c not in ALWAYS_VALID and c not in ("APL_Off", "APL_Def")]
 
-    Early-season placeholders become NaN. If `prior` (last season's data dict,
-    e.g. load_data("data/prior")) is supplied, missing stat values are filled
-    from it; out.attrs["prior_filled"] lists which columns were filled."""
+
+def _raw_table(data: dict, sanitize_cols: bool = True) -> pd.DataFrame:
     frames = {k: data.get(k) for k in ("ratings", "four_factors", "height", "misc")}
     base = frames["ratings"][["TeamName"]].copy()
     base["TeamName"] = base["TeamName"].astype(str)
     out = base.set_index("TeamName")
-    for canon, cands in ALIASES.items():
+    for canon, cands in list(ALIASES.items()) + [("Continuity", ["Continuity"])]:
         for key in ("ratings", "four_factors", "misc", "height"):
             df = frames.get(key)
             if df is None or not isinstance(df, pd.DataFrame) or df.empty or "TeamName" not in df.columns:
@@ -87,21 +86,73 @@ def build_team_table(data: dict, prior: dict | None = None) -> pd.DataFrame:
             if col is not None:
                 s = pd.Series(col.values, index=df["TeamName"].astype(str))
                 s = s[~s.index.duplicated()]
-                out[canon] = _sanitize(s.reindex(out.index), canon)
+                s = s.reindex(out.index)
+                if sanitize_cols:
+                    s = _sanitize(s, canon)
+                else:
+                    s = s.where(~s.isin(SENTINELS)) if canon not in ALWAYS_VALID else s
+                out[canon] = s
                 break
         if canon not in out:
             out[canon] = np.nan
+    r = frames["ratings"]
+    if {"Wins", "Losses"} <= set(r.columns):
+        g = pd.to_numeric(r["Wins"], errors="coerce").fillna(0) + pd.to_numeric(r["Losses"], errors="coerce").fillna(0)
+        out["Games"] = pd.Series(g.values, index=r["TeamName"].astype(str)).groupby(level=0).first().reindex(out.index)
+    else:
+        out["Games"] = np.nan          # unknown -> treated as a full current-season sample
+    return out
+
+
+def build_team_table(data: dict, prior: dict | None = None, early=None) -> pd.DataFrame:
+    """Merge ratings/four_factors/height/misc into one frame keyed by TeamName.
+
+    Efficiency/tempo always come from the current ratings. Style stats follow
+    `early.style_fill` (see EarlySeasonConfig): "off" | "prior" | "regressed".
+    out.attrs["prior_filled"] lists columns where last season contributed;
+    out["CurWeight"] is the per-team weight on current-season style stats."""
+    mode = getattr(early, "style_fill", "prior" if prior else "off")
+    if mode == "regressed" and prior:
+        out = _raw_table(data, sanitize_cols=False)
+    else:
+        out = _raw_table(data)
     out.attrs["prior_filled"] = []
-    if prior:
-        prev = build_team_table(prior)
-        for canon in ALIASES:
-            if canon in ALWAYS_VALID or canon not in prev:
-                continue
+    games = out["Games"]
+    full = getattr(early, "full_weight_games", 10) or 1
+    w = (games / full).clip(0, 1).fillna(1.0)
+    if prior and mode == "prior":
+        prev = _raw_table(prior)
+        for canon in STYLE_COLS:
             missing = out[canon].isna()
             if missing.any() and prev[canon].notna().any():
                 out.loc[missing, canon] = prev[canon].reindex(out.index)[missing]
                 if missing.mean() >= MIN_COVERAGE:
                     out.attrs["prior_filled"].append(canon)
+        w = pd.Series(np.where(out["Games"].notna() & (out["Games"] < full), w, 1.0), index=out.index)
+    elif prior and mode == "regressed":
+        prev = _raw_table(prior)
+        cont = out["Continuity"].where(out["Continuity"].between(0.0001, 1.0))
+        if cont.notna().mean() < MIN_COVERAGE:
+            cont = pd.Series(np.nan, index=out.index)
+        if cont.notna().any() and cont.max() > 1.5:     # percent scale
+            cont = cont / 100
+        keep = (early.prior_keep_max * cont).fillna(early.prior_keep_default)
+        used = []
+        for canon in STYLE_COLS:
+            p = prev[canon].reindex(out.index)
+            if p.notna().sum() == 0:
+                continue
+            mu = p.mean()
+            reg = mu + keep * (p - mu)
+            reg = reg.fillna(mu)
+            cur = out[canon]
+            wc = w.where(cur.notna(), 0.0)
+            out[canon] = (wc * cur.fillna(0) + (1 - wc) * reg)
+            if (wc < 1).mean() >= 0.05:
+                used.append(canon)
+        out.attrs["prior_filled"] = used
+        w = w.where(out["Games"].notna(), 1.0)
+    out["CurWeight"] = w
     # Defensive OR column: KenPom's defense "OR%" is opponents' offensive-rebound %
     # (lower = better). Some docs call it DR%. Detect by scale: OR% averages ~28-32,
     # DR% averages ~68-72.
@@ -152,6 +203,19 @@ def tag_teams(tt: pd.DataFrame, cfg: MatchupConfig) -> pd.DataFrame:
     tags = tags.reindex(tt.index).fillna(False).astype(bool)
     shown = OFFENSE_TAGS + DEFENSE_TAGS
     tags["tags"] = tags[shown].apply(lambda r: [c for c in shown if r[c]], axis=1)
+    return tags
+
+
+def mark_tentative(tags: pd.DataFrame, tt: pd.DataFrame, early) -> pd.DataFrame:
+    """Teams with fewer than early.tag_evidence_games current-season games get
+    tentative tags (display "(tentative)", matchup points scaled down)."""
+    tags = tags.copy()
+    n = getattr(early, "tag_evidence_games", 0) if early is not None else 0
+    g = tt["Games"].reindex(tags.index) if "Games" in tt else pd.Series(np.nan, index=tags.index)
+    tags["tentative"] = g.notna() & (g < n)
+    tags["tags_display"] = [
+        [f"{t} (tentative)" for t in ts] if tent else list(ts)
+        for ts, tent in zip(tags["tags"], tags["tentative"])]
     return tags
 
 

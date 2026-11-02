@@ -214,7 +214,8 @@ def games_from_fanmatch(today: str) -> list[dict]:
             game_time     = pred_row.get("GameTime", pred_row.get("Time"))
         else:
             api_miss += 1
-            print(f"    ⚠  No API prediction for: {t1} vs {t2} (model will still run)")
+            if g.get("kp_team1_margin") is None:
+                print(f"    ⚠  No KenPom prediction for: {t1} vs {t2} (model will still run)")
             kp_home_score = None
             kp_away_score = None
             kp_home_wp    = None
@@ -222,7 +223,19 @@ def games_from_fanmatch(today: str) -> list[dict]:
             game_id       = None
             game_time     = None
 
+        # KenPom's predicted margin for team1 (API row if we have it, else the
+        # prediction scraped from the FanMatch page - the API only serves <= today)
+        kp_t1_margin = g.get("kp_team1_margin")
+        if pred_row is not None and kp_home_score is not None and kp_away_score is not None:
+            try:
+                hm = float(kp_home_score) - float(kp_away_score)
+                kp_t1_margin = hm if str(pred_row.get("Home", "")).lower() == t1.lower() else -hm
+            except (TypeError, ValueError):
+                pass
+
         games.append({
+            "kp_team1_margin":    kp_t1_margin,
+            "kp_scraped_total":   g.get("kp_total"),
             "team1":              t1,
             "team2":              t2,
             "team1_is_home":      team1_is_home,
@@ -300,6 +313,7 @@ def run(refresh_data: bool = True, target_date: str = None, price_source: str | 
             r["kp_home_wp"]    = game["kp_home_wp"]
             r["kp_tempo"]      = game["kp_tempo"]
             r["game_id"]       = game["game_id"]
+            r["kenpom_margin"] = game.get("kp_team1_margin")   # used by the market/KenPom blend
 
             results.append(r)
 
@@ -309,7 +323,9 @@ def run(refresh_data: bool = True, target_date: str = None, price_source: str | 
             print(f"    {r['team2']:22} YOUR: {r['team2_score']:5.1f}   KP: {game['kp_away_score']}")
 
             spread_team = r['team1'] if r['spread'] > 0 else r['team2']
-            print(f"      Spread: {spread_team} -{abs(r['spread']):.1f}  |  Total: {r['total']:.1f}  |  KP Tempo: {game['kp_tempo']}")
+            kpm = game.get("kp_team1_margin")
+            kp_txt = f"KP: {r['team1']} {kpm:+.0f}" if kpm is not None else "KP: n/a"
+            print(f"      Spread: {spread_team} -{abs(r['spread']):.1f}  |  Total: {r['total']:.1f}  |  {kp_txt}")
             tags = f"{r['team1']}: {', '.join(r['team1_tags']) or '-'} | {r['team2']}: {', '.join(r['team2_tags']) or '-'}"
             print(f"      Win%: {r['team1_win_prob']:.1%}  |  Cards: {tags}")
             if r["matchup_notes"]:

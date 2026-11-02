@@ -59,6 +59,14 @@ _ESPN_TO_KP = {
     "Long Beach State": "Long Beach St.", "Southern Miss": "Southern Miss",
     "Gardner-Webb": "Gardner Webb", "Tarleton State": "Tarleton St.", "UAlbany": "Albany",
     "California Baptist": "Cal Baptist", "IU Indianapolis": "IU Indy", "UT Martin": "Tennessee Martin",
+    "American University": "American", "UIC": "Illinois Chicago", "SE Louisiana": "Southeastern Louisiana",
+    "South Carolina Upstate": "USC Upstate", "Pennsylvania": "Penn", "Loyola Maryland": "Loyola MD",
+}
+# names KenPom changed between seasons: try each
+_ESPN_TO_KP_MULTI = {
+    "LSU New Orleans": ["LSU New Orleans", "New Orleans"],
+    "New Orleans": ["New Orleans", "LSU New Orleans"],
+    "Sam Houston": ["Sam Houston St.", "Sam Houston"],
 }
 
 
@@ -71,7 +79,7 @@ class NameMatcher:
     def __call__(self, name: str) -> str | None:
         if not isinstance(name, str):
             return None
-        cands = [_ESPN_TO_KP.get(name, name), name]
+        cands = list(_ESPN_TO_KP_MULTI.get(name, [])) + [_ESPN_TO_KP.get(name, name), name]
         cands.append(re.sub(r"\bState$", "St.", name))
         cands.append(re.sub(r"\bState\b", "St.", name))
         cands.append(name.replace("Saint ", "St. "))

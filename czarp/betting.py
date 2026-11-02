@@ -26,18 +26,80 @@ def _bet(market, side, line, price, model_p, ev, source, fair=None, extra=None):
     return d
 
 
+def blended_margin(result: dict, cfg: BettingConfig) -> tuple[float | None, float, str]:
+    """Margin used for edges: model, optionally blended with KenPom's prediction
+    and the market spread (fitted convex weights). Returns (margin, sd, label)."""
+    m = result.get("spread_raw", result.get("spread"))
+    if m is None:
+        return None, cfg.margin_sd, "model"
+    sp = result.get("vegas_spread")
+    kp = result.get("kenpom_margin")
+    if not cfg.blend_with_market or sp is None:
+        return m, cfg.margin_sd, "model"
+    wm, wk = cfg.blend_w_market, (cfg.blend_w_kenpom if kp is not None else 0.0)
+    out = (1 - wm - wk) * m + wk * (kp or 0.0) + wm * (-sp)
+    return out, cfg.blend_margin_sd, f"blend(model {1 - wm - wk:.2f}, kenpom {wk:.2f}, market {wm:.2f})"
+
+
+def kalshi_implied_margin(result: dict, game: dict, sd: float,
+                          lo: float = 0.10, hi: float = 0.90) -> float | None:
+    """Team1 margin implied by Kalshi prices (normal model, sd).
+    Prefers the spread ladder: each rung "X by > s" with mid p gives
+    margin_X = s + sd * z(p). Only rungs/ML with mids in [lo, hi] are used —
+    extreme prices are dominated by tick size and say little about the margin.
+    Returns None when nothing usable (caller then stays model-only)."""
+    from statistics import NormalDist
+    z = NormalDist().inv_cdf
+    t1, t2 = result["team1"], result["team2"]
+
+    def mid(q):
+        ya, na = q.get("yes_ask"), q.get("no_ask")
+        return None if ya is None or na is None else (ya + (1 - na)) / 2
+
+    est = []
+    for leg in game.get("spread", []):
+        sign = 1 if kx.team_in([leg["team"]], t1) else (-1 if kx.team_in([leg["team"]], t2) else 0)
+        m = mid(leg)
+        if sign and m is not None and lo <= m <= hi:
+            est.append(sign * (leg["strike"] + sd * z(m)))
+    if not est:
+        names = list(game.get("moneyline", {}).keys())
+        for team, sign in ((t1, 1), (t2, -1)):
+            k = kx.team_in(names, team)
+            m = mid(game["moneyline"][k]) if k else None
+            if m is not None and lo <= m <= hi:
+                est.append(sign * sd * z(m))
+    return sum(est) / len(est) if est else None
+
+
+def kalshi_implied_total(game: dict, sd: float, lo: float = 0.10, hi: float = 0.90) -> float | None:
+    """Total implied by the Kalshi "Over s" ladder: s + sd * z(mid)."""
+    from statistics import NormalDist
+    z = NormalDist().inv_cdf
+    est = []
+    for leg in game.get("total", []):
+        ya, na = leg.get("yes_ask"), leg.get("no_ask")
+        if ya is None or na is None:
+            continue
+        m = (ya + (1 - na)) / 2
+        if lo <= m <= hi:
+            est.append(leg["strike"] + sd * z(m))
+    return sum(est) / len(est) if est else None
+
+
 def evaluate_vegas_game(result: dict, cfg: BettingConfig | None = None) -> list[dict]:
     """Uses fields added by odds_fetcher.match_vegas_to_game. vegas_spread is
     team1's line in betting notation (-4.5 = team1 favored by 4.5)."""
     cfg = cfg or load_config().betting
-    margin = result.get("spread_raw", result.get("spread"))
+    margin, sd, how = blended_margin(result, cfg)
+    result["edge_margin"], result["edge_margin_basis"] = margin, how
     total = result.get("total_raw", result.get("total"))
     t1, t2 = result["team1"], result["team2"]
     bets = []
     src = f"vegas:{result.get('source_book') or '?'}"
     sp = result.get("vegas_spread")
     if sp is not None and margin is not None:
-        p1 = cover_prob(margin, sp, cfg.margin_sd)
+        p1 = cover_prob(margin, sp, sd)
         pr1 = result.get("t1_spread_price") or DEFAULT_JUICE
         pr2 = result.get("t2_spread_price") or DEFAULT_JUICE
         f1, f2 = devig_two_way(pr1, pr2)
@@ -45,12 +107,16 @@ def evaluate_vegas_game(result: dict, cfg: BettingConfig | None = None) -> list[
         bets.append(_bet("spread", t2, -sp, pr2, 1 - p1, evaluate(1 - p1, cfg, american=pr2), src, f2))
     ml1, ml2 = result.get("vegas_t1_ml"), result.get("vegas_t2_ml")
     if ml1 is not None and ml2 is not None and margin is not None:
-        p1 = win_prob(margin, cfg.margin_sd)
+        p1 = win_prob(margin, sd)
         f1, f2 = devig_two_way(ml1, ml2)
         bets.append(_bet("moneyline", t1, None, ml1, p1, evaluate(p1, cfg, american=ml1), src, f1))
         bets.append(_bet("moneyline", t2, None, ml2, 1 - p1, evaluate(1 - p1, cfg, american=ml2), src, f2))
     tl = result.get("vegas_total")
     if tl and total is not None:
+        if cfg.blend_with_market:
+            w = cfg.blend_w_market_total
+            total = (1 - w) * total + w * tl
+            result["edge_total"] = total
         po = over_prob(total, tl, cfg.total_sd)
         op = result.get("over_price") or DEFAULT_JUICE
         up = result.get("under_price") or DEFAULT_JUICE
@@ -68,6 +134,13 @@ def evaluate_kalshi_game(result: dict, game: dict, cfg: BettingConfig | None = N
     cfg = cfg or load_config().betting
     profile = fee_profile or cfg.kalshi_fee_profile
     margin = result.get("spread_raw", result.get("spread"))
+    msd = cfg.margin_sd
+    if cfg.blend_with_market and margin is not None:
+        mk = kalshi_implied_margin(result, game, cfg.blend_margin_sd)
+        if mk is not None:
+            # same fitted shrink as the Vegas path: market-implied spread = -mk
+            margin, msd, how = blended_margin({**result, "vegas_spread": -mk}, cfg)
+            result["edge_margin"], result["edge_margin_basis"] = margin, how + " [kalshi ML-implied]"
     total = result.get("total_raw", result.get("total"))
     t1, t2 = result["team1"], result["team2"]
     src = f"kalshi:{profile}"
@@ -85,7 +158,7 @@ def evaluate_kalshi_game(result: dict, game: dict, cfg: BettingConfig | None = N
         if not k:
             continue
         q = game["moneyline"][k]
-        p = win_prob(sign * margin, cfg.margin_sd)
+        p = win_prob(sign * margin, msd)
         add("moneyline", f"{team} YES", None, q["yes_ask"], p, q["ticker"])
         add("moneyline", f"{team} NO", None, q["no_ask"], 1 - p, q["ticker"])
 
@@ -96,10 +169,16 @@ def evaluate_kalshi_game(result: dict, game: dict, cfg: BettingConfig | None = N
             m = -margin
         else:
             continue
-        p = margin_over_prob(m, leg["strike"], cfg.margin_sd)
+        p = margin_over_prob(m, leg["strike"], msd)
         add("spread", f"{leg['team']} by >{leg['strike']} YES", leg["strike"], leg["yes_ask"], p, leg["ticker"])
         add("spread", f"{leg['team']} by >{leg['strike']} NO", leg["strike"], leg["no_ask"], 1 - p, leg["ticker"])
 
+    if cfg.blend_with_market and total is not None:
+        mt = kalshi_implied_total(game, cfg.total_sd)
+        if mt is not None:
+            w = cfg.blend_w_market_total
+            total = (1 - w) * total + w * mt
+            result["edge_total"] = total
     for leg in game.get("total", []):
         p = over_prob(total, leg["strike"], cfg.total_sd)
         add("total", f"Over {leg['strike']} YES", leg["strike"], leg["yes_ask"], p, leg["ticker"])

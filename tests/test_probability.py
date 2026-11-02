@@ -29,6 +29,9 @@ def test_fees():
     assert P.kalshi_fee_per_contract(0.5, maker=True) == pytest.approx(0.004375)
     # Robinhood: 10% * .25 = .025 capped at .01, plus $0.01 exchange fee
     assert P.robinhood_fee_per_contract(0.5) == pytest.approx(0.02)
+    # default profile = Robinhood Gold (k = 5%); standard = 10%
+    assert P.fee_per_contract(0.1, "robinhood") == pytest.approx(0.05 * 0.09 + 0.01)
+    assert P.fee_per_contract(0.1, "robinhood_standard") == pytest.approx(0.10 * 0.09 + 0.01)
     assert P.robinhood_fee_per_contract(0.05, gold=True) == pytest.approx(0.05 * 0.05 * 0.95 + 0.01)
     assert P.contract_breakeven(0.40, "kalshi_taker") == pytest.approx(0.40 + 0.07 * 0.4 * 0.6)
 

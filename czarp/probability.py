@@ -70,7 +70,7 @@ def kalshi_fee_per_contract(price: float, maker: bool = False, multiplier: float
     return multiplier * rate * price * (1 - price)
 
 
-def robinhood_fee_per_contract(price: float, gold: bool = False) -> float:
+def robinhood_fee_per_contract(price: float, gold: bool = True) -> float:
     """Robinhood event-contract cost (RHD fee schedule, effective 2026-06-01):
        commission = k*P*(1-P), k=10% (5% w/ Gold), capped at $0.01/contract,
        plus KalshiEX exchange fee $0.01/contract/side. Rounding is up to the cent
@@ -84,10 +84,10 @@ def fee_per_contract(price: float, profile: str = "robinhood") -> float:
         return kalshi_fee_per_contract(price)
     if profile == "kalshi_maker":
         return kalshi_fee_per_contract(price, maker=True)
-    if profile == "robinhood":
-        return robinhood_fee_per_contract(price)
-    if profile == "robinhood_gold":
+    if profile in ("robinhood", "robinhood_gold"):      # default: Gold member, k = 5%
         return robinhood_fee_per_contract(price, gold=True)
+    if profile == "robinhood_standard":                 # non-Gold, k = 10%
+        return robinhood_fee_per_contract(price, gold=False)
     if profile in ("none", None):
         return 0.0
     raise ValueError(f"unknown fee profile {profile!r}")

@@ -166,3 +166,6 @@ cython_debug/
 data/history/
 czarp_config.json
 data/prior/
+Log_file/
+outputs/walkforward/oos.pkl
+outputs/projections_*.csv
