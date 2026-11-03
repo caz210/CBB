@@ -1,0 +1,149 @@
+Games: 11516 (2024-11-04..2026-04-06); new-coach teams: 2025: 67, 2026: 63
+
+######## NEW-COACH LOCK
+
+-- SIDES margin: model vs market accuracy (MAE, all games) by new-coach games played --
+  (model MAE − open-line MAE; > 0 means the model was worse than the market)
+  games  0- 3: new-coach n= 411 gap +0.16  | other games n=  881 gap +0.16
+  games  4- 5: new-coach n= 217 gap +0.06  | other games n=  434 gap +0.03
+  games  6- 7: new-coach n= 204 gap +0.17  | other games n=  442 gap +0.19
+  games  8- 9: new-coach n= 213 gap +0.05  | other games n=  454 gap +0.18
+  games 10-11: new-coach n= 212 gap +0.13  | other games n=  427 gap +0.19
+  games 12-98: new-coach n=2454 gap +0.13  | other games n= 5024 gap +0.14
+
+-- TOTALS: model vs market accuracy (MAE, all games) by new-coach games played --
+  (model MAE − open-line MAE; > 0 means the model was worse than the market)
+  games  0- 3: new-coach n= 376 gap +0.20  | other games n=  805 gap -0.06
+  games  4- 5: new-coach n= 210 gap -0.27  | other games n=  435 gap +0.08
+  games  6- 7: new-coach n= 201 gap -0.12  | other games n=  422 gap +0.16
+  games  8- 9: new-coach n= 199 gap +0.24  | other games n=  407 gap -0.10
+  games 10-11: new-coach n= 189 gap +0.15  | other games n=  392 gap +0.19
+  games 12-98: new-coach n=2245 gap +0.09  | other games n= 4642 gap +0.15
+
+-- SIDES edge>=4% vs open (rule A) --
+  all picks                                n= 117   53.0% (62-55)  ROI   +1.2%  CLV +1.34
+  picks involving a new-coach team         n=  39   51.3% (20-19)  ROI   -2.1%  CLV +1.41
+    new-coach team had played  0- 3 games  n=   9   33.3% (3-6)  ROI  -36.4%  CLV +1.11
+    new-coach team had played  4- 5 games  n=   2    0.0% (0-2)  ROI -100.0%  CLV +0.00
+    new-coach team had played  6- 7 games  n=   2   50.0% (1-1)  ROI   -4.5%  CLV +2.00
+    new-coach team had played  8- 9 games  n=   2   50.0% (1-1)  ROI   -4.5%  CLV +0.00
+    new-coach team had played 10-11 games  n=   2   50.0% (1-1)  ROI   -4.5%  CLV -0.50
+    new-coach team had played 12-98 games  n=  22   63.6% (14-8)  ROI  +21.5%  CLV +1.91
+  N (lock until N games) -> kept picks | excluded picks
+    N= 0  kept n= 117   53.0% (62-55)  ROI   +1.2%  CLV +1.34 | excluded n=   0
+    N= 4  kept n= 108   54.6% (59-49)  ROI   +4.3%  CLV +1.36 | excluded n=   9   33.3% (3-6)  ROI  -36.4%  CLV +1.11
+    N= 6  kept n= 106   55.7% (59-47)  ROI   +6.3%  CLV +1.39 | excluded n=  11   27.3% (3-8)  ROI  -47.9%  CLV +0.91
+    N= 8  kept n= 104   55.8% (58-46)  ROI   +6.5%  CLV +1.38 | excluded n=  13   30.8% (4-9)  ROI  -41.3%  CLV +1.08
+    N=10  kept n= 102   55.9% (57-45)  ROI   +6.7%  CLV +1.40 | excluded n=  15   33.3% (5-10)  ROI  -36.4%  CLV +0.93
+    N=12  kept n= 100   56.0% (56-44)  ROI   +6.9%  CLV +1.44 | excluded n=  17   35.3% (6-11)  ROI  -32.6%  CLV +0.76
+
+-- SIDES vs open AND close, same side (rule B, live) --
+  all picks                                n=  57   52.6% (30-27)  ROI   +0.5%  CLV -0.16
+  picks involving a new-coach team         n=  20   55.0% (11-9)  ROI   +5.0%  CLV +0.05
+    new-coach team had played  0- 3 games  n=   4   50.0% (2-2)  ROI   -4.5%  CLV +0.25
+    new-coach team had played  4- 5 games  n=   2    0.0% (0-2)  ROI -100.0%  CLV +0.00
+    new-coach team had played  6- 7 games  n=   0
+    new-coach team had played  8- 9 games  n=   2   50.0% (1-1)  ROI   -4.5%  CLV +0.00
+    new-coach team had played 10-11 games  n=   2   50.0% (1-1)  ROI   -4.5%  CLV -0.50
+    new-coach team had played 12-98 games  n=  10   70.0% (7-3)  ROI  +33.6%  CLV +0.10
+  N (lock until N games) -> kept picks | excluded picks
+    N= 0  kept n=  57   52.6% (30-27)  ROI   +0.5%  CLV -0.16 | excluded n=   0
+    N= 4  kept n=  53   52.8% (28-25)  ROI   +0.9%  CLV -0.19 | excluded n=   4   50.0% (2-2)  ROI   -4.5%  CLV +0.25
+    N= 6  kept n=  51   54.9% (28-23)  ROI   +4.8%  CLV -0.20 | excluded n=   6   33.3% (2-4)  ROI  -36.4%  CLV +0.17
+    N= 8  kept n=  51   54.9% (28-23)  ROI   +4.8%  CLV -0.20 | excluded n=   6   33.3% (2-4)  ROI  -36.4%  CLV +0.17
+    N=10  kept n=  49   55.1% (27-22)  ROI   +5.2%  CLV -0.20 | excluded n=   8   37.5% (3-5)  ROI  -28.4%  CLV +0.12
+    N=12  kept n=  47   55.3% (26-21)  ROI   +5.6%  CLV -0.19 | excluded n=  10   40.0% (4-6)  ROI  -23.6%  CLV +0.00
+
+-- TOTALS edge>=3% vs open (rule A) --
+  all picks                                n=1484   54.8% (813-671)  ROI   +4.6%  CLV +1.79
+  picks involving a new-coach team         n= 476   55.0% (262-214)  ROI   +5.1%  CLV +1.72
+    new-coach team had played  0- 3 games  n=  71   53.5% (38-33)  ROI   +2.2%  CLV +1.79
+    new-coach team had played  4- 5 games  n=  40   77.5% (31-9)  ROI  +48.0%  CLV +2.20
+    new-coach team had played  6- 7 games  n=  33   63.6% (21-12)  ROI  +21.5%  CLV +2.58
+    new-coach team had played  8- 9 games  n=  31   41.9% (13-18)  ROI  -19.9%  CLV +2.13
+    new-coach team had played 10-11 games  n=  26   53.8% (14-12)  ROI   +2.8%  CLV +2.46
+    new-coach team had played 12-98 games  n= 275   52.7% (145-130)  ROI   +0.7%  CLV +1.41
+  N (lock until N games) -> kept picks | excluded picks
+    N= 0  kept n=1484   54.8% (813-671)  ROI   +4.6%  CLV +1.79 | excluded n=   0
+    N= 4  kept n=1413   54.8% (775-638)  ROI   +4.7%  CLV +1.79 | excluded n=  71   53.5% (38-33)  ROI   +2.2%  CLV +1.79
+    N= 6  kept n=1373   54.2% (744-629)  ROI   +3.4%  CLV +1.78 | excluded n= 111   62.2% (69-42)  ROI  +18.7%  CLV +1.94
+    N= 8  kept n=1340   54.0% (723-617)  ROI   +3.0%  CLV +1.76 | excluded n= 144   62.5% (90-54)  ROI  +19.3%  CLV +2.08
+    N=10  kept n=1309   54.2% (710-599)  ROI   +3.5%  CLV +1.75 | excluded n= 175   58.9% (103-72)  ROI  +12.4%  CLV +2.09
+    N=12  kept n=1283   54.2% (696-587)  ROI   +3.6%  CLV +1.74 | excluded n= 201   58.2% (117-84)  ROI  +11.1%  CLV +2.14
+
+-- TOTALS vs open AND close, same side (rule B, live) --
+  all picks                                n= 677   48.3% (327-350)  ROI   -7.8%  CLV -0.22
+  picks involving a new-coach team         n= 214   47.7% (102-112)  ROI   -9.0%  CLV -0.33
+    new-coach team had played  0- 3 games  n=  37   43.2% (16-21)  ROI  -17.4%  CLV -0.76
+    new-coach team had played  4- 5 games  n=  19   68.4% (13-6)  ROI  +30.6%  CLV +0.21
+    new-coach team had played  6- 7 games  n=  15   46.7% (7-8)  ROI  -10.9%  CLV +0.60
+    new-coach team had played  8- 9 games  n=  13   23.1% (3-10)  ROI  -55.9%  CLV +0.00
+    new-coach team had played 10-11 games  n=   6   33.3% (2-4)  ROI  -36.4%  CLV +0.50
+    new-coach team had played 12-98 games  n= 124   49.2% (61-63)  ROI   -6.1%  CLV -0.47
+  N (lock until N games) -> kept picks | excluded picks
+    N= 0  kept n= 677   48.3% (327-350)  ROI   -7.8%  CLV -0.22 | excluded n=   0
+    N= 4  kept n= 640   48.6% (311-329)  ROI   -7.2%  CLV -0.19 | excluded n=  37   43.2% (16-21)  ROI  -17.4%  CLV -0.76
+    N= 6  kept n= 621   48.0% (298-323)  ROI   -8.4%  CLV -0.20 | excluded n=  56   51.8% (29-27)  ROI   -1.1%  CLV -0.43
+    N= 8  kept n= 606   48.0% (291-315)  ROI   -8.3%  CLV -0.22 | excluded n=  71   50.7% (36-35)  ROI   -3.2%  CLV -0.21
+    N=10  kept n= 593   48.6% (288-305)  ROI   -7.3%  CLV -0.23 | excluded n=  84   46.4% (39-45)  ROI  -11.4%  CLV -0.18
+    N=12  kept n= 587   48.7% (286-301)  ROI   -7.0%  CLV -0.24 | excluded n=  90   45.6% (41-49)  ROI  -13.0%  CLV -0.13
+
+  season 2025 only, totals rule A:
+    N= 0  kept n= 603   53.7% (324-279)  ROI   +2.6%  CLV +1.63 | excluded n=   0
+    N= 4  kept n= 577   53.7% (310-267)  ROI   +2.6%  CLV +1.56 | excluded n=  26   53.8% (14-12)  ROI   +2.8%  CLV +3.31
+    N= 6  kept n= 563   52.9% (298-265)  ROI   +1.0%  CLV +1.55 | excluded n=  40   65.0% (26-14)  ROI  +24.1%  CLV +2.77
+    N= 8  kept n= 552   52.5% (290-262)  ROI   +0.3%  CLV +1.52 | excluded n=  51   66.7% (34-17)  ROI  +27.3%  CLV +2.88
+    N=10  kept n= 542   52.8% (286-256)  ROI   +0.7%  CLV +1.53 | excluded n=  61   62.3% (38-23)  ROI  +18.9%  CLV +2.57
+    N=12  kept n= 535   52.9% (283-252)  ROI   +1.0%  CLV +1.52 | excluded n=  68   60.3% (41-27)  ROI  +15.1%  CLV +2.53
+
+  season 2026 only, totals rule A:
+    N= 0  kept n= 881   55.5% (489-392)  ROI   +6.0%  CLV +1.90 | excluded n=   0
+    N= 4  kept n= 836   55.6% (465-371)  ROI   +6.2%  CLV +1.95 | excluded n=  45   53.3% (24-21)  ROI   +1.8%  CLV +0.91
+    N= 6  kept n= 810   55.1% (446-364)  ROI   +5.1%  CLV +1.94 | excluded n=  71   60.6% (43-28)  ROI  +15.6%  CLV +1.46
+    N= 8  kept n= 788   54.9% (433-355)  ROI   +4.9%  CLV +1.93 | excluded n=  93   60.2% (56-37)  ROI  +15.0%  CLV +1.65
+    N=10  kept n= 767   55.3% (424-343)  ROI   +5.5%  CLV +1.91 | excluded n= 114   57.0% (65-49)  ROI   +8.9%  CLV +1.83
+    N=12  kept n= 748   55.2% (413-335)  ROI   +5.4%  CLV +1.89 | excluded n= 133   57.1% (76-57)  ROI   +9.1%  CLV +1.94
+
+######## LINE-MOVE SKIP (>= 3 pts against our side; 'current' = close in history)
+
+-- SIDES rule A: line move open->close vs our side --
+  moved >= 3 AGAINST us      n=   1  100.0% (1-0)  ROI  +90.9%  CLV -3.00
+  moved 2-2.5 against        n=   5   60.0% (3-2)  ROI  +14.5%  CLV -2.00
+  moved < 2 either way       n=  65   49.2% (32-33)  ROI   -6.0%  CLV +0.18
+  moved >= 2 WITH us         n=  46   56.5% (26-20)  ROI   +7.9%  CLV +3.43
+  rule with skip (drop >= 3 against) n= 116   52.6% (61-55)  ROI   +0.4%  CLV +1.38
+
+-- SIDES rule B: line move open->close vs our side --
+  moved >= 3 AGAINST us      n=   1  100.0% (1-0)  ROI  +90.9%  CLV -3.00
+  moved 2-2.5 against        n=   5   60.0% (3-2)  ROI  +14.5%  CLV -2.00
+  moved < 2 either way       n=  46   50.0% (23-23)  ROI   -4.5%  CLV -0.15
+  moved >= 2 WITH us         n=   5   60.0% (3-2)  ROI  +14.5%  CLV +2.20
+  rule with skip (drop >= 3 against) n=  56   51.8% (29-27)  ROI   -1.1%  CLV -0.11
+
+-- TOTALS rule A: line move open->close vs our side --
+  moved >= 3 AGAINST us      n=  66   36.4% (24-42)  ROI  -30.6%  CLV -3.86
+  moved 2-2.5 against        n=  67   38.8% (26-41)  ROI  -25.9%  CLV -2.00
+  moved < 2 either way       n= 617   50.9% (314-303)  ROI   -2.8%  CLV +0.25
+  moved >= 2 WITH us         n= 734   61.2% (449-285)  ROI  +16.8%  CLV +3.94
+  rule with skip (drop >= 3 against) n=1418   55.6% (789-629)  ROI   +6.2%  CLV +2.06
+
+-- TOTALS rule B: line move open->close vs our side --
+  moved >= 3 AGAINST us      n=  66   36.4% (24-42)  ROI  -30.6%  CLV -3.86
+  moved 2-2.5 against        n=  67   38.8% (26-41)  ROI  -25.9%  CLV -2.00
+  moved < 2 either way       n= 465   49.2% (229-236)  ROI   -6.0%  CLV +0.01
+  moved >= 2 WITH us         n=  79   60.8% (48-31)  ROI  +16.0%  CLV +2.96
+  rule with skip (drop >= 3 against) n= 611   49.6% (303-308)  ROI   -5.3%  CLV +0.17
+
+######## PROPOSAL: totals without the 'edge vs current' check (rule A) + skip moves against us
+  2025: A n= 603   53.7% (324-279)  ROI   +2.6%  CLV +1.63
+        B n= 290   44.5% (129-161)  ROI  -15.1%  CLV -0.31
+        A, skip >=3 against n= 573   54.6% (313-260)  ROI   +4.3%  CLV +1.91
+        A, skip >=2 against n= 542   55.5% (301-241)  ROI   +6.0%  CLV +2.14
+  2026: A n= 881   55.5% (489-392)  ROI   +6.0%  CLV +1.90
+        B n= 387   51.2% (198-189)  ROI   -2.3%  CLV -0.16
+        A, skip >=3 against n= 845   56.3% (476-369)  ROI   +7.5%  CLV +2.15
+        A, skip >=2 against n= 809   57.1% (462-347)  ROI   +9.0%  CLV +2.33
+  both: A n=1484   54.8% (813-671)  ROI   +4.6%  CLV +1.79
+        B n= 677   48.3% (327-350)  ROI   -7.8%  CLV -0.22
+        A, skip >=3 against n=1418   55.6% (789-629)  ROI   +6.2%  CLV +2.06
+        A, skip >=2 against n=1351   56.5% (763-588)  ROI   +7.8%  CLV +2.26

@@ -103,3 +103,43 @@ czarp-web `src/lib/supabase/README.md`), plus per-user tables `profiles` (own ro
 tier set server-side) and `user_models` (own rows, full CRUD). Picks (and so value_bets/ledger rows) are
 visible to everyone after tip-off and immediately to pro/syndicate tiers (`public.is_pro()`). Units: 1u = 1%
 of the paper bankroll at pick time. The writer deletes mirrored picks no longer in the CSV ledger.
+
+## NEW COACH lock, line-move skip, pre-tip check
+
+**NEW COACH ("new philosophy") lock** (`czarp/coach.py`). A team whose KenPom head coach this season
+differs from last season's (`data/ratings.csv` / `data/teams.csv` `Coach` vs `data/prior/ratings.csv`,
+or `data/coaches/teams_<prev season>.csv`) is tagged `NEW COACH`. Its games are not value plays, sides or
+totals, until it has played `COACH_LOCK_GAMES` games this season (KenPom W+L; default 8,
+`--coach-lock-games N`, 0 = off). `data/coach_changes.csv` (`season,team[,coach,prev_coach][,new_coach]`)
+adds a team or, with `new_coach=0`, clears a false positive. The Top 10 table has a Tags column
+(`NEW COACH Air Force 1/8 (7 left)`), and the report notes list every locked team on the slate.
+
+Backtest (`python coach_lock_study.py` → `outputs/walkforward/coach_lock_study.txt`; 2024-25 + 2025-26,
+67 + 63 coaching changes, bets at the open, -110):
+
+| lock N | sides ≥4% vs open: kept · excluded | totals ≥3% vs open: kept · excluded |
+|---|---|---|
+| 0 | 62-55 (53.0%) · — | 813-671 (54.8%) · — |
+| 4 | 59-49 (54.6%) · 3-6 | 775-638 (54.8%) · 38-33 (53.5%) |
+| 6 | 59-47 (55.7%) · 3-8 | 744-629 (54.2%) · 69-42 (62.2%) |
+| 8 | 58-46 (55.8%) · 4-9 | 723-617 (54.0%) · 90-54 (62.5%) |
+| 10 | 57-45 (55.9%) · 5-10 | 710-599 (54.2%) · 103-72 (58.9%) |
+| 12 | 56-44 (56.0%) · 6-11 | 696-587 (54.2%) · 117-84 (58.2%) |
+
+Sides: early new-coach side picks lost (4-9 under N=8), but the sample is tiny. Totals: only the first
+~4 games were worse than the market (model-minus-market MAE +0.20 for new-coach teams in games 0-3, vs
+-0.06 for other teams); games 4-7 were *better* than average, so a long totals lock gives up winners.
+
+**Totals line-move skip.** A total whose DK line moved ≥ `TOTAL_MOVE_SKIP_PTS` (3) from open to current
+*away from our side* is skipped (backtest: 24-42, -30.6% ROI; 2-2.5 pts against was 26-41). A side that
+moved ≥3 against us is flagged ⚠ only (`--skip-side-moves` to skip): there was 1 such side pick in two
+seasons, so there is nothing to test. The Top 10 "Line move" column now says how far and whether it
+moved with or against our side.
+
+**Pre-tip check** (`pretip_check.py`). Re-pulls the DK line (ESPN; Odds API only for plays ESPN lacks,
+within the daily budget) for today's open plays that have not tipped, and prints a short summary of any
+play whose line moved ≥2 pts against us since the pick or whose edge vs the current line fell below the
+threshold. It prints nothing when there is nothing to flag. It only writes the ledger's `pretip_flag`
+column (never prices, stakes or results); `--dry-run` writes nothing and spends no Odds API credits.
+
+    python pretip_check.py [--dry-run] [--within MINUTES] [--move 2] [--date YYYY-MM-DD] [--no-odds-api] [-v]
