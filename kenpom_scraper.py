@@ -35,6 +35,11 @@ from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 import requests
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 from bs4 import BeautifulSoup
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -127,6 +132,26 @@ def _login() -> requests.Session:
 
 # ── Scraper ───────────────────────────────────────────────────────────────────
 
+_PRED_RE = re.compile(r"(?P<winner>[A-Za-z][A-Za-z.&'() -]*?)\s+(?P<w>\d{2,3})-(?P<l>\d{2,3})\s+\((?P<p>\d{1,3}(?:\.\d+)?)%\)")
+
+
+def _parse_prediction(text: str, team1: str, team2: str) -> dict | None:
+    """KenPom's predicted score for a FanMatch row -> kenpom margin for team1."""
+    for m in _PRED_RE.finditer(text):
+        win = m.group("winner").strip()
+        w, l, p = int(m.group("w")), int(m.group("l")), float(m.group("p")) / 100
+        if win.endswith(team1) or team1.endswith(win):
+            sign = 1
+        elif win.endswith(team2) or team2.endswith(win):
+            sign = -1
+        else:
+            continue
+        return {"kp_team1_margin": sign * (w - l), "kp_total": w + l,
+                "kp_team1_win_prob": p if sign == 1 else 1 - p,
+                "raw": f"{m.group('w')}-{m.group('l')} ({m.group('p')}%)"}
+    return None
+
+
 def scrape_fanmatch_games(date_str: str | None = None) -> list[dict]:
     """
     Scrape KenPom FanMatch for *date_str* (YYYY-MM-DD).
@@ -217,6 +242,7 @@ def scrape_fanmatch_games(date_str: str | None = None) -> list[dict]:
             def _strip_rank(name: str) -> str:
                 name = re.sub(r"^\(?\d{1,3}\)?\s*", "", name)
                 name = re.sub(r"^#\d{1,3}\s*", "", name)
+                name = re.sub(r"^NR\s+", "", name)          # non-D1 / unranked marker
                 # Strip trailing conference tournament suffix like " sb-t", " wcc-t"
                 name = re.sub(r"\s+[a-z0-9]{2,8}-t$", "", name, flags=re.IGNORECASE)
                 # Strip trailing NCAA tournament tag — KenPom appends this to team name
@@ -265,7 +291,14 @@ def scrape_fanmatch_games(date_str: str | None = None) -> list[dict]:
                 break
             seen_pairs.add(pair_key)
 
+            # KenPom prediction, e.g. "Merrimack 70-67 (60%) [67]"
+            row_text = row.get_text(separator=" ", strip=True)
+            pred = _parse_prediction(row_text, team1, team2)
+            if tv_channel and pred:
+                tv_channel = tv_channel.replace(pred["raw"], "").strip() or None
+
             games.append({
+                **({k: v for k, v in pred.items() if k != "raw"} if pred else {}),
                 "date":               date_str,
                 "team1":              team1,
                 "team2":              team2,

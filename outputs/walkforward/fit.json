@@ -1,0 +1,44 @@
+{
+ "coef": {
+  "base_margin": 1.1374056668984085,
+  "hca": 1.1086746736754456,
+  "qg": -0.3165935555103252,
+  "ctr:Addicted to 3s|Arc Wall": 0.11164295988816615,
+  "ctr:Board Crashers|No Rebounds for You": -0.18730139531744783,
+  "ctr:Don't Blink|Lock Down": -0.10348506830401714,
+  "ctr:Free Throw Merchants|Lock Down": -0.05326562695579036,
+  "ctr:TM|Careless": 0.5326542828939699,
+  "exp:Addicted to 3s|Arc Wall": -0.07249753106466118,
+  "exp:Board Crashers|No Rebounds for You": -0.3257391473077817,
+  "exp:Don't Blink|Lock Down": -0.1491743451837557,
+  "exp:Free Throw Merchants|Lock Down": 0.06911780286089723,
+  "hgt": 208.74180999435976,
+  "exp": 8.658133417514174,
+  "bench": -14.392405328057505,
+  "clutch_x": -0.10085088697684154
+ },
+ "blend_no_market": [
+  1.0,
+  0.0
+ ],
+ "blend_close": [
+  0.05,
+  0.0,
+  0.95
+ ],
+ "blend_open": [
+  0.15000000000000002,
+  0.0,
+  0.85
+ ],
+ "total_ab": [
+  27.041314291801942,
+  0.8221215186200053
+ ],
+ "sd": {
+  "model": 11.408089143900016,
+  "kp": 11.3962750558771,
+  "blend": 11.196626307280924,
+  "total": 16.866979420363222
+ }
+}

@@ -10,7 +10,9 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-LOG_DIR = r"C:\Users\chris\OneDrive\Documents\cbb_model\Log_file"
+# Windows path on Christian's machine; elsewhere (or if CZARP_LOG_DIR is set) use that / ./Log_file
+_WIN_LOG_DIR = r"C:\Users\chris\OneDrive\Documents\cbb_model\Log_file"
+LOG_DIR = os.environ.get("CZARP_LOG_DIR") or (_WIN_LOG_DIR if os.name == "nt" else "Log_file")
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 DARK_BLUE   = "1F3864"

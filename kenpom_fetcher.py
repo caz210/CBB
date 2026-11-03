@@ -12,6 +12,8 @@ from datetime import date, datetime
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 
+from czarp.season import season_for_date
+
 load_dotenv()
 
 def _get_secret(key: str) -> str:
@@ -24,9 +26,10 @@ def _get_secret(key: str) -> str:
 
 API_KEY  = _get_secret("KENPOM_API_KEY")
 BASE_URL = "https://kenpom.com/api.php"
-SEASON   = 2026  # Ending year of the current season (2025-26 → 2026)
-
 CENTRAL = ZoneInfo("America/Chicago")
+# Ending year of the current season, derived from today's Central date
+# (Nov 2026 -> 2027). Rolls over on July 1.
+SEASON   = season_for_date(datetime.now(CENTRAL).date())
 
 def _today_central() -> str:
     """Return today's date in Central Time as YYYY-MM-DD.
@@ -43,7 +46,7 @@ def _get(endpoint: str, params: dict = {}) -> list[dict]:
     headers = {"Authorization": f"Bearer {API_KEY}"}
     full_params = {"endpoint": endpoint, **params}
 
-    resp = requests.get(BASE_URL, headers=headers, params=full_params)
+    resp = requests.get(BASE_URL, headers=headers, params=full_params, timeout=30)
     resp.raise_for_status()
 
     data = resp.json()
@@ -79,8 +82,17 @@ def fetch_teams(year: int = SEASON) -> pd.DataFrame:
 
 
 def fetch_misc(year: int = SEASON) -> pd.DataFrame:
-    """Misc stats including clutch time performance."""
-    return pd.DataFrame(_get("misc", {"y": year}))
+    """Misc stats: FG3Pct, FG2Pct, FTPct, F3GRate (3PA rate), OppF3GRate, BlockPct, ...
+    The API endpoint is "misc-stats" (the old "misc" name 404s, which is why the
+    v1 clutch score was always 0)."""
+    return pd.DataFrame(_get("misc-stats", {"y": year}))
+
+
+def fetch_archive(rating_date: str) -> pd.DataFrame:
+    """Point-in-time ratings (AdjOE/AdjDE/AdjTempo as of `rating_date`, YYYY-MM-DD).
+    Used by the backtest so historical games are graded with the ratings that
+    existed before tip-off (no look-ahead)."""
+    return pd.DataFrame(_get("archive", {"d": rating_date}))
 
 
 def fetch_fanmatch(game_date: str | None = None) -> pd.DataFrame:
@@ -153,6 +165,20 @@ def fetch_all(year: int = SEASON, game_date: str | None = None) -> dict[str, pd.
     return data
 
 
+def fetch_prior(year: int = SEASON) -> dict[str, pd.DataFrame]:
+    """Last season's stat tables. Early in a season KenPom returns placeholders
+    (0/100/200) for four factors, misc and height; the model fills those from
+    the prior season (flagged in output) until enough games are played."""
+    prior = {}
+    for name, fn in (("ratings", fetch_ratings), ("four_factors", fetch_four_factors),
+                     ("height", fetch_height), ("misc", fetch_misc)):
+        try:
+            prior[name] = fn(year - 1)
+        except Exception as e:
+            print(f"    prior {name} fetch failed: {e}")
+    return prior
+
+
 def save_data(data: dict, output_dir: str = "data") -> None:
     os.makedirs(output_dir, exist_ok=True)
     for name, df in data.items():
@@ -164,3 +190,4 @@ def save_data(data: dict, output_dir: str = "data") -> None:
 if __name__ == "__main__":
     data = fetch_all()
     save_data(data)
+    save_data(fetch_prior(), os.path.join("data", "prior"))
