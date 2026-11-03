@@ -4,6 +4,7 @@ daily_run.py — fully automated daily PAPER-trading pipeline (no real bets are 
     python daily_run.py                    # today (America/Chicago)
     python daily_run.py --date 2026-11-02  # a specific slate
     options: --no-refresh (use cached KenPom CSVs)  --no-odds-api  --no-kalshi  --dry-run (don't write ledger)
+             --exclude-line-moves (drop sides whose spread moved >= 2 pts; default flag only)
 
 Steps
   (a) refresh KenPom ratings / prior / per-team HCA (cached) and scrape FanMatch (KenPom predictions)
@@ -14,7 +15,8 @@ Steps
   (d) flag plays with the rules below; quarter-Kelly paper stakes on a notional bankroll
   (e) append plays to data/ledger/ledger.csv with timestamped prices
   (f) grade earlier open plays from final scores; record closing lines and CLV
-  (g) write outputs/daily/YYYY-MM-DD.md
+  (g) write outputs/daily/YYYY-MM-DD.md, incl. a Top-10 edges table (every game, regardless of threshold)
+      and a 'likely news/injury' flag when a side's spread moved >= 2 pts open -> current
 
 Rules (from the walk-forward backtest, Jan 2025 – Apr 2026, see outputs/walkforward/):
   Both rules require the edge to clear the threshold vs the OPENING line AND the current line
@@ -68,6 +70,13 @@ RULES = {
     "total": ("v1", 0.03, 0.535),
 }
 V1_VERSION = "czarp-v1-totals"     # original v1 formula, used for totals
+# "likely news/injury" flag: the DK spread moved >= LINE_MOVE_PTS from open to current.
+# Backtest (line_move_study.py, outputs/walkforward/line_move_study.txt): flagged side picks did BETTER
+# than unflagged (sides vs open 22-5 vs 26-22), so the flag is shown but does not exclude plays by
+# default. --exclude-line-moves (or LINE_MOVE_EXCLUDE = True) turns the filter on.
+LINE_MOVE_PTS = 2.0
+LINE_MOVE_EXCLUDE = False
+TOP_N_EDGES = 10
 ODDS_API_MAX_CALLS_PER_DAY = 1
 ODDS_API_RESERVE = 100
 ODDS_API_MIN_MISSING = 0.25     # use the Odds API only if ESPN lacks lines for >= 25% of games
@@ -390,47 +399,87 @@ def kalshi_ref(board, g, market, side_team, line) -> str:
         return ""
 
 
-def flag_plays(games, bankroll, board, now) -> list[dict]:
-    plays = []
-    ts = now.isoformat(timespec="seconds")
+def line_move(g) -> float | None:
+    """|current − open| DK home spread in points (None if either is missing)."""
+    o, c = g.get("open_home_spread"), g.get("current_home_spread")
+    return abs(c - o) if o is not None and c is not None else None
+
+
+def candidates(games, now) -> list[dict]:
+    """Every side + total candidate on the slate with edge% vs open and vs current, whether it
+    passes the rules, and why not. flag_plays() bets the passing ones; the report lists the top 10."""
+    out = []
+    utc_now = now.astimezone(timezone.utc)
     for g in games:
-        if g.get("skip") or g["state"] != "pre" or g["tip_utc"] <= now.astimezone(timezone.utc):
+        if g.get("skip"):
             continue
-        T = g.get("current_total")
+        started = g["state"] != "pre" or g["tip_utc"] <= utc_now
+        T, To = g.get("current_total"), g.get("open_total")
+        mv = line_move(g)
+        flagged = mv is not None and mv >= LINE_MOVE_PTS
         # sides
-        L = g.get("current_home_spread")
+        L, Lo = g.get("current_home_spread"), g.get("open_home_spread")
         mdl, thr, p = RULES["spread"]
         hm = g.get(f"{mdl}_home_margin")
-        if L is not None and T and hm is not None:
-            gap = hm + L                                     # model home margin − market home margin
-            edge = abs(gap) / T
-            Lo = g.get("open_home_spread")
-            To = g.get("open_total") or T
-            eo = abs(hm + Lo) / To if Lo is not None else None
-            # must clear the threshold vs the OPENING line too, same side (matches the backtest)
-            same_side = Lo is not None and (hm + Lo > 0) == (gap > 0)
-            if edge >= thr and eo is not None and eo >= thr and same_side:
-                home = gap > 0
-                team = g["kp_home"] if home else g["kp_away"]
-                line = L if home else -L
-                price = g.get("current_home_spread_price" if home else "current_away_spread_price") or -110
-                plays.append(dict(market="spread", rule=f"v2 edge%>={thr:.0%}", side=team, line=line, price=price,
-                                  open_line=(Lo if home else -Lo) if Lo is not None else None,
-                                  model_value=hm if home else -hm, market_value=-line, edge_pct=edge,
-                                  edge_pct_vs_open=eo, p_est=p, g=g, ts=ts))
+        if hm is not None and (L is not None or Lo is not None) and (T or To):
+            ref = L if L is not None else Lo           # side is picked vs the current line when we have it
+            gap = hm + ref                              # model home margin − market home margin
+            home = gap > 0
+            edge = abs(hm + L) / T if L is not None and T else None
+            eo = abs(hm + Lo) / (To or T) if Lo is not None else None
+            same = Lo is None or L is None or ((hm + Lo > 0) == (hm + L > 0))
+            sgn = 1 if home else -1
+            out.append(dict(g=g, market="spread", side=g["kp_home"] if home else g["kp_away"], home=home,
+                            line=(sgn * L) if L is not None else None, open_line=(sgn * Lo) if Lo is not None else None,
+                            model_value=sgn * hm, market_value=-(sgn * L) if L is not None else None,
+                            edge_pct=edge, edge_pct_vs_open=eo, same_side=same, thr=thr, p_est=p,
+                            rule=f"v2 edge%>={thr:.0%}", started=started, line_move=mv, flagged=flagged,
+                            price=g.get("current_home_spread_price" if home else "current_away_spread_price") or -110))
         # totals
         mdl, thr, p = RULES["total"]
         mt = g.get(f"{mdl}_total")
-        if T and mt is not None:
-            edge = abs(mt - T) / T
-            To = g.get("open_total")
+        if mt is not None and (T or To):
+            ref = T or To
+            over = mt > ref
+            edge = abs(mt - T) / T if T else None
             eo = abs(mt - To) / To if To else None
-            if edge >= thr and eo is not None and eo >= thr and (mt > To) == (mt > T):
-                over = mt > T
-                plays.append(dict(market="total", rule=f"v1 edge%>={thr:.0%}", side="Over" if over else "Under",
-                                  line=T, price=g.get("current_over_price" if over else "current_under_price") or -110,
-                                  open_line=To, model_value=mt, market_value=T, edge_pct=edge,
-                                  edge_pct_vs_open=eo, p_est=p, g=g, ts=ts))
+            same = not (T and To) or ((mt > To) == (mt > T))
+            out.append(dict(g=g, market="total", side="Over" if over else "Under", home=None, line=T, open_line=To,
+                            model_value=mt, market_value=T, edge_pct=edge, edge_pct_vs_open=eo, same_side=same,
+                            thr=thr, p_est=p, rule=f"v1 edge%>={thr:.0%}", started=started, line_move=mv,
+                            flagged=flagged, price=g.get("current_over_price" if over else "current_under_price") or -110))
+    for c in out:
+        why = []
+        if c["started"]:
+            why.append("game started")
+        if c["edge_pct"] is None:
+            why.append("no current line")
+        if c["edge_pct_vs_open"] is None:
+            why.append("no opening line")
+        eo, ec, thr = c["edge_pct_vs_open"], c["edge_pct"], c["thr"]
+        if eo is not None and ec is not None and eo >= thr and (ec < thr or not c["same_side"]):
+            why.append("edge gone vs current" + ("" if c["same_side"] else " (flipped side)"))
+        elif (eo is not None and eo < thr) or (ec is not None and ec < thr):
+            low = min(x for x in (eo, ec) if x is not None)
+            why.append(f"below {thr:.0%} threshold ({low:.1%})")
+        # the line-move flag is about the side's spread; it applies to sides only
+        if c["market"] == "spread" and c["flagged"] and LINE_MOVE_EXCLUDE:
+            why.append(f"line-move flag: spread moved {c['line_move']:g} pts (likely news/injury)")
+        c["reasons"] = why
+        c["rule_ok"] = not why
+    return out
+
+
+def flag_plays(games, bankroll, board, now) -> list[dict]:
+    ts = now.isoformat(timespec="seconds")
+    plays = []
+    for c in candidates(games, now):
+        if not c["rule_ok"]:
+            continue
+        plays.append(dict(market=c["market"], rule=c["rule"], side=c["side"], line=c["line"], price=c["price"],
+                          open_line=c["open_line"], model_value=c["model_value"], market_value=c["market_value"],
+                          edge_pct=c["edge_pct"], edge_pct_vs_open=c["edge_pct_vs_open"], p_est=c["p_est"],
+                          g=c["g"], ts=ts))
     rows = []
     for pl in sorted(plays, key=lambda x: -x["edge_pct"]):
         g = pl.pop("g")
@@ -524,6 +573,59 @@ def bankroll(ledger: pd.DataFrame) -> float:
     return BANKROLL0 + pd.to_numeric(ledger.loc[ledger.status == "graded", "pnl"], errors="coerce").fillna(0).sum()
 
 
+# ── top edges (every candidate, regardless of threshold) ─────────────────────
+def top_edges(cands, played_ids, n=TOP_N_EDGES) -> list[dict]:
+    """The n largest edge% candidates (sides + totals), ranked by edge vs current (vs open if no current)."""
+    def key(c):
+        return c["edge_pct"] if c["edge_pct"] is not None else (c["edge_pct_vs_open"] or 0.0)
+    rows = []
+    for c in sorted(cands, key=key, reverse=True)[:n]:
+        g = c["g"]
+        pid = f"{g['event_id']}-{c['market']}"
+        played = pid in played_ids
+        reasons = [x for x in c["reasons"] if not (played and x == "game started")]
+        if c["rule_ok"] and pid not in played_ids:
+            reasons.append("price too juiced for the assumed hit rate (Kelly stake < $1)")
+        if c["market"] == "spread" and c["flagged"] and not LINE_MOVE_EXCLUDE:
+            reasons.append(f"⚠ spread moved {c['line_move']:g} pts since open (likely news/injury; flag only)")
+        rows.append(dict(c, pick_id=pid, qualifies=pid in played_ids, reasons=reasons, rank_edge=key(c)))
+    return rows
+
+
+def _fmt_line(x, market):
+    if x is None or (isinstance(x, float) and math.isnan(x)):
+        return "—"
+    return f"{x:+g}" if market == "spread" else f"{x:g}"
+
+
+def top_edges_md(rows) -> list[str]:
+    L = [f"## Top {TOP_N_EDGES} edges (all games, sides + totals, regardless of threshold)",
+         "_Edge% = |CZarp line − Vegas line| ÷ Vegas total. Spread lines are from the picked side; "
+         f"thresholds {RULES['spread'][1]:.0%} sides / {RULES['total'][1]:.0%} totals, needed vs open AND current. "
+         f"Line move = DK change open→current (spread for sides, total for totals); a side whose spread moved "
+         f"≥{LINE_MOVE_PTS:g} pts is flagged ⚠ as likely news/injury._", ""]
+    if not rows:
+        return L + ["No priced D-I games to rank.", ""]
+    L.append("| # | Tip (CT) | Game | Market | Pick | Vegas open | Vegas current | CZarp line | Edge% vs open | "
+             "Edge% vs current | Line move | Qualifies | Reason if not / notes |")
+    L.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+    for i, r in enumerate(rows, 1):
+        g, m = r["g"], r["market"]
+        czarp = -r["model_value"] if m == "spread" else r["model_value"]
+        eo = "—" if r["edge_pct_vs_open"] is None else f"{r['edge_pct_vs_open']:.1%}"
+        ec = "—" if r["edge_pct"] is None else f"{r['edge_pct']:.1%}"
+        if m == "spread":
+            mv = "—" if r["line_move"] is None else (f"{r['line_move']:g}" + (" ⚠" if r["flagged"] else ""))
+        else:
+            mv = "—" if r["open_line"] is None or r["line"] is None else f"{abs(r['line'] - r['open_line']):g}"
+        L.append(f"| {i} | {str(g['tip_ct'])[11:]} | {g['kp_away']} @ {g['kp_home']}{' (N)' if g['neutral'] else ''} | "
+                 f"{'Side' if m == 'spread' else 'Total'} | {r['side']} | {_fmt_line(r['open_line'], m)} | "
+                 f"{_fmt_line(r['line'], m)} | {_fmt_line(round(czarp, 1), m)} | {eo} | {ec} | {mv} | "
+                 f"{'yes' if r['qualifies'] else 'no'} | {'; '.join(r['reasons'])} |")
+    L.append("")
+    return L
+
+
 # ── summary ──────────────────────────────────────────────────────────────────
 def _rec(df: pd.DataFrame) -> str:
     g = df[df.status == "graded"]
@@ -539,9 +641,10 @@ def _rec(df: pd.DataFrame) -> str:
             f"(ROI {pnl / st if st else 0:+.1%}; flat 1u-per-play {u.sum():+.2f}u) · avg CLV {clv_s}")
 
 
-def write_summary(today: str, now: datetime, games, new_rows, ledger, graded_idx, notes) -> str:
+def write_summary(today: str, now: datetime, games, new_rows, ledger, graded_idx, notes, top=None,
+                  path: str | None = None) -> str:
     os.makedirs(OUT_DIR, exist_ok=True)
-    path = os.path.join(OUT_DIR, f"{today}.md")
+    path = path or os.path.join(OUT_DIR, f"{today}.md")
     L = [f"# CZarp paper trading — {today}",
          f"_Generated {now.strftime('%Y-%m-%d %I:%M %p')} CT. Paper bets only; notional bankroll ${BANKROLL0:,.0f}._", ""]
     d1 = [g for g in games if not g.get("skip")]
@@ -564,6 +667,7 @@ def write_summary(today: str, now: datetime, games, new_rows, ledger, graded_idx
             L.append(f"| {str(r.tip_ct)[11:]} | {r.away} @ {r.home}{' (N)' if str(r.neutral) == 'True' else ''} | {bet} | "
                      f"{int(float(r.price)):+d} | {op} | {mv} | {float(r.edge_pct):.1%}{eo} | ${float(r.stake):.2f} | {r.kalshi_ref or ''} |")
     L.append("")
+    L.extend(top_edges_md(top or []))
     yday = (date.fromisoformat(today) - timedelta(days=1)).isoformat()
     yr = ledger[ledger.game_date == yday]
     L.append(f"## Yesterday ({yday}) results")
@@ -592,6 +696,10 @@ def write_summary(today: str, now: datetime, games, new_rows, ledger, graded_idx
              f"totals = original v1 total vs DK total, edge% ≥ {RULES['total'][1]:.0%}; each must clear its threshold vs BOTH "
              "the opening and the current line (same side). Edges only showed up vs *opening* lines in the backtest "
              "(they lost vs the close), so run this as early as possible.")
+    L.append(f"- Line-move flag: a side whose DK spread moved ≥{LINE_MOVE_PTS:g} pts from open to current is marked "
+             "'likely news/injury'. " + ("Flagged sides are EXCLUDED from plays." if LINE_MOVE_EXCLUDE else
+             "Flag only — the backtest showed flagged side picks did better, not worse (see "
+             "outputs/walkforward/line_move_study.txt), so they are not excluded."))
     L.append("- Stakes: quarter Kelly with a conservative hit-rate estimate "
              f"({RULES['spread'][2]:.1%} sides / {RULES['total'][2]:.1%} totals), capped at 2.5% of bankroll.")
     for n in notes:
@@ -608,11 +716,17 @@ def main(argv=None) -> int:
     ap.add_argument("--no-refresh", action="store_true")
     ap.add_argument("--no-odds-api", action="store_true")
     ap.add_argument("--no-kalshi", action="store_true")
-    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="don't write ledger/snapshot/Supabase; report goes to outputs/daily/<date>.dryrun.md")
+    ap.add_argument("--exclude-line-moves", action="store_true",
+                    help=f"exclude sides whose spread moved >= {LINE_MOVE_PTS:g} pts open->current (default: flag only)")
     ap.add_argument("--config", help="model config JSON (feature list + weights); default czarp_config.json / built-in v2")
     a = ap.parse_args(argv)
     if a.config:
         os.environ["CZARP_CONFIG"] = a.config
+    global LINE_MOVE_EXCLUDE
+    if a.exclude_line_moves:
+        LINE_MOVE_EXCLUDE = True
     now = now_ct()
     today = a.date or now.date().isoformat()
     notes: list[str] = []
@@ -637,6 +751,7 @@ def main(argv=None) -> int:
     log(f"  ESPN slate: {len(games)} games ({sum(g['state'] == 'pre' for g in games)} not started)")
 
     new_rows = []
+    top = []
     data = None
     if games:
         # (a) data
@@ -648,7 +763,7 @@ def main(argv=None) -> int:
         fm = fanmatch_preds(today)
         # (b) prices
         pre = [g for g in games if g["state"] == "pre"]
-        for g in pre:
+        for g in games:                 # all games, so the top-edges list works on a late run too
             g.update(espn_dk_lines(g["event_id"]))
         log(f"  ESPN/DK lines: {sum(g.get('current_home_spread') is not None for g in pre)} spreads, "
             f"{sum(g.get('current_total') is not None for g in pre)} totals of {len(pre)} upcoming games")
@@ -687,6 +802,14 @@ def main(argv=None) -> int:
             new_rows = [r for r in new_rows if r["pick_id"] not in have]     # one pick per game+market, first price kept
             log(f"  new plays: {len(new_rows)} ({sum(r['market'] == 'spread' for r in new_rows)} sides, "
                 f"{sum(r['market'] == 'total' for r in new_rows)} totals)")
+            cands = candidates(games, now)
+            played = {r["pick_id"] for r in new_rows} | set(ledger.loc[ledger.game_date == today, "pick_id"].astype(str))
+            top = top_edges(cands, played)
+            nflag = sum(c["flagged"] for c in cands if c["market"] == "spread")
+            log(f"  line-move flag (spread moved >= {LINE_MOVE_PTS:g} pts): {nflag} sides"
+                + (" — excluded" if LINE_MOVE_EXCLUDE else " — flag only"))
+            for ln in top_edges_md(top):
+                log("  " + ln if ln else "")
     else:
         notes.append("No games on the slate today.")
 
@@ -710,7 +833,8 @@ def main(argv=None) -> int:
             log(f"  Supabase sync failed ({type(e).__name__}: {e}) — CSV ledger unaffected")
             notes.append("Supabase sync failed this run (CSV ledger is unaffected).")
     # (g) summary
-    path = write_summary(today, now, games, new_rows, ledger, gi, notes) if not a.dry_run else "(dry run)"
+    path = write_summary(today, now, games, new_rows, ledger, gi, notes, top,
+                         path=os.path.join(OUT_DIR, f"{today}.dryrun.md") if a.dry_run else None)
     log(f"  summary → {path}; ledger → {LEDGER} ({len(ledger)} rows)")
     return 0
 

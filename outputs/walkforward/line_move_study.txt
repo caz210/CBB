@@ -1,0 +1,47 @@
+ESPN/DK history: 11398 games with open+close spread (2024-11-04..2026-04-06)
+  spread move >= 1 pts:  63.8%  (7277)
+  spread move >= 1.5 pts:  21.9%  (2498)
+  spread move >= 2 pts:  21.9%  (2498)
+  spread move >= 3 pts:   6.2%  (712)
+  spread move >= 4 pts:   1.9%  (214)
+  total move >= 2 pts: 47.0%;  >= 4 pts: 13.4%
+  spread >=2 AND total moved < 1 pt: 3.6%
+  >=2 pt spread moves in November: 35.0% vs Dec-Apr 18.5%
+
+Walk-forward OOS games: 9356 (2025-01-01..2026-04-06); bets graded at the OPEN line, -110
+
+######## SIDES (v2 model-only), edge% = |model - open spread| / open total >= 4%
+  share of all OOS side candidates flagged: 20.4%
+
+-- rule A: edge vs OPEN only --
+  all picks            n=  75  hit  64.0% (48-27)  ROI  +22.2%  CLV +1.07
+  unflagged (<2 pt)   n=  48  hit  54.2% (26-22)  ROI   +3.4%  CLV +0.17
+  flagged  (>=2 pt)   n=  27  hit  81.5% (22-5)  ROI  +55.6%  CLV +2.67
+    flagged, moved WITH us   n=  22  hit  77.3% (17-5)  ROI  +47.5%  CLV +3.73
+    flagged, moved AGAINST us n=   5  hit 100.0% (5-0)  ROI  +90.9%  CLV -2.00
+
+-- rule B (live rule): edge vs open AND vs close/current, same side --
+  all picks            n=  48  hit  60.4% (29-19)  ROI  +15.3%  CLV -0.06
+  unflagged (<2 pt)   n=  40  hit  52.5% (21-19)  ROI   +0.2%  CLV +0.00
+  flagged  (>=2 pt)   n=   8  hit 100.0% (8-0)  ROI  +90.9%  CLV -0.38
+    flagged, moved WITH us   n=   3  hit 100.0% (3-0)  ROI  +90.9%  CLV +2.33
+    flagged, moved AGAINST us n=   5  hit 100.0% (5-0)  ROI  +90.9%  CLV -2.00
+  [sensitivity edge>=3% vs open] unflagged n= 234  hit  51.7% (121-113)  ROI   -1.3%  CLV +0.07 | flagged n=  82  hit  52.4% (43-39)  ROI   +0.1%  CLV +1.70
+  [sensitivity edge>=5% vs open] unflagged n=  15  hit  53.3% (8-7)  ROI   +1.8%  CLV +0.27 | flagged n=  16  hit  87.5% (14-2)  ROI  +67.0%  CLV +4.06
+
+######## TOTALS (v1), edge% = |model - open total| / open total >= 3%; flag = SPREAD moved >= 2
+
+-- rule A: edge vs OPEN only --
+  all picks            n=1248  hit  54.2% (677-571)  ROI   +3.6%  CLV +1.63
+  unflagged (<2 pt)   n= 971  hit  53.7% (521-450)  ROI   +2.4%  CLV +1.50
+  flagged  (>=2 pt)   n= 277  hit  56.3% (156-121)  ROI   +7.5%  CLV +2.09
+    flagged, moved WITH us   n= 204  hit  57.8% (118-86)  ROI  +10.4%  CLV +3.28
+    flagged, moved AGAINST us n=  48  hit  50.0% (24-24)  ROI   -4.5%  CLV -1.85
+
+-- rule B (live rule): vs open AND vs close, same side --
+  all picks            n= 592  hit  49.7% (294-298)  ROI   -5.2%  CLV -0.18
+  unflagged (<2 pt)   n= 481  hit  48.6% (234-247)  ROI   -7.1%  CLV -0.18
+  flagged  (>=2 pt)   n= 111  hit  54.1% (60-51)  ROI   +3.2%  CLV -0.16
+    flagged, moved WITH us   n=  38  hit  57.9% (22-16)  ROI  +10.5%  CLV +1.87
+    flagged, moved AGAINST us n=  48  hit  50.0% (24-24)  ROI   -4.5%  CLV -1.85
+  [total itself moved >= 4 pts] rule B: n=  46  hit  50.0% (23-23)  ROI   -4.5%  CLV -1.28 | <4: n= 546  hit  49.6% (271-275)  ROI   -5.2%  CLV -0.08

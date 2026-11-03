@@ -169,3 +169,4 @@ data/prior/
 Log_file/
 outputs/walkforward/oos.pkl
 outputs/projections_*.csv
+outputs/daily/*.dryrun.md

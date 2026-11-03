@@ -71,6 +71,18 @@ paper stakes (conservative 54.5% / 53.5% hit-rate estimates, 2.5% cap, plays und
 `outputs/daily/YYYY-MM-DD.md`. Safe to re-run; missing games/APIs degrade gracefully.
 Run it early (e.g. cron `0 7 * * *`): the backtested edge exists only against opening lines.
 
+**Top 10 edges.** Every report has a "Top 10 edges" table: the 10 largest edge% candidates of the day
+across sides (v2) and totals (v1), regardless of threshold, with Vegas open/current, CZarp line,
+edge% vs open and vs current, whether it was played, and why not (below threshold, edge gone vs
+current, no opening line, game started, price too juiced, line-move flag).
+
+**Line-move ("likely news/injury") flag.** A side whose DK spread moved ≥2 pts open→current is flagged.
+`python line_move_study.py data/history/v1_preds.pkl` → `outputs/walkforward/line_move_study.txt`:
+22% of games move ≥2 pts (35% in November), and flagged side picks did *better* than unflagged
+(sides ≥4% vs open: flagged 22-5, unflagged 26-22), so the flag is informational by default;
+`--exclude-line-moves` turns the exclusion on. `--dry-run` writes the report to
+`outputs/daily/<date>.dryrun.md` (gitignored) and never touches the ledger.
+
 ## Config-driven model (custom models)
 
 `ModelConfig.model_version` + `ModelConfig.features` (list of `{name, kind, weight, enabled}`).
