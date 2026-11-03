@@ -2,7 +2,7 @@
 
 Runs only when SUPABASE_URL and SUPABASE_SERVICE_KEY are set. Talks to the PostgREST API
 (/rest/v1) with plain `requests` — no extra dependency. Writes: model_configs, teams, games,
-projections (v2 + v1 totals), market_lines (DK open/current, Kalshi board), picks (full ledger
+projections (v2 + v1 totals; spreads/totals/scores rounded to 0.1, the site rounds to 0.5 for display), market_lines (DK open/current, Kalshi board), picks (full ledger
 upsert, so grading updates flow through). Schema: db/schema.sql. The key is never logged.
 """
 from __future__ import annotations
@@ -140,6 +140,7 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
         grows.append({**base, "season": _season(r.game_date), "date": r.game_date, "home": r.home, "away": r.away,
                       "neutral": str(r.neutral) == "True", "external_id": str(r.event_id),
                       "external_ids": {"espn": str(r.event_id)}, "status": "final" if done else "scheduled",
+                      "tipoff": (pd.Timestamp(r.tip_ct).tz_localize("America/Chicago").isoformat() if pd.notna(r.get("tip_ct")) else None),
                       "home_score": int(r.home_score) if done else None,
                       "away_score": int(r.away_score) if done else None, "updated_at": ts})
     gid = {x["external_id"]: x["id"] for x in c.upsert("games", grows, on_conflict="league,external_id")}
@@ -155,8 +156,8 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
         L, MT = g.get("current_home_spread"), g.get("current_total")
         proj.append({**base, "season": _season(g["game_date"]), "game_id": gid[str(g["event_id"])],
                      "model_version": g.get("model_version", "czarp-v2"),
-                     "proj_home": round((T + hm) / 2, 2), "proj_away": round((T - hm) / 2, 2),
-                     "spread": round(-hm, 2), "total": round(T, 2),
+                     "proj_home": round((T + hm) / 2, 1), "proj_away": round((T - hm) / 2, 1),
+                     "spread": round(-hm, 1), "total": round(T, 1),
                      "home_win_prob": round(g.get("v2_home_win_prob", _ncdf(hm / msd)), 4),
                      "home_cover_prob": round(_ncdf((hm + L) / msd), 4) if L is not None else None,
                      "over_prob": round(1 - _ncdf((MT - T) / tsd), 4) if MT is not None else None,
@@ -164,8 +165,8 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
         if g.get("v1_total") is not None:
             t1, m1 = g["v1_total"], g.get("v1_home_margin")
             proj.append({**base, "season": _season(g["game_date"]), "game_id": gid[str(g["event_id"])],
-                         "model_version": V1_VERSION, "total": round(t1, 2),
-                         "spread": round(-m1, 2) if m1 is not None else None,
+                         "model_version": V1_VERSION, "total": round(t1, 1),
+                         "spread": round(-m1, 1) if m1 is not None else None,
                          "over_prob": round(1 - _ncdf((MT - t1) / tsd), 4) if MT is not None else None,
                          "created_at": ts})
     c.insert("projections", proj)
