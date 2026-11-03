@@ -5,7 +5,8 @@ daily_run.py — fully automated daily PAPER-trading pipeline (no real bets are 
     python daily_run.py --date 2026-11-02  # a specific slate
     options: --no-refresh (use cached KenPom CSVs)  --no-odds-api  --no-kalshi  --dry-run (don't write ledger)
              --exclude-line-moves (drop sides whose spread moved >= 2 pts; default flag only)
-             --coach-lock-games N (NEW COACH lock length, default 8; 0 = off)
+             --coach-lock-games N (NEW COACH lock length for both markets; 0 = off)
+             --coach-lock-totals N / --coach-lock-sides N (per market, defaults 4 / 8)
              --skip-side-moves (also skip sides whose spread moved >= 3 pts AGAINST our side; default flag only)
 
 Steps
@@ -22,15 +23,16 @@ Steps
   Later in the day, pretip_check.py re-pulls lines for today's open plays and flags moves against us.
 
 Rules (from the walk-forward backtest, Jan 2025 – Apr 2026, see outputs/walkforward/):
-  Both rules require the edge to clear the threshold vs the OPENING line AND the current line
-  (same side), exactly as backtested; no opening line -> no play.
+  SIDES require the edge to clear the threshold vs the OPENING line AND the current line (same side).
+  TOTALS require it vs the OPENING line only (the vs-current check dropped hit rate 54.8% -> 48.3%,
+  coach_lock_study.py); the line-move skip below replaces it. No opening line -> no play.
   SIDES  — v2 model-only margin vs the DK line; edge% = |model − line| / DK total >= 4%
            (vs open: n=85, 60.0% ATS, CLV +1.1; vs close it lost — bet early).
   TOTALS — original v1 total vs the DK total; edge% = |model − total| / total >= 3%
            (vs open: n=1248, 54.2%, +3.6% ROI, CLV +1.6; vs close it lost — bet early).
   NEW COACH — a team whose KenPom head coach changed since last season (czarp/coach.py;
-           data/coach_changes.csv overrides) is locked out of value plays, sides and totals, until it
-           has played COACH_LOCK_GAMES games this season (coach_lock_study.py).
+           data/coach_changes.csv overrides) is locked out of value plays until it has played
+           COACH_LOCK_TOTALS (4) games for totals / COACH_LOCK_SIDES (8) for sides (coach_lock_study.py).
   LINE MOVE — a total whose DK line moved >= 3 pts open -> current AWAY from our side is skipped
            (backtest: 24-42, -31% ROI). A side that moved >= 3 against us is flagged only.
   Stake  — quarter Kelly at the actual price using a conservative hit-rate estimate per rule
@@ -92,8 +94,21 @@ TOTAL_MOVE_SKIP_PTS = 3.0
 SIDE_MOVE_AGAINST_PTS = 3.0
 SIDE_MOVE_SKIP = False
 # NEW COACH ("new philosophy") lock: games involving a team with a new head coach are not value plays
-# until that team has played COACH_LOCK_GAMES games this season (KenPom W+L). 0 turns the lock off.
-COACH_LOCK_GAMES = 8
+# until that team has played COACH_LOCK_TOTALS / COACH_LOCK_SIDES games this season (KenPom W+L). 0 turns the lock off.
+COACH_LOCK_GAMES = None          # legacy: if set (int), overrides both per-market lengths
+COACH_LOCK_TOTALS = 4           # backtest: totals unlock after ~4 games, sides 6-8
+COACH_LOCK_SIDES = 8
+
+
+def coach_lock_n(market: str | None = None) -> int:
+    """Lock length for a market ('total' / 'spread'); max of the two when market is None."""
+    if COACH_LOCK_GAMES is not None:
+        return COACH_LOCK_GAMES
+    if market == "total":
+        return COACH_LOCK_TOTALS
+    if market == "spread":
+        return COACH_LOCK_SIDES
+    return max(COACH_LOCK_TOTALS, COACH_LOCK_SIDES)
 TOP_N_EDGES = 10
 ODDS_API_MAX_CALLS_PER_DAY = 1
 ODDS_API_RESERVE = 100
@@ -434,9 +449,9 @@ def move_against(c) -> float | None:
     return (o - cur) if c["side"] == "Over" else (cur - o)
 
 
-def coach_locks(g, lock_games=None) -> list[dict]:
+def coach_locks(g, lock_games=None, market=None) -> list[dict]:
     """NEW COACH entries for the two teams in a game (set by tag_new_coaches)."""
-    n = COACH_LOCK_GAMES if lock_games is None else lock_games
+    n = coach_lock_n(market) if lock_games is None else lock_games
     out = []
     for k in ("coach_away", "coach_home"):
         x = g.get(k)
@@ -446,11 +461,12 @@ def coach_locks(g, lock_games=None) -> list[dict]:
     return out
 
 
-def coach_tag(g) -> str:
+def coach_tag(g, market=None) -> str:
     """'NEW COACH Air Force 1/8 (7 left)' style tag for the report ('' if no new-coach team)."""
     parts = []
-    for x in coach_locks(g):
-        parts.append(f"NEW COACH {x['team']} {x['games']}/{COACH_LOCK_GAMES} "
+    n = coach_lock_n(market)
+    for x in coach_locks(g, market=market):
+        parts.append(f"NEW COACH {x['team']} {x['games']}/{n} "
                      + (f"({x['remaining']} left)" if x["locked"] else "(unlocked)"))
     return "; ".join(parts)
 
@@ -528,7 +544,11 @@ def candidates(games, now) -> list[dict]:
         if c["edge_pct_vs_open"] is None:
             why.append("no opening line")
         eo, ec, thr = c["edge_pct_vs_open"], c["edge_pct"], c["thr"]
-        if eo is not None and ec is not None and eo >= thr and (ec < thr or not c["same_side"]):
+        if c["market"] == "total":
+            # totals: edge vs OPEN only (vs-current check hurt in the backtest); the move-against skip below
+            if eo is not None and eo < thr:
+                why.append(f"below {thr:.0%} threshold ({eo:.1%})")
+        elif eo is not None and ec is not None and eo >= thr and (ec < thr or not c["same_side"]):
             why.append("edge gone vs current" + ("" if c["same_side"] else " (flipped side)"))
         elif (eo is not None and eo < thr) or (ec is not None and ec < thr):
             low = min(x for x in (eo, ec) if x is not None)
@@ -542,11 +562,11 @@ def candidates(games, now) -> list[dict]:
             why.append(f"total moved {ma:g} pts against our side since open (market disagrees)")
         if c["market"] == "spread" and ma is not None and ma >= SIDE_MOVE_AGAINST_PTS and SIDE_MOVE_SKIP:
             why.append(f"spread moved {ma:g} pts against our side since open (market disagrees)")
-        locks = coach_locks(c["g"])
-        c["coach_tag"] = coach_tag(c["g"])
+        locks = coach_locks(c["g"], market=c["market"])
+        c["coach_tag"] = coach_tag(c["g"], c["market"])
         for x in locks:
             if x["locked"]:
-                why.append(f"NEW COACH lock: {x['team']} has played {x['games']} of {COACH_LOCK_GAMES} games "
+                why.append(f"NEW COACH lock: {x['team']} has played {x['games']} of {coach_lock_n(c['market'])} games "
                            f"({x['remaining']} to unlock)")
         c["reasons"] = why
         c["rule_ok"] = not why
@@ -687,11 +707,11 @@ def _fmt_line(x, market):
 def top_edges_md(rows) -> list[str]:
     L = [f"## Top {TOP_N_EDGES} edges (all games, sides + totals, regardless of threshold)",
          "_Edge% = |CZarp line − Vegas line| ÷ Vegas total. Spread lines are from the picked side; "
-         f"thresholds {RULES['spread'][1]:.0%} sides / {RULES['total'][1]:.0%} totals, needed vs open AND current. "
+         f"thresholds {RULES['spread'][1]:.0%} sides / {RULES['total'][1]:.0%} totals; sides need it vs open AND current, totals vs open only. "
          f"Line move = DK change open→current (spread for sides, total for totals); a side whose spread moved "
          f"≥{LINE_MOVE_PTS:g} pts is flagged ⚠ as likely news/injury; 'against' = moved away from our side "
          f"(a total ≥{TOTAL_MOVE_SKIP_PTS:g} against is skipped). NEW COACH = head coach changed since last season; "
-         f"those games are locked out of value plays until the team has played {COACH_LOCK_GAMES} games._", ""]
+         f"those games are locked out of value plays until the team has played {coach_lock_n('total')} games (totals) / {coach_lock_n('spread')} (sides)._", ""]
     if not rows:
         return L + ["No priced D-I games to rank.", ""]
     L.append("| # | Tip (CT) | Game | Market | Pick | Vegas open | Vegas current | CZarp line | Edge% vs open | "
@@ -786,8 +806,8 @@ def write_summary(today: str, now: datetime, games, new_rows, ledger, graded_idx
     L.append("")
     L.append("## Notes")
     L.append(f"- Rules: sides = v2 model-only vs DK line, edge% = |model − line| / DK total ≥ {RULES['spread'][1]:.0%}; "
-             f"totals = original v1 total vs DK total, edge% ≥ {RULES['total'][1]:.0%}; each must clear its threshold vs BOTH "
-             "the opening and the current line (same side). Edges only showed up vs *opening* lines in the backtest "
+             f"totals = original v1 total vs DK total, edge% ≥ {RULES['total'][1]:.0%}. Sides must clear it vs BOTH "
+             "the opening and the current line (same side); totals vs the opening line only, plus the line-move skip below. Edges only showed up vs *opening* lines in the backtest "
              "(they lost vs the close), so run this as early as possible.")
     L.append(f"- Line-move flag: a side whose DK spread moved ≥{LINE_MOVE_PTS:g} pts from open to current is marked "
              "'likely news/injury'. " + ("Flagged sides are EXCLUDED from plays." if LINE_MOVE_EXCLUDE else
@@ -798,10 +818,11 @@ def write_summary(today: str, now: datetime, games, new_rows, ledger, graded_idx
              f"≥{SIDE_MOVE_AGAINST_PTS:g} against us are " + ("skipped." if SIDE_MOVE_SKIP else "flagged only (too few cases to test)."))
     nc = sorted({x["team"]: x for g in games for x in coach_locks(g)}.values(), key=lambda x: x["team"])
     locked = [x for x in nc if x["locked"]]
-    if COACH_LOCK_GAMES > 0:
+    nt, ns = coach_lock_n("total"), coach_lock_n("spread")
+    if max(nt, ns) > 0:
         L.append(f"- NEW COACH lock: games involving a team with a new head coach are not value plays until it has played "
-                 f"{COACH_LOCK_GAMES} games. On today's slate: "
-                 + (", ".join(f"{x['team']} ({x['games']}/{COACH_LOCK_GAMES}, {x['remaining']} left)" for x in locked)
+                 f"{nt} games (totals) / {ns} games (sides). On today's slate: "
+                 + (", ".join(f"{x['team']} ({x['games']} played, {max(0, nt - x['games'])} left totals / {x['remaining']} sides)" for x in locked)
                     if locked else "none locked") + ".")
     else:
         L.append("- NEW COACH lock: off (tags shown only).")
@@ -816,7 +837,7 @@ def write_summary(today: str, now: datetime, games, new_rows, ledger, graded_idx
 
 # ── main ─────────────────────────────────────────────────────────────────────
 def main(argv=None) -> int:
-    global LINE_MOVE_EXCLUDE, COACH_LOCK_GAMES, SIDE_MOVE_SKIP
+    global LINE_MOVE_EXCLUDE, COACH_LOCK_GAMES, COACH_LOCK_TOTALS, COACH_LOCK_SIDES, SIDE_MOVE_SKIP
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--date")
     ap.add_argument("--no-refresh", action="store_true")
@@ -827,7 +848,11 @@ def main(argv=None) -> int:
     ap.add_argument("--exclude-line-moves", action="store_true",
                     help=f"exclude sides whose spread moved >= {LINE_MOVE_PTS:g} pts open->current (default: flag only)")
     ap.add_argument("--coach-lock-games", type=int, default=None,
-                    help=f"NEW COACH lock: games a new-coach team must play before its games are value plays (default {COACH_LOCK_GAMES}; 0 = off)")
+                    help="NEW COACH lock for BOTH markets: games a new-coach team must play before its games are value plays (0 = off)")
+    ap.add_argument("--coach-lock-totals", type=int, default=None,
+                    help=f"NEW COACH lock length for totals (default {COACH_LOCK_TOTALS}; 0 = off)")
+    ap.add_argument("--coach-lock-sides", type=int, default=None,
+                    help=f"NEW COACH lock length for sides (default {COACH_LOCK_SIDES}; 0 = off)")
     ap.add_argument("--skip-side-moves", action="store_true",
                     help=f"skip sides whose spread moved >= {SIDE_MOVE_AGAINST_PTS:g} pts against our side (default: flag only)")
     ap.add_argument("--config", help="model config JSON (feature list + weights); default czarp_config.json / built-in v2")
@@ -837,7 +862,11 @@ def main(argv=None) -> int:
     if a.exclude_line_moves:
         LINE_MOVE_EXCLUDE = True
     if a.coach_lock_games is not None:
-        COACH_LOCK_GAMES = max(0, a.coach_lock_games)
+        COACH_LOCK_TOTALS = COACH_LOCK_SIDES = max(0, a.coach_lock_games)
+    if a.coach_lock_totals is not None:
+        COACH_LOCK_TOTALS = max(0, a.coach_lock_totals)
+    if a.coach_lock_sides is not None:
+        COACH_LOCK_SIDES = max(0, a.coach_lock_sides)
     if a.skip_side_moves:
         SIDE_MOVE_SKIP = True
     now = now_ct()
@@ -884,8 +913,9 @@ def main(argv=None) -> int:
             project_all(games, data)
             nc = tag_new_coaches(games, today)
             nlock = sum(any(x["locked"] for x in coach_locks(g)) for g in games if not g.get("skip"))
+            nlock_t = sum(any(x["locked"] for x in coach_locks(g, market="total")) for g in games if not g.get("skip"))
             log(f"  NEW COACH: {len(nc)} teams with a new head coach; {nlock} games on the slate locked "
-                f"(lock = {COACH_LOCK_GAMES} games)")
+                f"for sides, {nlock_t} for totals (lock = {coach_lock_n('total')} games totals / {coach_lock_n('spread')} sides)")
             for g in games:
                 kp = fm.get(frozenset([g.get("kp_home") or "", g.get("kp_away") or ""]))
                 if kp and kp[1] is not None:

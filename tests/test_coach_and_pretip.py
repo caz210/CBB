@@ -75,8 +75,8 @@ def test_pretip_check_play():
     assert pc.check_play(_row(), {"current_total": 163.0}) == []
     w = pc.check_play(_row(), {"current_total": 165.0})          # Under 162.5 -> 165: 2.5 against
     assert w and w[0].startswith("line moved 2.5 against us")
-    w = pc.check_play(_row(line=152.5), {"current_total": 151.0})  # edge 1.5/151 < 3%; moved toward us
-    assert len(w) == 1 and w[0].startswith("edge vs current 1.0% < 3%")
+    w = pc.check_play(_row(line=152.5), {"current_total": 151.0})  # edge 1.5/151 < 3% but moved toward us
+    assert w == []                                                 # totals: no edge-vs-current rule anymore
     sp = _row(pick_id="9-spread", market="spread", side="H", line=-4.5, model_value=11.0)
     assert pc.check_play(sp, {"current_home_spread": -5.0, "current_total": 140.0}) == []
     w = pc.check_play(sp, {"current_home_spread": -7.0, "current_total": 140.0})
@@ -116,3 +116,44 @@ def test_pretip_main_annotates_only_open_unstarted(monkeypatch, tmp_path, capsys
     monkeypatch.setattr(dr, "espn_dk_lines", lambda e: {"current_total": 162.5})
     pc.main(["--dry-run"])
     assert capsys.readouterr().out == ""                          # nothing to flag -> empty output
+
+
+def test_coach_lock_split_totals_4_sides_8(monkeypatch):
+    monkeypatch.setattr(dr, "COACH_LOCK_GAMES", None)
+    monkeypatch.setattr(dr, "COACH_LOCK_TOTALS", 4)
+    monkeypatch.setattr(dr, "COACH_LOCK_SIDES", 8)
+    g = _game(v1_total=150.0, coach_home={"team": "H", "games": 3, "coach": "X", "prev": "Y"})
+    c = {x["market"]: x for x in dr.candidates([g], _now())}
+    assert not c["total"]["rule_ok"] and any("3 of 4" in r for r in c["total"]["reasons"])
+    assert not c["spread"]["rule_ok"] and any("3 of 8" in r for r in c["spread"]["reasons"])
+    g["coach_home"]["games"] = 4
+    c = {x["market"]: x for x in dr.candidates([g], _now())}
+    assert c["total"]["rule_ok"] and not c["spread"]["rule_ok"]
+    assert c["total"]["coach_tag"] == "NEW COACH H 4/4 (unlocked)" and c["spread"]["coach_tag"] == "NEW COACH H 4/8 (4 left)"
+
+
+def test_coach_lock_cli_flags(monkeypatch):
+    import argparse
+    monkeypatch.setattr(dr, "COACH_LOCK_TOTALS", 4)
+    monkeypatch.setattr(dr, "COACH_LOCK_SIDES", 8)
+    def stop(*a, **k):
+        raise SystemExit(0)
+    monkeypatch.setattr(dr, "now_ct", stop)
+    for argv, want in ((["--coach-lock-games", "6"], (6, 6)),
+                       (["--coach-lock-totals", "2", "--coach-lock-sides", "10"], (2, 10)),
+                       (["--coach-lock-games", "6", "--coach-lock-sides", "9"], (6, 9))):
+        try:
+            dr.main(argv)
+        except SystemExit:
+            pass
+        assert (dr.COACH_LOCK_TOTALS, dr.COACH_LOCK_SIDES) == want
+
+
+def test_totals_edge_vs_open_only(monkeypatch):
+    monkeypatch.setattr(dr, "COACH_LOCK_GAMES", 0)
+    # model 150 Over; open 145 (3.4% edge), current 147 (2.0%) -> moved 2 toward-ish/against? Over: o-cur=-2 (toward)
+    g = _game(open_total=145.0, current_total=147.0, v1_total=150.0)
+    t = {x["market"]: x for x in dr.candidates([g], _now())}["total"]
+    assert t["edge_pct"] < 0.03 <= t["edge_pct_vs_open"] and t["rule_ok"]
+    top = dr.top_edges([t], set())
+    assert "2.0%" in "\n".join(dr.top_edges_md(top))               # vs-current edge still shown

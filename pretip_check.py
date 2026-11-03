@@ -60,7 +60,8 @@ def check_play(row, ln: dict, move_pts: float = MOVE_PTS) -> list[str]:
     if clv <= -move_pts:
         out.append(f"line moved {-clv:g} against us ({pick:+g} → {cur:+g})" if row.market == "spread"
                    else f"line moved {-clv:g} against us ({pick:g} → {cur:g})")
-    if edge is not None and (not same or edge < thr):
+    # totals: only the line-move check (edge vs current is no longer a totals rule — daily_run.py)
+    if row.market == "spread" and edge is not None and (not same or edge < thr):
         out.append(f"edge vs current {edge:.1%} < {thr:.0%}" + ("" if same else " (model now on the other side)"))
     return out
 

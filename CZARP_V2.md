@@ -64,7 +64,7 @@ python -m pytest -q tests
 One command: refresh KenPom (ratings/prior/HCA) + FanMatch → ESPN slate + DraftKings open/current
 lines (free) → Odds API fallback only if ESPN lacks lines for ≥25% of D-I games (≤1 call/day,
 100-credit reserve, usage in `data/ledger/odds_api_usage.json`) → Kalshi reference prices →
-v2 sides + original-v1 totals → plays (sides edge% ≥4%, totals edge% ≥3%, vs BOTH open and current line) with quarter-Kelly
+v2 sides + original-v1 totals → plays (sides edge% ≥4% vs BOTH open and current line; totals edge% ≥3% vs the open, skipped if the total moved ≥3 against us) with quarter-Kelly
 paper stakes (conservative 54.5% / 53.5% hit-rate estimates, 2.5% cap, plays under $1 skipped)
 → `data/ledger/ledger.csv` (one pick per game+market, first price kept; per-run snapshots in
 `data/ledger/snapshots/`) → grades earlier plays (final score, DK closing line, CLV, P&L) →
@@ -108,9 +108,10 @@ of the paper bankroll at pick time. The writer deletes mirrored picks no longer 
 
 **NEW COACH ("new philosophy") lock** (`czarp/coach.py`). A team whose KenPom head coach this season
 differs from last season's (`data/ratings.csv` / `data/teams.csv` `Coach` vs `data/prior/ratings.csv`,
-or `data/coaches/teams_<prev season>.csv`) is tagged `NEW COACH`. Its games are not value plays, sides or
-totals, until it has played `COACH_LOCK_GAMES` games this season (KenPom W+L; default 8,
-`--coach-lock-games N`, 0 = off). `data/coach_changes.csv` (`season,team[,coach,prev_coach][,new_coach]`)
+or `data/coaches/teams_<prev season>.csv`) is tagged `NEW COACH`. Its games are not value plays until it has
+played `COACH_LOCK_TOTALS` games for totals (default 4, `--coach-lock-totals N`) and `COACH_LOCK_SIDES`
+games for sides (default 8, `--coach-lock-sides N`) this season (KenPom W+L; `--coach-lock-games N` sets
+both; 0 = off). Split per the backtest below (approved 2026-11-03). `data/coach_changes.csv` (`season,team[,coach,prev_coach][,new_coach]`)
 adds a team or, with `new_coach=0`, clears a false positive. The Top 10 table has a Tags column
 (`NEW COACH Air Force 1/8 (7 left)`), and the report notes list every locked team on the slate.
 
@@ -130,6 +131,12 @@ Sides: early new-coach side picks lost (4-9 under N=8), but the sample is tiny. 
 ~4 games were worse than the market (model-minus-market MAE +0.20 for new-coach teams in games 0-3, vs
 -0.06 for other teams); games 4-7 were *better* than average, so a long totals lock gives up winners.
 
+**Totals: edge vs open only (2026-11-03).** Totals no longer also need edge% ≥3% vs the *current*
+line. In `coach_lock_study.py`, totals ≥3% vs open hit 54.8%; adding the vs-current check dropped it to
+48.3% (it throws out lines that moved toward us, our best bets); ≥3% vs open + the move-against skip below
+hit 55.6% (~+6% ROI, closing-line backtest). Edge vs current is still shown in the Top 10 table, and the
+pre-tip check no longer flags totals for edge vs current (line moves only). Sides are unchanged.
+
 **Totals line-move skip.** A total whose DK line moved ≥ `TOTAL_MOVE_SKIP_PTS` (3) from open to current
 *away from our side* is skipped (backtest: 24-42, -30.6% ROI; 2-2.5 pts against was 26-41). A side that
 moved ≥3 against us is flagged ⚠ only (`--skip-side-moves` to skip): there was 1 such side pick in two
@@ -138,8 +145,8 @@ moved with or against our side.
 
 **Pre-tip check** (`pretip_check.py`). Re-pulls the DK line (ESPN; Odds API only for plays ESPN lacks,
 within the daily budget) for today's open plays that have not tipped, and prints a short summary of any
-play whose line moved ≥2 pts against us since the pick or whose edge vs the current line fell below the
-threshold. It prints nothing when there is nothing to flag. It only writes the ledger's `pretip_flag`
+play whose line moved ≥2 pts against us since the pick or (sides only) whose edge vs the current line fell
+below the threshold. It prints nothing when there is nothing to flag. It only writes the ledger's `pretip_flag`
 column (never prices, stakes or results); `--dry-run` writes nothing and spends no Odds API credits.
 
     python pretip_check.py [--dry-run] [--within MINUTES] [--move 2] [--date YYYY-MM-DD] [--no-odds-api] [-v]
