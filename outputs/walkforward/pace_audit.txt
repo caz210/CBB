@@ -1,0 +1,58 @@
+Games with box-score possessions + point-in-time KenPom tempo: 11511 (2024-11-04..2026-04-06); OT games 650. Actual tempo mean 68.15, projected (v2) mean 68.39.
+
+######## PROJECTED vs ACTUAL POSSESSIONS (per 40 min; error = actual − projected)
+  all                          v2 n=11511  MAE  3.25  bias -0.24  RMSE  4.09
+  November                     v2 n= 2476  MAE  3.58  bias -0.76  RMSE  4.46
+  Dec-Apr                      v2 n= 9035  MAE  3.16  bias -0.10  RMSE  3.98
+  new-coach team in game       v2 n= 3747  MAE  3.30  bias -0.33  RMSE  4.17
+  new-coach, team < 8 games    v2 n=  910  MAE  3.54  bias -0.45  RMSE  4.43
+  no new-coach team            v2 n= 7764  MAE  3.22  bias -0.20  RMSE  4.05
+  neutral site                 v2 n= 1439  MAE  3.29  bias -0.73  RMSE  4.13
+  true home/away               v2 n=10072  MAE  3.24  bias -0.17  RMSE  4.08
+  either team < 4 games        v2 n= 1330  MAE  3.69  bias -0.56  RMSE  4.61
+  either team < 8 games        v2 n= 2752  MAE  3.53  bias -0.71  RMSE  4.41
+  by month: 11: MAE 3.58 bias -0.76; 12: MAE 3.29 bias +0.09; 01: MAE 3.16 bias -0.37; 02: MAE 3.14 bias +0.06; 03: MAE 3.01 bias -0.16; 04: MAE 3.39 bias +2.12
+
+  alternative pace projections (all games | November | new-coach <8 games):
+    v2 (live): Th×Ta/avg                   MAE  3.25 bias -0.24 | Nov  3.58 -0.75 | new-coach  3.52 -0.47  (n=11280)
+    v1 additive                            MAE  3.25 bias -0.24 | Nov  3.58 -0.75 | new-coach  3.53 -0.47  (n=11280)
+    KenPom FanMatch PredTempo              MAE  3.22 bias -0.23 | Nov  3.60 -0.74 | new-coach  3.58 -0.39  (n=11280)
+    observed tempo blend, k=2              MAE  3.45 bias +0.32 | Nov  3.82 -0.35 | new-coach  3.80 -0.21  (n=11280)
+    observed tempo blend, k=4              MAE  3.39 bias +0.25 | Nov  3.67 -0.44 | new-coach  3.64 -0.26  (n=11280)
+    observed tempo blend, k=8              MAE  3.33 bias +0.16 | Nov  3.59 -0.53 | new-coach  3.55 -0.31  (n=11280)
+    market-implied (open total ÷ our PPP)  MAE  3.28 bias -0.23 | Nov  3.67 -0.69 | new-coach  3.59 -0.59  (n=11280)
+    ½ v2 + ½ market-implied                MAE  3.22 bias -0.23 | Nov  3.57 -0.72 | new-coach  3.49 -0.53  (n=11280)
+    (blend: pace × (1 + Σ_team w·(observed residual − 1)), residual = team's mean actual ÷ projected pace so far, w = games/(games+k))
+
+######## TOTALS ERROR: PACE vs EFFICIENCY (T − T̂ = (P − P̂)·Ê + P·(E − Ê), P incl. OT)
+  v1 totals (betting model): total error n=11319  MAE 13.28  bias +0.78  RMSE 16.90
+    pace part n=11319  MAE  7.71  bias +0.71  RMSE 10.17 | efficiency part n=11319  MAE 11.30  bias +0.07  RMSE 14.19
+    variance share: pace 36.1%, efficiency 70.6%, 2·cov -6.8%; OT alone adds +1.21 pts/game avg
+    November             total MAE 13.51 bias -0.09 | pace part bias -0.60 MAE  8.04 | eff part bias +0.51 MAE 11.22
+    Dec-Apr              total MAE 13.22 bias +1.02 | pace part bias +1.07 MAE  7.62 | eff part bias -0.05 MAE 11.32
+    new-coach <8 games   total MAE 13.43 bias +0.81 | pace part bias +0.07 MAE  7.98 | eff part bias +0.74 MAE 11.05
+    neutral              total MAE 13.17 bias -0.86 | pace part bias -0.19 MAE  7.84 | eff part bias -0.66 MAE 10.99
+  v2 calibrated total: total error n=11511  MAE 13.29  bias +0.01  RMSE 16.86
+    pace part n=11511  MAE  7.74  bias +0.72  RMSE 10.22 | efficiency part n=11511  MAE 11.46  bias -0.71  RMSE 14.35
+    variance share: pace 36.5%, efficiency 72.3%, 2·cov -8.8%; OT alone adds +1.22 pts/game avg
+    November             total MAE 13.53 bias -0.65 | pace part bias -0.61 MAE  8.07 | eff part bias -0.04 MAE 11.32
+    Dec-Apr              total MAE 13.23 bias +0.20 | pace part bias +1.09 MAE  7.65 | eff part bias -0.89 MAE 11.49
+    new-coach <8 games   total MAE 13.55 bias +0.21 | pace part bias +0.05 MAE  8.02 | eff part bias +0.16 MAE 11.18
+    neutral              total MAE 13.25 bias -1.47 | pace part bias -0.16 MAE  7.87 | eff part bias -1.31 MAE 11.31
+
+  hypothetical: v1 total with the ACTUAL tempo (no OT) instead of projected: n=11282  MAE 11.94  bias +1.29  RMSE 15.29  vs as-is n=11282  MAE 13.27  bias +0.78  RMSE 16.88; open line n=11282  MAE 13.18  bias +0.77  RMSE 16.77
+  v1 total re-paced with observed blend k=2: n=11282  MAE 13.46  bias +1.97  RMSE 17.16  | Nov n= 2408  MAE 13.68  bias +0.78  RMSE 17.33
+  v1 total re-paced with observed blend k=4: n=11282  MAE 13.39  bias +1.83  RMSE 17.07  | Nov n= 2408  MAE 13.52  bias +0.60  RMSE 17.15
+  v1 total re-paced with observed blend k=8: n=11282  MAE 13.34  bias +1.63  RMSE 17.00  | Nov n= 2408  MAE 13.43  bias +0.40  RMSE 17.06
+  v1 as-is November: n= 2408  MAE 13.47  bias -0.07  RMSE 17.08
+
+######## READING (2024-25 + 2025-26, analysis only; no model change made)
+  - Pace is ~1/3 of totals error variance; efficiency (shooting variance) ~2/3. Even a PERFECT pace forecast
+    only cuts v1 total MAE ~13.3 -> ~11.9, so pace fixes are second-order vs efficiency.
+  - KenPom AdjTempo snapshots already update in-season; blending in our own observed tempo (k=2/4/8) makes
+    pace WORSE (MAE 3.25 -> 3.33-3.45) and the totals worse. Don't add a faster observed-tempo weight.
+  - The consistent miss: games play SLOWER than projected early and at neutral sites: Nov -0.76 poss, neutral -0.73, either team <8 games -0.71
+    (Dec-Mar ~0). That is roughly 1.5 points of total.
+  - Best simple fix: (1) average v2 pace with the market-implied pace (open total / our PPP): MAE 3.22, best on new-coach <8g (3.49);
+    (2) an additive early-season/neutral tempo adjustment of about -0.7 poss (Nov or <8 games, and neutral sites), fit walk-forward.
+    Both are small gains. Validate on a walk-forward backtest before turning them on.
