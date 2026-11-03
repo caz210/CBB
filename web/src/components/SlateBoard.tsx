@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
-import type { SlateGame, ValueBet } from "@/lib/example-data";
-import { MARKET_LABEL, SOURCE_LABEL, edgeTier, fmtLine, fmtTipoff, pct, signedPct } from "@/lib/labels";
+import type { SlateGame, ValueBet } from "@/lib/types";
+import { MARKET_LABEL, SOURCE_LABEL, edgeTier, fmtLine, fmtWinProb, fmtTipoff, pct, signedPct } from "@/lib/labels";
 import { ArchetypeChip, ArchetypeLegend } from "./ArchetypeChip";
 
 type Sel = { game: SlateGame; bet: ValueBet } | null;
@@ -38,15 +38,16 @@ export function SlateBoard({ games, bets }: { games: SlateGame[]; bets: ValueBet
 }
 
 function GameCard({ g, bets, onOpen }: { g: SlateGame; bets: ValueBet[]; onOpen: (b: ValueBet) => void }) {
-  const awayWin = 1 - g.home_win_prob;
+  const awayWin = g.home_win_prob == null ? null : 1 - g.home_win_prob;
+  const awayCover = g.home_cover_prob == null ? null : 1 - g.home_cover_prob;
   const rows = [
-    { side: "Away", name: g.away, proj: g.proj_away, win: awayWin, cover: 1 - g.home_cover_prob, tags: g.archetypes.away, tent: g.archetypes.away_tentative },
+    { side: "Away", name: g.away, proj: g.proj_away, win: awayWin, cover: awayCover, tags: g.archetypes.away, tent: g.archetypes.away_tentative },
     { side: "Home", name: g.home, proj: g.proj_home, win: g.home_win_prob, cover: g.home_cover_prob, tags: g.archetypes.home, tent: g.archetypes.home_tentative },
   ];
   return (
     <article className="card overflow-hidden">
       <header className="flex items-center justify-between border-b border-ink-700/60 px-4 py-2.5 text-xs">
-        <span className="font-semibold text-zinc-300">{fmtTipoff(g.tipoff)}</span>
+        <span className="font-semibold text-zinc-300">{g.tipoff ? fmtTipoff(g.tipoff) : "Tip-off TBD"}</span>
         <span className="font-mono text-zinc-600">#{g.game_id}</span>
       </header>
 
@@ -56,8 +57,8 @@ function GameCard({ g, bets, onOpen }: { g: SlateGame; bets: ValueBet[]; onOpen:
             <div className="flex items-center gap-3">
               <span className="w-9 shrink-0 text-[10px] font-semibold uppercase text-zinc-600">{r.side}</span>
               <span className="min-w-0 flex-1 truncate text-[15px] font-semibold">{r.name}</span>
-              <span className={`text-right font-mono text-xs ${r.win >= 0.5 ? "text-white" : "text-zinc-500"}`}>{pct(r.win)}<span className="ml-0.5 font-sans text-[10px] text-zinc-600">win</span></span>
-              <span className="w-12 text-right font-mono text-xl font-bold">{r.proj.toFixed(1)}</span>
+              <span className={`text-right font-mono text-xs ${r.win != null && r.win >= 0.5 ? "text-white" : "text-zinc-500"}`}>{r.win == null ? "—" : fmtWinProb(r.win)}<span className="ml-0.5 font-sans text-[10px] text-zinc-600">win</span></span>
+              <span className="w-12 text-right font-mono text-xl font-bold">{r.proj == null ? "—" : r.proj.toFixed(1)}</span>
             </div>
             {r.tags.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1.5 pl-12">
@@ -69,9 +70,9 @@ function GameCard({ g, bets, onOpen }: { g: SlateGame; bets: ValueBet[]; onOpen:
       </div>
 
       <div className="grid grid-cols-3 gap-px border-t border-ink-700/60 bg-ink-700/40 text-center">
-        <Stat label="Spread" model={fmtLine(g.proj_spread)} mkt={g.market_spread == null ? "—" : fmtLine(g.market_spread)} />
-        <Stat label="Total" model={g.proj_total.toFixed(1)} mkt={g.market_total?.toFixed(1) ?? "—"} />
-        <Stat label="Home cover" model={pct(g.home_cover_prob)} mkt={g.market_source ? SOURCE_LABEL[g.market_source] : ""} />
+        <Stat label="Spread" model={g.proj_spread == null ? "—" : fmtLine(g.proj_spread)} mkt={g.market_spread == null ? "—" : fmtLine(g.market_spread)} />
+        <Stat label="Total" model={g.proj_total == null ? "—" : g.proj_total.toFixed(1)} mkt={g.market_total?.toFixed(1) ?? "—"} />
+        <Stat label="Home cover" model={g.home_cover_prob == null ? "—" : pct(g.home_cover_prob)} mkt={g.market_source ? SOURCE_LABEL[g.market_source] : ""} />
       </div>
 
       {g.archetypes.notes.length > 0 && (
@@ -87,7 +88,7 @@ function GameCard({ g, bets, onOpen }: { g: SlateGame; bets: ValueBet[]; onOpen:
             const tier = edgeTier(b.prob_edge);
             return (
               <button
-                key={b.side}
+                key={`${b.market}-${b.side}`}
                 onClick={() => onOpen(b)}
                 className="flex min-h-14 w-full items-center gap-3 rounded-xl border border-edge-400/30 bg-ink-900 px-3 py-2.5 text-left transition active:scale-[0.99] hover:border-edge-400/60"
               >
@@ -97,7 +98,7 @@ function GameCard({ g, bets, onOpen }: { g: SlateGame; bets: ValueBet[]; onOpen:
                   <span className="block text-[11px] text-zinc-500">{MARKET_LABEL[b.market]} · edge {signedPct(b.prob_edge)}</span>
                 </span>
                 <span className="text-right">
-                  <span className="block font-mono text-base font-bold">{b.kelly_quarter_units.toFixed(1)}u</span>
+                  <span className="block font-mono text-base font-bold">{b.kelly_quarter_units == null ? "—" : `${b.kelly_quarter_units.toFixed(1)}u`}</span>
                   <span className="block text-[10px] text-zinc-500">¼-Kelly</span>
                 </span>
                 <span className="text-zinc-600">›</span>
@@ -124,7 +125,7 @@ function ValueSheet({ sel, onClose }: { sel: Sel; onClose: () => void }) {
       <button aria-label="Close" onClick={onClose} className="absolute inset-0 bg-black/70" />
       <div className="relative w-full max-w-lg rounded-t-3xl border border-ink-700 bg-ink-900 p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl md:rounded-3xl">
         <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-ink-600 md:hidden" />
-        <div className="text-xs text-zinc-500">{g.game} · {fmtTipoff(g.tipoff)}</div>
+        <div className="text-xs text-zinc-500">{g.game}{g.tipoff ? ` · ${fmtTipoff(g.tipoff)}` : ""}</div>
         <div className="mt-1 flex items-center justify-between gap-3">
           <h3 className="text-xl font-bold">{b.side}</h3>
           <span className="rounded-md bg-edge-400/15 px-2 py-1 text-xs font-bold text-edge-400">{tier ?? "EDGE"}</span>
@@ -132,7 +133,7 @@ function ValueSheet({ sel, onClose }: { sel: Sel; onClose: () => void }) {
         <div className="mt-1 text-sm text-zinc-400">{MARKET_LABEL[b.market]}</div>
 
         <div className="mt-5 grid grid-cols-2 gap-2">
-          <Big label="Model prob" v={pct(b.model_prob, 1)} />
+          <Big label="Model prob" v={b.model_prob == null ? "—" : pct(b.model_prob, 1)} />
           <Big label="Market prob" v={pct(b.market_prob, 1)} sub="implied, incl. vig" />
           <Big label="Prob edge" v={signedPct(b.prob_edge)} accent />
           <Big label="Line edge" v={pct(b.line_edge_pct, 1)} sub="of market total" />
@@ -143,7 +144,7 @@ function ValueSheet({ sel, onClose }: { sel: Sel; onClose: () => void }) {
             <div className="text-xs font-semibold uppercase tracking-wider text-edge-400">Suggested stake</div>
             <div className="text-[11px] text-zinc-400">¼-Kelly · 1u = 1% of bankroll</div>
           </div>
-          <div className="font-mono text-3xl font-black">{b.kelly_quarter_units.toFixed(2)}u</div>
+          <div className="font-mono text-3xl font-black">{b.kelly_quarter_units == null ? "—" : `${b.kelly_quarter_units.toFixed(2)}u`}</div>
         </div>
         <p className="mt-3 text-[11px] text-zinc-500">Paper-trading season: logged to the public ledger, no real money.</p>
         <button onClick={onClose} className="mt-4 min-h-12 w-full rounded-xl border border-ink-600 font-semibold hover:bg-ink-800">Done</button>

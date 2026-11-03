@@ -1,8 +1,11 @@
 import { PageHeader } from "@/components/PageHeader";
 import { ModelsWorkspace } from "@/components/ModelsWorkspace";
+import { ExampleBanner } from "@/components/ExampleBadge";
 
 export default function ModelsPage() {
   return (
+    <>
+    <ExampleBanner />
     <div className="mx-auto max-w-7xl px-4 py-5 md:px-6 md:py-10">
       <PageHeader
         eyebrow="My Models · Preview"
@@ -21,5 +24,6 @@ export default function ModelsPage() {
         </ol>
       </div>
     </div>
+    </>
   );
 }

@@ -1,4 +1,4 @@
-# Supabase wiring (not connected in the mockup)
+# Supabase wiring
 
 Source of truth for the database: **`/workspace/CBB/db/schema.sql`** (CZarp repo, branch `czarp-v2`).
 The front end only reads the views below plus `profiles` / `user_models`; the Python pipeline
@@ -19,13 +19,20 @@ Careless, Don't Blink, Free Throw Merchants, Glass Leak, Lock Down, No Rebounds 
 Passive D, Sieve, Turnover Machine. The UI styles weaknesses (Careless, Glass Leak, Open Arc, Passive D, Sieve)
 differently and renders `*_tentative` teams' tags with a dashed "tent." chip.
 
-## To go live
-1. `npm i @supabase/supabase-js @supabase/ssr`
-2. `.env.local`: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (anon key only, never the
-   service key or the KenPom/Odds keys).
-3. Implement `client.ts` / `server.ts` with `createBrowserClient` / `createServerClient`.
-4. Replace the `TODO(supabase)` stubs in `AuthForm.tsx` and the page loaders.
-5. `middleware.ts` refreshes the session; read `profiles.tier` server-side for gating.
+## Status
+- Wired: `/[sport]/slate` (slate_games + value_bets) and `/[sport]/results` (ledger + pick_record) read
+  live data in Server Components via `src/lib/data.ts` → `server.ts` (`createServerClient`, anon key +
+  visitor cookies so RLS applies). Pages are `force-dynamic`.
+- If `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` are missing, or a view has no rows,
+  the pages show an explicit empty state. They never fall back to example numbers.
+- `example-data.ts` is only used by the landing preview and My Models (both labeled "Example").
+- Env: `.env.local` locally (gitignored), Vercel → Project Settings → Environment Variables in prod.
+  Anon key only, never the service key or the KenPom/Odds keys.
+
+## Still to do
+1. Replace the `TODO(supabase)` stubs in `AuthForm.tsx` using `client.ts` (`createSupabaseBrowserClient`).
+2. Add `middleware.ts` to refresh the session; read `profiles.tier` server-side for gating.
+3. `/models` CRUD against `user_models`.
 
 ## Saved-model limit (Free = 1, Pro/Syndicate = unlimited)
 The UI checks `MODEL_LIMIT` (`src/lib/example-data.ts`), but the database must enforce it too.

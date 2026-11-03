@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ExampleBadge } from "@/components/ExampleBadge";
+import { ExampleBadge, ExampleBanner } from "@/components/ExampleBadge";
 import { ArchetypeChip } from "@/components/ArchetypeChip";
 import { EXAMPLE_SLATE, EXAMPLE_VALUE_BETS, EXAMPLE_PICK_RECORD, summarize } from "@/lib/example-data";
 import { MARKET_LABEL, edgeTier, fmtLine, fmtTipoff, pct, signedPct } from "@/lib/labels";
@@ -11,6 +11,7 @@ export default function Landing() {
   const s = summarize(EXAMPLE_PICK_RECORD);
   return (
     <div>
+      <ExampleBanner />
       <section className="grid-bg relative overflow-hidden border-b border-ink-700/60">
         <div className="pointer-events-none absolute -top-40 left-1/2 h-[500px] w-[900px] -translate-x-1/2 rounded-full bg-court-500/15 blur-3xl" />
         <div className="relative mx-auto grid max-w-7xl gap-8 px-4 py-10 md:gap-12 md:px-6 md:py-24 lg:grid-cols-[1.1fr_1fr] lg:items-center">
@@ -39,7 +40,7 @@ export default function Landing() {
 
           <div className="card relative p-4 shadow-2xl shadow-black/50 md:p-5">
             <div className="mb-2 flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Tonight · {fmtTipoff(g.tipoff)}</span>
+              <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Tonight · {fmtTipoff(g.tipoff!)}</span>
               <ExampleBadge />
             </div>
             {[
@@ -51,13 +52,13 @@ export default function Landing() {
                   <div className="font-semibold">{r.n}</div>
                   <div className="mt-1.5 flex flex-wrap gap-1">{r.tags.map((a) => <ArchetypeChip key={a} name={a} tentative={r.t} />)}</div>
                 </div>
-                <div className="font-mono text-2xl font-bold">{r.p.toFixed(1)}</div>
+                <div className="font-mono text-2xl font-bold">{r.p?.toFixed(1)}</div>
               </div>
             ))}
             <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-              <Mini label="Spread" value={fmtLine(g.proj_spread)} />
-              <Mini label="Total" value={g.proj_total.toFixed(1)} />
-              <Mini label="Away win" value={pct(1 - g.home_win_prob)} />
+              <Mini label="Spread" value={fmtLine(g.proj_spread!)} />
+              <Mini label="Total" value={g.proj_total!.toFixed(1)} />
+              <Mini label="Away win" value={pct(1 - g.home_win_prob!)} />
             </div>
             <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-edge-400/30 bg-edge-400/10 px-4 py-3">
               <div className="min-w-0">
@@ -65,7 +66,7 @@ export default function Landing() {
                 <div className="truncate text-sm font-semibold">{v.side}</div>
               </div>
               <div className="shrink-0 text-right text-xs text-zinc-400">
-                Edge <b className="text-edge-400">{signedPct(v.prob_edge)}</b><br />¼-Kelly <b className="text-white">{v.kelly_quarter_units.toFixed(1)}u</b>
+                Edge <b className="text-edge-400">{signedPct(v.prob_edge)}</b><br />¼-Kelly <b className="text-white">{v.kelly_quarter_units!.toFixed(1)}u</b>
               </div>
             </div>
           </div>
