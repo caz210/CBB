@@ -115,6 +115,13 @@ both; 0 = off). Split per the backtest below (approved 2026-11-03). `data/coach_
 adds a team or, with `new_coach=0`, clears a false positive. The Top 10 table has a Tags column
 (`NEW COACH Air Force 1/8 (7 left)`), and the report notes list every locked team on the slate.
 
+**Per-team flag file: `config/coach_locks.csv`** (git-tracked, overrides auto-detection; audited 2026-11-04 against
+the 2026 carousel trackers, every row has a source link). Columns: `season,team,new_coach,coach,prev_coach,lock_sides,lock_totals,note,source`.
+`new_coach` Y = locked (added even if KenPom missed it), N = never locked. `lock_sides` / `lock_totals`: blank = default
+length, `N`/`0` = no lock for that market, a number = custom games. Teams not in the file use KenPom auto-detection.
+Edit by hand or with `python3 coach_locks.py on|off TEAM [--sides N --totals N --note .. --source ..]`, `list`, `audit`,
+then commit. One-run overrides: `daily_run.py --coach-lock TEAM`, `--coach-unlock TEAM`, `--no-coach-lock`.
+
 Backtest (`python coach_lock_study.py` → `outputs/walkforward/coach_lock_study.txt`; 2024-25 + 2025-26,
 67 + 63 coaching changes, bets at the open, -110):
 

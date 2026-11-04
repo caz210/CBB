@@ -7,6 +7,8 @@ daily_run.py — fully automated daily PAPER-trading pipeline (no real bets are 
              --exclude-line-moves (drop sides whose spread moved >= 2 pts; default flag only)
              --coach-lock-games N (NEW COACH lock length for both markets; 0 = off)
              --coach-lock-totals N / --coach-lock-sides N (per market, defaults 4 / 8)
+             --no-coach-lock (lock off for everyone)  --coach-lock TEAM / --coach-unlock TEAM (one run only)
+             per-team flags (permanent, git-tracked): config/coach_locks.csv, edit via coach_locks.py
              --skip-side-moves (also skip sides whose spread moved >= 3 pts AGAINST our side; default flag only)
 
 Steps
@@ -30,8 +32,8 @@ Rules (from the walk-forward backtest, Jan 2025 – Apr 2026, see outputs/walkfo
            (vs open: n=85, 60.0% ATS, CLV +1.1; vs close it lost — bet early).
   TOTALS — original v1 total vs the DK total; edge% = |model − total| / total >= 3%
            (vs open: n=1248, 54.2%, +3.6% ROI, CLV +1.6; vs close it lost — bet early).
-  NEW COACH — a team whose KenPom head coach changed since last season (czarp/coach.py;
-           data/coach_changes.csv overrides) is locked out of value plays until it has played
+  NEW COACH — a team whose KenPom head coach changed since last season (czarp/coach.py), with
+           config/coach_locks.csv as the git-tracked per-team Y/N flag that overrides auto-detection, is locked out of value plays until it has played
            COACH_LOCK_TOTALS (4) games for totals / COACH_LOCK_SIDES (8) for sides (coach_lock_study.py).
   LINE MOVE — a total whose DK line moved >= 3 pts open -> current AWAY from our side is skipped
            (backtest: 24-42, -31% ROI). A side that moved >= 3 against us is flagged only.
@@ -101,6 +103,10 @@ SIDE_MOVE_SKIP = False
 COACH_LOCK_GAMES = None          # legacy: if set (int), overrides both per-market lengths
 COACH_LOCK_TOTALS = 4           # backtest: totals unlock after ~4 games, sides 6-8
 COACH_LOCK_SIDES = 8
+# Per-team flags live in config/coach_locks.csv (git-tracked; czarp/coach.py). These per-run CLI overrides
+# (--coach-lock TEAM / --coach-unlock TEAM) sit on top of that file for one run only.
+COACH_FORCE_ON: set = set()
+COACH_FORCE_OFF: set = set()
 
 
 def coach_lock_n(market: str | None = None) -> int:
@@ -237,7 +243,8 @@ def espn_scoreboard(day: date) -> list[dict]:
         st = c.get("status", {}).get("type", {})
         utc = datetime.strptime(e["date"], "%Y-%m-%dT%H:%MZ").replace(tzinfo=timezone.utc)
         rows.append({
-            "event_id": str(e["id"]), "tip_utc": utc, "tip_ct": utc.astimezone(CENTRAL).strftime("%Y-%m-%d %H:%M"),
+            "event_id": str(e["id"]), "tip_utc": utc,
+            "time_tbd": c.get("timeValid") is False or st.get("name") == "STATUS_TBD", "tip_ct": utc.astimezone(CENTRAL).strftime("%Y-%m-%d %H:%M"),
             "game_date": utc.astimezone(CENTRAL).strftime("%Y-%m-%d"),
             "home": comp["home"]["team"].get("location"), "away": comp["away"]["team"].get("location"),
             "home_full": comp["home"]["team"].get("displayName"), "away_full": comp["away"]["team"].get("displayName"),
@@ -519,23 +526,40 @@ def move_against(c) -> float | None:
     return (o - cur) if c["side"] == "Over" else (cur - o)
 
 
+def team_lock_n(x: dict, market=None, lock_games=None) -> int:
+    """Lock length for one new-coach entry: the global length (0 = lock off for everyone wins), else the
+    team's own lock_sides / lock_totals from config/coach_locks.csv when set."""
+    n = coach_lock_n(market) if lock_games is None else lock_games
+    if n <= 0 or lock_games is not None:
+        return max(0, n)
+    keys = {"spread": ["lock_sides"], "total": ["lock_totals"]}.get(market, ["lock_sides", "lock_totals"])
+    own = [x.get(k) for k in keys if x.get(k) is not None]
+    if not own:
+        return n
+    if market is None:   # either market: longest of the two (defaults filled in for unset ones)
+        vals = [x.get("lock_sides") if x.get("lock_sides") is not None else coach_lock_n("spread"),
+                x.get("lock_totals") if x.get("lock_totals") is not None else coach_lock_n("total")]
+        return max(vals)
+    return int(own[0])
+
+
 def coach_locks(g, lock_games=None, market=None) -> list[dict]:
     """NEW COACH entries for the two teams in a game (set by tag_new_coaches)."""
-    n = coach_lock_n(market) if lock_games is None else lock_games
     out = []
     for k in ("coach_away", "coach_home"):
         x = g.get(k)
         if x:
+            n = team_lock_n(x, market, lock_games)
             rem = max(0, n - int(x.get("games", 0)))
-            out.append(dict(x, remaining=rem, locked=rem > 0 and n > 0))
+            out.append(dict(x, lock_n=n, remaining=rem, locked=rem > 0 and n > 0))
     return out
 
 
 def coach_tag(g, market=None) -> str:
     """'NEW COACH Air Force 1/8 (7 left)' style tag for the report ('' if no new-coach team)."""
     parts = []
-    n = coach_lock_n(market)
     for x in coach_locks(g, market=market):
+        n = x["lock_n"]
         parts.append(f"NEW COACH {x['team']} {x['games']}/{n} "
                      + (f"({x['remaining']} left)" if x["locked"] else "(unlocked)"))
     return "; ".join(parts)
@@ -553,7 +577,11 @@ def tag_new_coaches(games, today: str, data_dir: str = "data") -> dict:
             played = {}
     except Exception as e:
         log(f"  new-coach detection failed ({type(e).__name__}: {e}) — no NEW COACH lock this run")
-        return {}
+        nc, played = {}, {}
+    for t in COACH_FORCE_ON:
+        nc.setdefault(t, {"coach": None, "prev": None, "source": "--coach-lock"})
+    for t in COACH_FORCE_OFF:
+        nc.pop(t, None)
     for g in games:
         for side in ("home", "away"):
             t = g.get(f"kp_{side}")
@@ -637,7 +665,7 @@ def candidates(games, now) -> list[dict]:
         c["coach_tag"] = coach_tag(c["g"], c["market"])
         for x in locks:
             if x["locked"]:
-                why.append(f"NEW COACH lock: {x['team']} has played {x['games']} of {coach_lock_n(c['market'])} games "
+                why.append(f"NEW COACH lock: {x['team']} has played {x['games']} of {x['lock_n']} games "
                            f"({x['remaining']} to unlock)")
         c["reasons"] = why
         c["rule_ok"] = not why
@@ -1145,7 +1173,7 @@ def write_summary(today: str, now: datetime, games, new_rows, ledger, graded_idx
 
 # ── main ─────────────────────────────────────────────────────────────────────
 def main(argv=None) -> int:
-    global TRACK_IGNORE_COACH_LOCK, PACE_FIX, PACE_FIX_MKT_W, LINE_MOVE_EXCLUDE, COACH_LOCK_GAMES, COACH_LOCK_TOTALS, COACH_LOCK_SIDES, SIDE_MOVE_SKIP
+    global TRACK_IGNORE_COACH_LOCK, PACE_FIX, PACE_FIX_MKT_W, LINE_MOVE_EXCLUDE, COACH_LOCK_GAMES, COACH_LOCK_TOTALS, COACH_LOCK_SIDES, SIDE_MOVE_SKIP, COACH_FORCE_ON, COACH_FORCE_OFF
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--date")
     ap.add_argument("--no-refresh", action="store_true")
@@ -1161,6 +1189,13 @@ def main(argv=None) -> int:
                     help=f"NEW COACH lock length for totals (default {COACH_LOCK_TOTALS}; 0 = off)")
     ap.add_argument("--coach-lock-sides", type=int, default=None,
                     help=f"NEW COACH lock length for sides (default {COACH_LOCK_SIDES}; 0 = off)")
+    ap.add_argument("--no-coach-lock", action="store_true",
+                    help="turn the NEW COACH lock OFF for every team this run (same as --coach-lock-games 0)")
+    ap.add_argument("--coach-lock", action="append", default=[], metavar="TEAM",
+                    help="lock TEAM (KenPom name) as a new-coach team for this run only (repeatable); "
+                         "permanent changes go in config/coach_locks.csv / coach_locks.py")
+    ap.add_argument("--coach-unlock", action="append", default=[], metavar="TEAM",
+                    help="never lock TEAM this run (repeatable)")
     ap.add_argument("--skip-side-moves", action="store_true",
                     help=f"skip sides whose spread moved >= {SIDE_MOVE_AGAINST_PTS:g} pts against our side (default: flag only)")
     ap.add_argument("--pace-fix", action="store_true", default=None,
@@ -1181,6 +1216,10 @@ def main(argv=None) -> int:
         COACH_LOCK_TOTALS = max(0, a.coach_lock_totals)
     if a.coach_lock_sides is not None:
         COACH_LOCK_SIDES = max(0, a.coach_lock_sides)
+    if a.no_coach_lock:
+        COACH_LOCK_TOTALS = COACH_LOCK_SIDES = 0
+    COACH_FORCE_ON = set(a.coach_lock or [])
+    COACH_FORCE_OFF = set(a.coach_unlock or [])
     if a.skip_side_moves:
         SIDE_MOVE_SKIP = True
     if a.track_ignore_coach_lock:
