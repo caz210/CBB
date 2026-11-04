@@ -1,12 +1,12 @@
 "use client";
 import { useEffect, useState } from "react";
 import type { SlateGame, ValueBet } from "@/lib/types";
-import { MARKET_LABEL, SOURCE_LABEL, edgeTier, fmtLine, fmtWinProb, fmtTipoff, pct, signedPct } from "@/lib/labels";
+import { LOCKED_NOTE, MARKET_LABEL, SOURCE_LABEL, TIER_BADGE, edgeTier, fmtLine, fmtPostedProof, fmtWinProb, fmtTipoff, pct, signedPct } from "@/lib/labels";
 import { ArchetypeChip, ArchetypeLegend } from "./ArchetypeChip";
 
 type Sel = { game: SlateGame; bet: ValueBet } | null;
 
-export function SlateBoard({ games, bets }: { games: SlateGame[]; bets: ValueBet[] }) {
+export function SlateBoard({ games, bets, tracked = [] }: { games: SlateGame[]; bets: ValueBet[]; tracked?: ValueBet[] }) {
   const [valueOnly, setValueOnly] = useState(false);
   const [sel, setSel] = useState<Sel>(null);
   const byGame = (id: number) => bets.filter((b) => b.game_id === id);
@@ -27,9 +27,34 @@ export function SlateBoard({ games, bets }: { games: SlateGame[]; bets: ValueBet
         ))}
       </div>
 
+      {tracked.length > 0 && (
+        <section className="mt-6 rounded-2xl border border-dashed border-ink-700 p-3 md:p-4" aria-label="Tracked picks">
+          <div className="mb-2 flex flex-wrap items-baseline gap-x-2">
+            <h2 className="text-sm font-semibold text-zinc-400">Tracked · {tracked.length}</h2>
+            <span className="text-[11px] text-zinc-500">Paper-only 1u, never bet. Not part of the official record.</span>
+          </div>
+          <ul className="divide-y divide-ink-700/50">
+            {tracked.map((b) => {
+              const g = games.find((x) => x.game_id === b.game_id);
+              const proof = fmtPostedProof(b.logged_at, g?.tipoff);
+              return (
+                <li key={`${b.game_id}-${b.market}-${b.side}`} className="flex items-center gap-3 py-2 text-sm text-zinc-400">
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium text-zinc-300">{b.side}</span>
+                    <span className="block truncate text-[11px] text-zinc-500">{g?.game ?? `Game #${b.game_id}`} · {MARKET_LABEL[b.market]} · line edge {pct(b.line_edge_pct, 1)}</span>
+                    {proof && <span className="block text-[11px] text-zinc-600">🔒 {proof}</span>}
+                  </span>
+                  <span className="font-mono text-xs text-zinc-500">1u</span>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
       <div className="mt-4 md:hidden"><ArchetypeLegend /></div>
       <p className="mt-3 text-xs leading-relaxed text-zinc-500">
-        Spreads use home-line notation (−5.5 = home favored). Market = Vegas consensus. Stakes are ¼-Kelly in units (1u = 1% of bankroll, capped at 2.5u).
+        Spreads use home-line notation (−5.5 = home favored). Market = Vegas consensus. Stakes are ¼-Kelly in units (1u = 1% of bankroll, capped at 2.5u). {LOCKED_NOTE}
       </p>
 
       <ValueSheet sel={sel} onClose={() => setSel(null)} />
@@ -85,17 +110,18 @@ function GameCard({ g, bets, onOpen }: { g: SlateGame; bets: ValueBet[]; onOpen:
       {bets.length > 0 && (
         <div className="space-y-2 border-t border-ink-700/60 bg-edge-400/[0.03] p-3">
           {bets.map((b) => {
-            const tier = edgeTier(b.prob_edge);
+            const tier = edgeTier(b.line_edge_pct, b.market);
             return (
               <button
                 key={`${b.market}-${b.side}`}
                 onClick={() => onOpen(b)}
                 className="flex min-h-14 w-full items-center gap-3 rounded-xl border border-edge-400/30 bg-ink-900 px-3 py-2.5 text-left transition active:scale-[0.99] hover:border-edge-400/60"
               >
-                <span className="rounded-md bg-edge-400/15 px-1.5 py-1 text-[10px] font-bold text-edge-400">{tier ?? "EDGE"}</span>
+                {tier && <span className={`rounded-md px-1.5 py-1 text-[10px] font-bold ${TIER_BADGE[tier]}`}>{tier}</span>}
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-semibold">{b.side}</span>
-                  <span className="block text-[11px] text-zinc-500">{MARKET_LABEL[b.market]} · edge {signedPct(b.prob_edge)}</span>
+                  <span className="block text-[11px] text-zinc-500">{MARKET_LABEL[b.market]} · line edge {pct(b.line_edge_pct, 1)} <span className="text-zinc-600">· prob {signedPct(b.prob_edge)}</span></span>
+                  {b.logged_at && <span className="block text-[10px] text-zinc-600">🔒 {fmtPostedProof(b.logged_at, g.tipoff)}</span>}
                 </span>
                 <span className="text-right">
                   <span className="block font-mono text-base font-bold">{b.kelly_quarter_units == null ? "—" : `${b.kelly_quarter_units.toFixed(1)}u`}</span>
@@ -119,7 +145,7 @@ function ValueSheet({ sel, onClose }: { sel: Sel; onClose: () => void }) {
   }, [onClose]);
   if (!sel) return null;
   const { game: g, bet: b } = sel;
-  const tier = edgeTier(b.prob_edge);
+  const tier = edgeTier(b.line_edge_pct, b.market);
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center" role="dialog" aria-modal="true">
       <button aria-label="Close" onClick={onClose} className="absolute inset-0 bg-black/70" />
@@ -128,15 +154,15 @@ function ValueSheet({ sel, onClose }: { sel: Sel; onClose: () => void }) {
         <div className="text-xs text-zinc-500">{g.game}{g.tipoff ? ` · ${fmtTipoff(g.tipoff)}` : ""}</div>
         <div className="mt-1 flex items-center justify-between gap-3">
           <h3 className="text-xl font-bold">{b.side}</h3>
-          <span className="rounded-md bg-edge-400/15 px-2 py-1 text-xs font-bold text-edge-400">{tier ?? "EDGE"}</span>
+          {tier && <span className={`rounded-md px-2 py-1 text-xs font-bold ${TIER_BADGE[tier]}`}>{tier}</span>}
         </div>
         <div className="mt-1 text-sm text-zinc-400">{MARKET_LABEL[b.market]}</div>
 
         <div className="mt-5 grid grid-cols-2 gap-2">
           <Big label="Model prob" v={b.model_prob == null ? "—" : pct(b.model_prob, 1)} />
           <Big label="Market prob" v={pct(b.market_prob, 1)} sub="implied, incl. vig" />
-          <Big label="Prob edge" v={signedPct(b.prob_edge)} accent />
-          <Big label="Line edge" v={pct(b.line_edge_pct, 1)} sub="of market total" />
+          <Big label="Line edge" v={pct(b.line_edge_pct, 1)} sub="vs Vegas line" accent />
+          <Big label="Prob edge" v={signedPct(b.prob_edge)} sub="secondary" />
         </div>
 
         <div className="mt-3 flex items-center justify-between rounded-2xl border border-edge-400/30 bg-edge-400/10 p-4">
@@ -146,6 +172,7 @@ function ValueSheet({ sel, onClose }: { sel: Sel; onClose: () => void }) {
           </div>
           <div className="font-mono text-3xl font-black">{b.kelly_quarter_units == null ? "—" : `${b.kelly_quarter_units.toFixed(2)}u`}</div>
         </div>
+        {b.logged_at && <p className="mt-3 text-[11px] text-zinc-400">🔒 {fmtPostedProof(b.logged_at, g.tipoff)} · locked, can&apos;t be edited</p>}
         <p className="mt-3 text-[11px] text-zinc-500">Paper-trading season: logged to the public ledger, no real money.</p>
         <button onClick={onClose} className="mt-4 min-h-12 w-full rounded-xl border border-ink-600 font-semibold hover:bg-ink-800">Done</button>
       </div>
