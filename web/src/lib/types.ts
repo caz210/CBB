@@ -45,7 +45,7 @@ export type ValueBet = {
   model_prob: number | null;
   market_prob: number; // implied by price taken (incl. vig)
   prob_edge: number; // model_prob - market_prob
-  line_edge_pct: number; // |model - line| / market total; 0.08 = 8%
+  line_edge_pct: number; // |CZarp line - Vegas line| / Vegas line; drives VALUE/EDGE/HOT tiers
   kelly_quarter_units: number | null; // 1u = 1% of bankroll
 };
 

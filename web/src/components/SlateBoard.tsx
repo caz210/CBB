@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import type { SlateGame, ValueBet } from "@/lib/types";
-import { MARKET_LABEL, SOURCE_LABEL, edgeTier, fmtLine, fmtWinProb, fmtTipoff, pct, signedPct } from "@/lib/labels";
+import { MARKET_LABEL, SOURCE_LABEL, TIER_BADGE, edgeTier, fmtLine, fmtWinProb, fmtTipoff, pct, signedPct } from "@/lib/labels";
 import { ArchetypeChip, ArchetypeLegend } from "./ArchetypeChip";
 
 type Sel = { game: SlateGame; bet: ValueBet } | null;
@@ -85,17 +85,17 @@ function GameCard({ g, bets, onOpen }: { g: SlateGame; bets: ValueBet[]; onOpen:
       {bets.length > 0 && (
         <div className="space-y-2 border-t border-ink-700/60 bg-edge-400/[0.03] p-3">
           {bets.map((b) => {
-            const tier = edgeTier(b.prob_edge);
+            const tier = edgeTier(b.line_edge_pct, b.market);
             return (
               <button
                 key={`${b.market}-${b.side}`}
                 onClick={() => onOpen(b)}
                 className="flex min-h-14 w-full items-center gap-3 rounded-xl border border-edge-400/30 bg-ink-900 px-3 py-2.5 text-left transition active:scale-[0.99] hover:border-edge-400/60"
               >
-                <span className="rounded-md bg-edge-400/15 px-1.5 py-1 text-[10px] font-bold text-edge-400">{tier ?? "EDGE"}</span>
+                {tier && <span className={`rounded-md px-1.5 py-1 text-[10px] font-bold ${TIER_BADGE[tier]}`}>{tier}</span>}
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-semibold">{b.side}</span>
-                  <span className="block text-[11px] text-zinc-500">{MARKET_LABEL[b.market]} · edge {signedPct(b.prob_edge)}</span>
+                  <span className="block text-[11px] text-zinc-500">{MARKET_LABEL[b.market]} · line edge {pct(b.line_edge_pct, 1)} <span className="text-zinc-600">· prob {signedPct(b.prob_edge)}</span></span>
                 </span>
                 <span className="text-right">
                   <span className="block font-mono text-base font-bold">{b.kelly_quarter_units == null ? "—" : `${b.kelly_quarter_units.toFixed(1)}u`}</span>
@@ -119,7 +119,7 @@ function ValueSheet({ sel, onClose }: { sel: Sel; onClose: () => void }) {
   }, [onClose]);
   if (!sel) return null;
   const { game: g, bet: b } = sel;
-  const tier = edgeTier(b.prob_edge);
+  const tier = edgeTier(b.line_edge_pct, b.market);
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center" role="dialog" aria-modal="true">
       <button aria-label="Close" onClick={onClose} className="absolute inset-0 bg-black/70" />
@@ -128,15 +128,15 @@ function ValueSheet({ sel, onClose }: { sel: Sel; onClose: () => void }) {
         <div className="text-xs text-zinc-500">{g.game}{g.tipoff ? ` · ${fmtTipoff(g.tipoff)}` : ""}</div>
         <div className="mt-1 flex items-center justify-between gap-3">
           <h3 className="text-xl font-bold">{b.side}</h3>
-          <span className="rounded-md bg-edge-400/15 px-2 py-1 text-xs font-bold text-edge-400">{tier ?? "EDGE"}</span>
+          {tier && <span className={`rounded-md px-2 py-1 text-xs font-bold ${TIER_BADGE[tier]}`}>{tier}</span>}
         </div>
         <div className="mt-1 text-sm text-zinc-400">{MARKET_LABEL[b.market]}</div>
 
         <div className="mt-5 grid grid-cols-2 gap-2">
           <Big label="Model prob" v={b.model_prob == null ? "—" : pct(b.model_prob, 1)} />
           <Big label="Market prob" v={pct(b.market_prob, 1)} sub="implied, incl. vig" />
-          <Big label="Prob edge" v={signedPct(b.prob_edge)} accent />
-          <Big label="Line edge" v={pct(b.line_edge_pct, 1)} sub="of market total" />
+          <Big label="Line edge" v={pct(b.line_edge_pct, 1)} sub="vs Vegas line" accent />
+          <Big label="Prob edge" v={signedPct(b.prob_edge)} sub="secondary" />
         </div>
 
         <div className="mt-3 flex items-center justify-between rounded-2xl border border-edge-400/30 bg-edge-400/10 p-4">

@@ -62,11 +62,11 @@ export default function Landing() {
             </div>
             <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-edge-400/30 bg-edge-400/10 px-4 py-3">
               <div className="min-w-0">
-                <div className="text-[11px] font-semibold uppercase tracking-wider text-edge-400">{edgeTier(v.prob_edge)} · {MARKET_LABEL[v.market]}</div>
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-edge-400">{edgeTier(v.line_edge_pct, v.market) ?? "No label"} · {MARKET_LABEL[v.market]}</div>
                 <div className="truncate text-sm font-semibold">{v.side}</div>
               </div>
               <div className="shrink-0 text-right text-xs text-zinc-400">
-                Edge <b className="text-edge-400">{signedPct(v.prob_edge)}</b><br />¼-Kelly <b className="text-white">{v.kelly_quarter_units!.toFixed(1)}u</b>
+                Line edge <b className="text-edge-400">{pct(v.line_edge_pct, 1)}</b><br /><span className="text-[11px] text-zinc-500">prob {signedPct(v.prob_edge)}</span><br />¼-Kelly <b className="text-white">{v.kelly_quarter_units!.toFixed(1)}u</b>
               </div>
             </div>
           </div>

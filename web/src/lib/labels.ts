@@ -32,10 +32,19 @@ export const fmtWinProb = (p: number) => (p < 0.01 ? "<1%" : p > 0.99 ? ">99%" :
 export const fmtOdds = (o: number) => (o > 0 ? `+${o}` : `${o}`);
 export const fmtUnits = (u: number, dp = 2) => `${u > 0 ? "+" : u < 0 ? "−" : ""}${Math.abs(u).toFixed(dp)}u`;
 
-/** CZarp edge tiers on prob_edge (BettingConfig.tiers = 0.03 / 0.05 / 0.08). */
-export function edgeTier(probEdge: number): "STRONG" | "VALUE" | "LEAN" | null {
-  if (probEdge >= 0.08) return "STRONG";
-  if (probEdge >= 0.05) return "VALUE";
-  if (probEdge >= 0.03) return "LEAN";
+/** CZarp bet tiers on line edge % (value_bets.line_edge_pct, 0.05 = 5%).
+ *  Play threshold: sides (spread/moneyline) 4%, totals 3%. VALUE at threshold, EDGE >= 5%, HOT >= 7%. */
+export type EdgeTier = "HOT" | "EDGE" | "VALUE";
+export const PLAY_THRESHOLD: Record<Market, number> = { spread: 0.04, moneyline: 0.04, total: 0.03 };
+export function edgeTier(lineEdgePct: number, market: Market): EdgeTier | null {
+  if (lineEdgePct >= 0.07) return "HOT";
+  if (lineEdgePct >= 0.05) return "EDGE";
+  if (lineEdgePct >= PLAY_THRESHOLD[market]) return "VALUE";
   return null;
 }
+/** Badge classes per tier; HOT gets the strongest color. */
+export const TIER_BADGE: Record<EdgeTier, string> = {
+  HOT: "bg-orange-500 text-ink-950",
+  EDGE: "bg-edge-400/25 text-edge-400 ring-1 ring-edge-400/40",
+  VALUE: "bg-edge-400/10 text-edge-400",
+};

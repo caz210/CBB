@@ -119,7 +119,7 @@ export async function loadSlate(sport: Sport, date: string): Promise<Loaded<Slat
   if (games.length) {
     const b = await sb.from("value_bets").select("*").eq("sport", sport.key).in("game_id", games.map((x) => x.game_id));
     if (b.error) return fail("value_bets", b.error);
-    bets = (b.data ?? []).map(toValueBet).sort((a, z) => z.prob_edge - a.prob_edge);
+    bets = (b.data ?? []).map(toValueBet).sort((a, z) => z.line_edge_pct - a.line_edge_pct);
   } else {
     const [n, p] = await Promise.all([
       sb.from("slate_games").select("game_date").eq("sport", sport.key).gt("game_date", date).order("game_date").limit(1),
