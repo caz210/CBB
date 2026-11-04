@@ -402,7 +402,8 @@ select s.code                                     as sport,
        round(pk.kelly_stake / nullif(pk.bankroll_at_pick / 100, 0), 2)
                                                   as kelly_quarter_units,  -- 1u = 1% of bankroll (0 for tier 'track')
        pk.tier,                                   -- 'official' (the play) | 'track' (shadow, paper only, flat 1u)
-       pk.created_at                              as logged_at             -- pick timestamp (before tip-off)
+       pk.logged_at                               as logged_at,            -- when the pick was written (before tip-off)
+       pk.pick_hash                                                        -- tamper-evident hash of the pick
 from picks pk
 join games g  on g.id = pk.game_id
 join sports s on s.id = pk.sport_id
@@ -425,7 +426,8 @@ select s.code                                          as sport,
        pk.clv,                                         -- points vs the DK close
        pk.created_at,                                  -- pick timestamp (live picks: before tip-off, db-enforced)
        pk.source,                                      -- 'live' | 'backfill'
-       pk.pick_hash
+       pk.pick_hash,
+       pk.logged_at                                    -- when the pick was written to the ledger
 from picks pk
 join games g  on g.id = pk.game_id
 join sports s on s.id = pk.sport_id

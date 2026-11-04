@@ -10,6 +10,7 @@ from __future__ import annotations
 import math
 import os
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import requests
@@ -85,6 +86,49 @@ class Client:
             raise RuntimeError(f"{table}: HTTP {r.status_code} {r.text[:300]}")
 
 
+_ET = ZoneInfo("America/New_York")
+_CT = ZoneInfo("America/Chicago")
+
+
+def tipoff_iso(tip, time_tbd: bool = False) -> str | None:
+    """ISO tip-off for games.tipoff, or None when the time isn't real.
+
+    Never writes a placeholder: TBD games (ESPN timeValid false / STATUS_TBD), date-only values,
+    naive datetimes, and midnight-local stand-ins (00:00 ET or CT, ESPN's TBD default) all return None.
+    00:00Z itself is a legit 7 PM ET tip and is kept.
+    """
+    if tip is None or time_tbd:
+        return None
+    if isinstance(tip, str):
+        if len(tip.strip()) <= 10:  # 'YYYY-MM-DD' only
+            return None
+        try:
+            tip = datetime.fromisoformat(tip.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if not isinstance(tip, datetime):
+        try:
+            tip = pd.Timestamp(tip).to_pydatetime()
+        except Exception:
+            return None
+    if tip.tzinfo is None:
+        return None
+    for z in (_ET, _CT):
+        lt = tip.astimezone(z)
+        if lt.hour == 0 and lt.minute == 0:
+            return None
+    return tip.isoformat()
+
+
+def _tip_ct_iso(tip_ct) -> str | None:
+    if tip_ct is None or (not isinstance(tip_ct, str) and pd.isna(tip_ct)):
+        return None
+    s = str(tip_ct).strip()
+    if len(s) <= 10:
+        return None
+    return tipoff_iso(pd.Timestamp(s).tz_localize(_CT).to_pydatetime())
+
+
 def _season(d: str) -> int:
     dt = datetime.fromisoformat(d)
     return dt.year + 1 if dt.month >= 7 else dt.year
@@ -129,7 +173,7 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
 
     grows = [{**base, "season": _season(g["game_date"]), "date": g["game_date"], "home": g["kp_home"],
               "away": g["kp_away"], "home_team_id": tid.get(g["kp_home"]), "away_team_id": tid.get(g["kp_away"]),
-              "tipoff": g["tip_utc"].isoformat() if g.get("tip_utc") is not None else None,
+              "tipoff": tipoff_iso(g.get("tip_utc"), bool(g.get("time_tbd"))),
               "neutral": bool(g.get("neutral")), "external_id": str(g["event_id"]),
               "external_ids": {"espn": str(g["event_id"])}, "status": status(g),
               "home_score": int(g["home_score"]) if g.get("home_score") is not None and g.get("completed") else None,
@@ -144,7 +188,7 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
         grows.append({**base, "season": _season(r.game_date), "date": r.game_date, "home": r.home, "away": r.away,
                       "neutral": str(r.neutral) == "True", "external_id": str(r.event_id),
                       "external_ids": {"espn": str(r.event_id)}, "status": "final" if done else "scheduled",
-                      "tipoff": (pd.Timestamp(r.tip_ct).tz_localize("America/Chicago").isoformat() if pd.notna(r.get("tip_ct")) else None),
+                      "tipoff": _tip_ct_iso(r.get("tip_ct")),
                       "home_score": int(r.home_score) if done else None,
                       "away_score": int(r.away_score) if done else None, "updated_at": ts})
     gid = {x["external_id"]: x["id"] for x in c.upsert("games", grows, on_conflict="league,external_id")}
