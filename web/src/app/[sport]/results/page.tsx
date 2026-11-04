@@ -8,7 +8,7 @@ import { ComingSoon } from "@/components/ComingSoon";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
 
-// Live data: render per request (RLS depends on the visitor's session).
+// Live data: render per request (fresh picks every request).
 export const dynamic = "force-dynamic";
 
 const SHOWN_ROWS = 200;
@@ -227,7 +227,7 @@ function stakeLabel(r: LedgerRow) {
 }
 /** Verifiable-record line: posted time vs tip-off + short pick hash. */
 function Proof({ r, tipoff, inline }: { r: LedgerRow; tipoff?: string; inline?: boolean }) {
-  const posted = fmtPostedProof(r.created_at, tipoff);
+  const posted = fmtPostedProof(r.logged_at ?? r.created_at, tipoff);
   const h = shortHash(r.pick_hash);
   if (!posted && !h) return null;
   return (

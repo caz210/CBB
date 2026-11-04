@@ -12,7 +12,7 @@ const TIERS = [
     key: "pro", name: "Pro", price: "$—", period: "/ mo (TBD)",
     blurb: "Real-time edges, stake sizing and unlimited models.",
     cta: "Join the Pro waitlist", href: "/signup", highlight: true,
-    features: ["Everything in Free", "Value bets before tip-off", "¼-Kelly stake sizing", "Unlimited saved custom models", "Line-move alerts", "New sports as they launch (NBA, WNBA…)"],
+    features: ["Everything in Free", "¼-Kelly stake sizing", "Unlimited saved custom models", "Line-move alerts", "New sports as they launch (NBA, WNBA…)"],
   },
   {
     key: "syndicate", name: "Syndicate", price: "Let's talk", period: "",
