@@ -1,5 +1,5 @@
 // Live data loaders for Server Components. Reads CZarp's Supabase views with the anon key
-// (+ the visitor's session cookies, so RLS decides what each tier sees).
+// (all picks are public; session cookies only matter for user-owned data).
 // Every loader returns a tagged result so pages can render a clear empty state instead of
 // silently falling back to example numbers.
 import { createSupabaseServerClient } from "./supabase/server";
@@ -97,6 +97,7 @@ function toLedgerRow(r: Row): LedgerRow {
     flat_units: num(r.flat_units),
     clv: num(r.clv),
     created_at: r.created_at ? str(r.created_at) : null,
+    logged_at: r.logged_at ? str(r.logged_at) : null,
     source: str(r.source),
     pick_hash: r.pick_hash ? str(r.pick_hash) : null,
   };

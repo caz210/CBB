@@ -5,7 +5,7 @@ import { SUPABASE_ANON_KEY, SUPABASE_URL, supabaseConfigured } from "./env";
 /**
  * Server-side Supabase client for Server Components / Route Handlers.
  * Uses the anon key plus the visitor's auth cookies, so RLS applies per user
- * (e.g. Pro sees value bets before tip-off). Returns null when env vars are missing.
+ * (all picks are public). Returns null when env vars are missing.
  */
 export async function createSupabaseServerClient() {
   if (!supabaseConfigured) return null;

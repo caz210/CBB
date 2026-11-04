@@ -59,7 +59,9 @@ export function fmtPostedProof(loggedAt: string | null | undefined, tipoff: stri
   const t = new Date(loggedAt);
   if (Number.isNaN(t.getTime())) return null;
   let s = `Posted ${fmtTipoff(loggedAt)}`;
-  if (tipoff) {
+  if (!tipoff) {
+    s += " · Tip TBD";
+  } else {
     const mins = Math.round((new Date(tipoff).getTime() - t.getTime()) / 60000);
     if (Number.isFinite(mins)) {
       const a = Math.abs(mins), h = Math.floor(a / 60), m = a % 60;

@@ -66,7 +66,8 @@ export type LedgerRow = {
   pick_tier?: PickTier;
   flat_units?: number | null; // 1u flat-stake result
   clv?: number | null; // closing line value, points
-  created_at?: string | null; // posted at (immutable)
+  created_at?: string | null;
+  logged_at?: string | null; // posted at (immutable)
   source?: string;
   pick_hash?: string | null;
 };
