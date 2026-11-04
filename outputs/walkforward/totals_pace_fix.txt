@@ -1,0 +1,60 @@
+games 11286 (2024-25 + 2025-26), with box tempo 11282
+
+######## BIAS of v1 total (positive = actual/close HIGHER than model, i.e. model leans Under)
+  all                              n=11286  actual−model +0.79  close−model +0.14  open−model +0.01  actual−close +0.64  poss actual−v1 pace -0.24
+  November                         n= 2410  actual−model -0.06  close−model -0.18  open−model -0.11  actual−close +0.12  poss actual−v1 pace -0.75
+  either team < 8 games            n= 2680  actual−model -0.01  close−model -0.09  open−model -0.03  actual−close +0.08  poss actual−v1 pace -0.70
+  neutral                          n= 1410  actual−model -0.72  close−model -0.81  open−model -0.52  actual−close +0.08  poss actual−v1 pace -0.70
+  Dec-Apr, >=8 games, true home    n= 7758  actual−model +1.23  close−model +0.34  open−model +0.11  actual−close +0.88  poss actual−v1 pace -0.06
+
+  current rule picks: n=1354  55.5% ROI  +6.0%  O/U 774/580 (O 55.3% U 55.9%) | poss MAE 3.25
+    all                            n=1354  55.5% ROI  +6.0%  O/U 774/580 (O 55.3% U 55.9%) | poss MAE 3.25
+    November                       n= 302  61.6% ROI +17.6%  O/U 178/124 (O 60.1% U 63.7%) | poss MAE 3.58
+    either team < 8 games          n= 329  62.0% ROI +18.4%  O/U 190/139 (O 59.5% U 65.5%) | poss MAE 3.52
+    neutral                        n= 238  55.5% ROI  +5.9%  O/U 165/73 (O 53.9% U 58.9%) | poss MAE 3.30
+    Dec-Apr, >=8 games, true home  n= 867  53.7% ROI  +2.6%  O/U 468/399 (O 54.9% U 52.4%) | poss MAE 3.16
+
+######## WALK-FORWARD (fit on train season, test on the other)
+
+  train 2025 -> test 2026: pace bias nov -0.33, early -0.40, neu -0.32 poss; pts bias nov -0.51, early +0.51, neu -0.29; w(mkt) 0.1, w(combo) 0.2
+    base           n= 804  56.2% ROI  +7.3%  O/U 445/359 (O 54.4% U 58.5%) | poss MAE 3.28
+    pace_bias      n= 830  56.7% ROI  +8.3%  O/U 368/462 (O 54.9% U 58.2%) | poss MAE 3.27
+    pts_bias       n= 799  56.3% ROI  +7.5%  O/U 437/362 (O 54.5% U 58.6%) | poss MAE 3.28
+    mkt_w=0.1      n= 587  57.2% ROI  +9.3%  O/U 333/254 (O 53.8% U 61.8%) | poss MAE 3.27
+    combo w=0.2    n= 412  58.5% ROI +11.7%  O/U 186/226 (O 54.8% U 61.5%) | poss MAE 3.25
+    fixed market weights (for reference):
+      w=0.1       n= 587  57.2% ROI  +9.3%  O/U 333/254 (O 53.8% U 61.8%) | poss MAE 3.27
+      w=0.2       n= 394  55.3% ROI  +5.6%  O/U 233/161 (O 51.9% U 60.2%) | poss MAE 3.26
+      w=0.3       n= 208  58.7% ROI +12.0%  O/U 133/75 (O 55.6% U 64.0%) | poss MAE 3.26
+      w=0.4       n= 114  60.5% ROI +15.6%  O/U 73/41 (O 58.9% U 63.4%) | poss MAE 3.26
+      w=0.5       n=  43  65.1% ROI +24.3%  O/U 29/14 (O 58.6% U 78.6%) | poss MAE 3.26
+
+  train 2026 -> test 2025: pace bias nov -0.38, early -0.19, neu -0.56 poss; pts bias nov -0.06, early +0.30, neu -1.28; w(mkt) 0.3, w(combo) 0.3
+    base           n= 550  54.5% ROI  +4.1%  O/U 329/221 (O 56.5% U 51.6%) | poss MAE 3.21
+    pace_bias      n= 565  53.8% ROI  +2.7%  O/U 254/311 (O 54.3% U 53.4%) | poss MAE 3.20
+    pts_bias       n= 540  54.3% ROI  +3.6%  O/U 294/246 (O 56.1% U 52.0%) | poss MAE 3.21
+    mkt_w=0.3      n= 177  62.1% ROI +18.6%  O/U 115/62 (O 60.9% U 64.5%) | poss MAE 3.19
+    combo w=0.3    n= 181  60.2% ROI +15.0%  O/U 83/98 (O 60.2% U 60.2%) | poss MAE 3.17
+    fixed market weights (for reference):
+      w=0.1       n= 414  54.6% ROI  +4.2%  O/U 254/160 (O 55.5% U 53.1%) | poss MAE 3.20
+      w=0.2       n= 277  54.2% ROI  +3.4%  O/U 176/101 (O 52.3% U 57.4%) | poss MAE 3.19
+      w=0.3       n= 177  62.1% ROI +18.6%  O/U 115/62 (O 60.9% U 64.5%) | poss MAE 3.19
+      w=0.4       n=  79  65.8% ROI +25.7%  O/U 47/32 (O 68.1% U 62.5%) | poss MAE 3.19
+      w=0.5       n=  32  68.8% ROI +31.2%  O/U 16/16 (O 75.0% U 62.5%) | poss MAE 3.19
+
+######## POOLED OUT-OF-SAMPLE (both test seasons)
+  base       n=1354  55.5% ROI  +6.0%  O/U 774/580 (O 55.3% U 55.9%)
+  pace_bias  n=1395  55.6% ROI  +6.1%  O/U 622/773 (O 54.7% U 56.3%)
+  pts_bias   n=1339  55.5% ROI  +5.9%  O/U 731/608 (O 55.1% U 55.9%)
+  mkt_w      n= 764  58.4% ROI +11.4%  O/U 448/316 (O 55.6% U 62.3%)
+  combo      n= 593  59.0% ROI +12.7%  O/U 269/324 (O 56.5% U 61.1%)
+
+######## READING
+  - No Under bias in the v1 totals: vs the open/close the model is ~0 in November and early season (open−model −0.11 / −0.03),
+    and Under picks under the current rule hit 63.7% in November (O 60.1%). The two paper Under losses are small-sample noise.
+  - Games DO play slower than projected early/neutral (−0.75 poss Nov), i.e. the pace fix LOWERS totals (more Unders, not fewer);
+    efficiency runs the other way, so the total itself is unbiased. Pace-bias correction: flat (+6.1% vs +6.0% ROI pooled OOS).
+  - Market blend T' = (1−w)·T1 + w·OPEN only shrinks each edge by (1−w) == raising the 3% threshold to 3%/(1−w).
+    Higher ROI on far fewer plays (w chosen on train: 0.1 / 0.3), but total units fall (base +81.6u on 1354 vs mkt +~70u, combo +~70u)
+    and the chosen w is unstable across seasons. Threshold ROI is non-monotone (3.5% worse than 3%), i.e. mostly noise.
+  - Decision: daily_run --pace-fix implemented (bias −0.35 Nov / −0.30 <8 games / −0.44 neutral poss, w=0.2), DEFAULT OFF.

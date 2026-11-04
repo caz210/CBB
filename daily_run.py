@@ -110,6 +110,54 @@ def coach_lock_n(market: str | None = None) -> int:
         return COACH_LOCK_SIDES
     return max(COACH_LOCK_TOTALS, COACH_LOCK_SIDES)
 TOP_N_EDGES = 10
+# Totals PACE FIX (analysis/totals_pace_fix.py -> outputs/walkforward/totals_pace_fix.txt). OFF by default:
+# walk-forward by season it did not clearly beat the current totals. Games DO play slower than projected in
+# November / when a team has < 8 games / at neutral sites (fit: -0.35 / -0.30 / -0.44 poss), but the v1 TOTAL
+# has no Under/Over bias there (actual - v1 ~ 0 in Nov), so the pace correction alone was flat (+6.1% vs +6.0% ROI).
+# The market blend T' = (1-w)*T1 + w*OPEN total shrinks every edge (== a higher threshold): better ROI on far fewer
+# plays, with fewer total units. --pace-fix turns it on; --pace-fix-w sets w.
+PACE_FIX = False
+PACE_FIX_BIAS = {"nov": -0.35, "early": -0.30, "neutral": -0.44}   # possessions, pooled 2024-25 + 2025-26 fit
+PACE_FIX_EARLY_GAMES = 8
+PACE_FIX_MKT_W = 0.2
+
+
+def pace_fix_total(total, pace, open_total=None, nov=False, min_games=None, neutral=False,
+                   bias=None, w=None) -> float:
+    """v1 total re-paced: P' = P + bias terms (points per possession held fixed: T' = T·P'/P), then blended
+    with the OPEN DK total: T'' = (1−w)·T' + w·open (equivalent to blending the pace with the open-implied pace)."""
+    bias = PACE_FIX_BIAS if bias is None else bias
+    w = PACE_FIX_MKT_W if w is None else w
+    if total is None or not pace:
+        return total
+    early = min_games is not None and min_games < PACE_FIX_EARLY_GAMES
+    p2 = pace + bias.get("nov", 0) * bool(nov) + bias.get("early", 0) * early + bias.get("neutral", 0) * bool(neutral)
+    t = total * p2 / pace
+    if open_total:
+        t = (1 - w) * t + w * open_total
+    return t
+
+
+def apply_pace_fix(games, today: str, data_dir: str = "data") -> int:
+    """Replace g['v1_total'] by the pace-fixed total (original kept in v1_total_raw). Returns games changed."""
+    try:
+        from czarp.coach import games_played
+        played = games_played(pd.read_csv(os.path.join(data_dir, "ratings.csv")))
+    except Exception:
+        played = {}
+    n = 0
+    for g in games:
+        if g.get("skip") or g.get("v1_total") is None or not g.get("v1_pace"):
+            continue
+        gp = [played.get(g.get(f"kp_{s}")) for s in ("home", "away")]
+        mg = min(int(x) for x in gp) if all(x is not None for x in gp) else None
+        g["v1_total_raw"] = g["v1_total"]
+        g["v1_total"] = pace_fix_total(g["v1_total"], g["v1_pace"], g.get("open_total"), nov=today[5:7] == "11",
+                                       min_games=mg, neutral=g.get("neutral"))
+        n += 1
+    return n
+
+
 ODDS_API_MAX_CALLS_PER_DAY = 1
 ODDS_API_RESERVE = 100
 ODDS_API_MIN_MISSING = 0.25     # use the Odds API only if ESPN lacks lines for >= 25% of games
@@ -387,6 +435,7 @@ def project_all(games: list[dict], data: dict) -> None:
             try:
                 r1 = V1.project_game(a, h, None if g["neutral"] else False, v1data)
                 g["v1_home_margin"], g["v1_total"] = -float(r1["spread"]), float(r1["total"])
+                g["v1_pace"] = float(r1.get("projected_pace") or 0) or None
             except Exception:
                 pass
 
@@ -837,7 +886,7 @@ def write_summary(today: str, now: datetime, games, new_rows, ledger, graded_idx
 
 # ── main ─────────────────────────────────────────────────────────────────────
 def main(argv=None) -> int:
-    global LINE_MOVE_EXCLUDE, COACH_LOCK_GAMES, COACH_LOCK_TOTALS, COACH_LOCK_SIDES, SIDE_MOVE_SKIP
+    global PACE_FIX, PACE_FIX_MKT_W, LINE_MOVE_EXCLUDE, COACH_LOCK_GAMES, COACH_LOCK_TOTALS, COACH_LOCK_SIDES, SIDE_MOVE_SKIP
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--date")
     ap.add_argument("--no-refresh", action="store_true")
@@ -855,6 +904,10 @@ def main(argv=None) -> int:
                     help=f"NEW COACH lock length for sides (default {COACH_LOCK_SIDES}; 0 = off)")
     ap.add_argument("--skip-side-moves", action="store_true",
                     help=f"skip sides whose spread moved >= {SIDE_MOVE_AGAINST_PTS:g} pts against our side (default: flag only)")
+    ap.add_argument("--pace-fix", action="store_true", default=None,
+                    help=f"totals pace fix: early-season/neutral pace correction + blend with the OPEN total (default {'on' if PACE_FIX else 'off'})")
+    ap.add_argument("--no-pace-fix", dest="pace_fix", action="store_false")
+    ap.add_argument("--pace-fix-w", type=float, default=None, help=f"market weight for --pace-fix (default {PACE_FIX_MKT_W})")
     ap.add_argument("--config", help="model config JSON (feature list + weights); default czarp_config.json / built-in v2")
     a = ap.parse_args(argv)
     if a.config:
@@ -869,6 +922,10 @@ def main(argv=None) -> int:
         COACH_LOCK_SIDES = max(0, a.coach_lock_sides)
     if a.skip_side_moves:
         SIDE_MOVE_SKIP = True
+    if a.pace_fix is not None:
+        PACE_FIX = a.pace_fix
+    if a.pace_fix_w is not None:
+        PACE_FIX_MKT_W = a.pace_fix_w
     now = now_ct()
     today = a.date or now.date().isoformat()
     notes: list[str] = []
@@ -912,6 +969,8 @@ def main(argv=None) -> int:
         if data is not None:
             project_all(games, data)
             nc = tag_new_coaches(games, today)
+            if PACE_FIX:
+                log(f"  totals PACE FIX on (w={PACE_FIX_MKT_W:g}): {apply_pace_fix(games, today)} v1 totals re-paced")
             nlock = sum(any(x["locked"] for x in coach_locks(g)) for g in games if not g.get("skip"))
             nlock_t = sum(any(x["locked"] for x in coach_locks(g, market="total")) for g in games if not g.get("skip"))
             log(f"  NEW COACH: {len(nc)} teams with a new head coach; {nlock} games on the slate locked "

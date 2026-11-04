@@ -97,3 +97,40 @@ def test_flag_plays_matches_candidates_and_top_edges(monkeypatch):
     assert [r["rank_edge"] for r in top] == sorted([r["rank_edge"] for r in top], reverse=True)
     md = "\n".join(dr.top_edges_md(top))
     assert "| 1 |" in md and "| 4 |" in md and "below 4% threshold" in md
+
+
+# ── totals pace fix ──────────────────────────────────────────────────────────
+def test_pace_fix_off_by_default():
+    import daily_run as D
+    assert D.PACE_FIX is False
+
+
+def test_pace_fix_total_math():
+    import daily_run as D
+    # no bias terms active, w=0 -> unchanged
+    assert D.pace_fix_total(150.0, 70.0, 145.0, nov=False, min_games=20, neutral=False, w=0.0) == 150.0
+    # November only: P 70 -> 69.65, T scales with pace
+    t = D.pace_fix_total(150.0, 70.0, None, nov=True, min_games=20, neutral=False, bias={"nov": -0.35}, w=0.5)
+    assert abs(t - 150.0 * 69.65 / 70.0) < 1e-9          # no open total -> no blend
+    # blend with the open total only
+    t = D.pace_fix_total(150.0, 70.0, 140.0, nov=False, min_games=20, neutral=False, w=0.2)
+    assert abs(t - (0.8 * 150 + 0.2 * 140)) < 1e-9
+    # all three terms + blend
+    b = {"nov": -0.35, "early": -0.30, "neutral": -0.44}
+    t = D.pace_fix_total(150.0, 70.0, 148.0, nov=True, min_games=3, neutral=True, bias=b, w=0.2)
+    assert abs(t - (0.8 * 150 * (70 - 1.09) / 70 + 0.2 * 148)) < 1e-9
+    assert D.pace_fix_total(None, 70.0, 148.0) is None
+
+
+def test_apply_pace_fix_keeps_raw(tmp_path):
+    import pandas as pd
+    import daily_run as D
+    pd.DataFrame({"TeamName": ["A", "B"], "Wins": [2, 10], "Losses": [1, 5]}).to_csv(tmp_path / "ratings.csv", index=False)
+    games = [{"kp_home": "A", "kp_away": "B", "v1_total": 150.0, "v1_pace": 70.0, "open_total": 150.0, "neutral": True},
+             {"skip": "non-D1", "v1_total": 150.0, "v1_pace": 70.0}]
+    assert D.apply_pace_fix(games, "2026-11-04", str(tmp_path)) == 1
+    g = games[0]
+    assert g["v1_total_raw"] == 150.0
+    exp = D.pace_fix_total(150.0, 70.0, 150.0, nov=True, min_games=3, neutral=True)
+    assert abs(g["v1_total"] - exp) < 1e-9 and g["v1_total"] < 150.0
+    assert "v1_total_raw" not in games[1]
