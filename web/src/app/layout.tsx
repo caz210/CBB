@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SiteFooter } from "@/components/SiteFooter";
-import { ExampleBanner } from "@/components/ExampleBadge";
 import { BottomNav } from "@/components/BottomNav";
 
 export const viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: "#07090d" };
@@ -16,7 +15,6 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en">
       <body className="min-h-screen pb-[calc(3.5rem+env(safe-area-inset-bottom))] antialiased md:pb-0">
-        <ExampleBanner />
         <SiteHeader />
         <main>{children}</main>
         <SiteFooter />

@@ -8,7 +8,7 @@ export function ArchetypeChip({ name, tentative }: { name: ArchetypeName; tentat
   const tent = tentative ? "border-dashed bg-transparent opacity-75" : "";
   return (
     <span
-      title={`${ARCHETYPE_HINT[name]}${tentative ? " · tentative: too few games this season" : ""}`}
+      title={`${ARCHETYPE_HINT[name] ?? name}${tentative ? " · tentative: too few games this season" : ""}`}
       className={`inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${base} ${tent}`}
     >
       {name}

@@ -25,7 +25,10 @@ export function fmtGameDate(d: string) {
 }
 export const pct = (x: number, dp = 0) => `${(x * 100).toFixed(dp)}%`;
 export const signedPct = (x: number, dp = 1) => `${x >= 0 ? "+" : "−"}${Math.abs(x * 100).toFixed(dp)}%`;
-export const fmtLine = (n: number) => (n > 0 ? `+${n}` : `${n}`);
+/** Lines/spreads to at most 1 decimal (model spreads arrive as e.g. -31.54). */
+export const fmtLine = (n: number) => { const r = Math.round(n * 10) / 10; return r > 0 ? `+${r}` : `${r}`; };
+/** Win probability for display: never shows a flat 0% / 100%. */
+export const fmtWinProb = (p: number) => (p < 0.01 ? "<1%" : p > 0.99 ? ">99%" : pct(p));
 export const fmtOdds = (o: number) => (o > 0 ? `+${o}` : `${o}`);
 export const fmtUnits = (u: number, dp = 2) => `${u > 0 ? "+" : u < 0 ? "−" : ""}${Math.abs(u).toFixed(dp)}u`;
 
