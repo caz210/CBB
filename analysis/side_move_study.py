@@ -153,7 +153,7 @@ p("=== 6. INTRADAY LINES: how much of the open->close move is visible mid-day? =
 p("  ESPN history (data/history/espn_cache, espn_*.csv) stores only open / current / close - no intraday ticks.")
 p("  data/ledger/snapshots/*.csv are the ~7 AM CT daily_run snapshots (since 2026-11-02): open + current at 7 AM only.")
 p("  The pre-tip check (pretip_check.py) only writes a pretip_flag on ledger PLAYS, it does not archive lines.")
-snap_path = "/tmp/daily_snapshots.csv"
+snap_path = "data/history/legacy_daily_snapshots.csv"  # export of Supabase public.daily_snapshots (v1 app; data/ is not tracked)
 if os.path.exists(snap_path):
     s = pd.read_csv(snap_path)
     s = s[s.vegas_spread.notna()].copy()
@@ -197,7 +197,7 @@ if os.path.exists(snap_path):
               f"{(big.seen/big.tot).clip(-1,2).median()*100:.0f}%")
         p("  (Different books - Odds API consensus vs ESPN BET/DraftKings - add ~0.5 pt noise; sample is small and March-only.)")
 else:
-    p("  (legacy Supabase daily_snapshots export not found at /tmp/daily_snapshots.csv - section skipped)")
+    p("  (legacy Supabase daily_snapshots export not found at data/history/legacy_daily_snapshots.csv - section skipped)")
 p("  Not checked: The Odds API historical endpoint (/v4/historical/...odds) can return a line at any timestamp,")
 p("  but costs credits per call; not spent here.")
 
