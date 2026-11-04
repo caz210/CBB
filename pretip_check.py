@@ -96,7 +96,8 @@ def main(argv=None) -> int:
     led = dr.read_ledger()
     naive_now = pd.Timestamp(now.replace(tzinfo=None))
     tips = pd.to_datetime(led.tip_ct, errors="coerce")
-    m = (led.status == "open") & (led.game_date.astype(str) == today) & (tips > naive_now)
+    # official plays only: the TRACK tier is paper-only shadow tracking, never bet, so no pre-tip alerts
+    m = (led.status == "open") & (led.game_date.astype(str) == today) & (tips > naive_now) & (led.tier != "track")
     if a.within is not None:
         m &= tips <= naive_now + timedelta(minutes=a.within)
     todo = led[m]

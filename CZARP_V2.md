@@ -150,3 +150,19 @@ below the threshold. It prints nothing when there is nothing to flag. It only wr
 column (never prices, stakes or results); `--dry-run` writes nothing and spends no Odds API credits.
 
     python pretip_check.py [--dry-run] [--within MINUTES] [--move 2] [--date YYYY-MM-DD] [--no-odds-api] [-v]
+
+## Track record: OFFICIAL vs TRACK tiers, immutable ledger
+- **OFFICIAL** (unchanged): sides ≥4% vs open AND vs current; totals ≥3% vs open (+ move skip). Quarter-Kelly paper stakes.
+- **TRACK** (shadow, paper only): sides ≥4% vs open with ≥2% still left vs current that are not official. Every other
+  rule is identical (same side, not started, NEW COACH lock), so the two records differ only in the vs-current bar.
+  Flat 1u, `stake` 0 (never touches the bankroll), `pick_id` = `<event>-spread-track`, never pre-tip alerted.
+  `--track-ignore-coach-lock` (or `TRACK_IGNORE_COACH_LOCK`) also logs NEW COACH-locked sides.
+- Ledger columns added: `tier`, `source` (live/backfill), `logged_ct`, `pnl_units` (flat 1u), `pick_hash`.
+- **Immutability**: `write_ledger` refuses to change a logged pick's fields, drop a pick, or change a graded result;
+  live picks must be logged before tip-off; each row is sealed with `pick_hash = sha256(prev_hash + pick fields)`
+  and `verify_ledger()` runs every morning (result printed in the report). Supabase mirrors this with trigger
+  `picks_immutable` (pick and grading fields are set-once, deletes refused, live picks must predate tip-off).
+- Report: "Tracked (not played)" section + "Running record by tier" table (W-L-P, flat units, ROI, CLV, beat-close).
+- Supabase: `picks.tier/source/logged_at/units_pnl/pick_hash`; view `tier_record`; `tier` appended to `pick_record`,
+  `value_bets`, `ledger` (migration `db/migrations/2026-11-04_pick_tiers_and_immutability.sql`).
+- Backfill past slates from the saved morning snapshot: `python backfill_track.py --date YYYY-MM-DD [--write]`.

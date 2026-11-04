@@ -29,6 +29,10 @@ def _clean(v):
     return v
 
 
+def _str(v):
+    return v if isinstance(v, str) and v else None
+
+
 def _row(d: dict) -> dict:
     return {k: _clean(v) for k, v in d.items()}
 
@@ -219,13 +223,21 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
                    "graded_at": r.graded_ct if isinstance(r.graded_ct, str) else None,
                    "model_prob": _clean(pd.to_numeric(r.get("p_est"), errors="coerce")),
                    "bankroll_at_pick": _clean(pd.to_numeric(r.get("bankroll_at_pick"), errors="coerce")),
-                   "is_paper": True})
+                   "is_paper": True,
+                   # track record: tier ('official' = the plays, 'track' = shadow paper sides, flat 1u, never staked),
+                   # live vs backfill, when the row was actually logged, flat-1u result, and the ledger hash-chain seal
+                   "tier": _str(r.get("tier")) or "official", "source": _str(r.get("source")) or "live",
+                   "logged_at": _str(r.get("logged_ct")),
+                   "units_pnl": _clean(pd.to_numeric(r.get("pnl_units"), errors="coerce")),
+                   "pick_hash": _str(r.get("pick_hash"))})
     c.upsert("picks", pk, on_conflict="pick_key", returning=False)
-    # ledger is the source of truth: drop mirrored picks that are no longer in it (e.g. a re-run with a new rule)
+    # Picks are immutable once published (db trigger picks_immutable blocks updates to pick fields and deletes), so
+    # mirrored picks missing from the ledger are reported, never deleted.
     keep = {str(x) for x in ledger.pick_id}
     remote = {x["pick_key"] for x in c.get("picks", select="pick_key", league=f"eq.{LEAGUE}")}
     stale = sorted(remote - keep)
-    for i in range(0, len(stale), 100):
-        c.delete("picks", pick_key="in.(" + ",".join(f'"{k}"' for k in stale[i:i + 100]) + ")")
+    if stale:
+        log(f"  Supabase: {len(stale)} published picks are not in the local ledger (kept; picks are immutable): "
+            + ", ".join(stale[:5]))
     return (f"{len(grows)} games, {len(proj)} projections, {len(ml)} market lines, {len(pk)} picks"
-            + (f", removed {len(stale)} stale picks" if stale else ""))
+            + (f", {len(stale)} published picks not in ledger" if stale else ""))

@@ -110,8 +110,10 @@ def test_pretip_main_annotates_only_open_unstarted(monkeypatch, tmp_path, capsys
     pc.main([])
     after = pd.read_csv(path, dtype={"event_id": str})
     assert after.pretip_flag.notna().tolist() == [True, False, False]
-    pd.testing.assert_frame_equal(after.drop(columns="pretip_flag"), led.drop(columns="pretip_flag").astype(after.drop(columns="pretip_flag").dtypes.to_dict()),
+    proof = ["pretip_flag", "tier", "source", "pick_hash", "pnl_units", "logged_ct"]   # filled by write_ledger
+    pd.testing.assert_frame_equal(after.drop(columns=proof), led.drop(columns=proof).astype(after.drop(columns=proof).dtypes.to_dict()),
                                   check_dtype=False)
+    assert (after.tier == "official").all() and after.pick_hash.notna().all() and not dr.verify_ledger(dr.read_ledger())
     capsys.readouterr()
     monkeypatch.setattr(dr, "espn_dk_lines", lambda e: {"current_total": 162.5})
     pc.main(["--dry-run"])

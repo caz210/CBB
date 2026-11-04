@@ -35,6 +35,9 @@ Rules (from the walk-forward backtest, Jan 2025 – Apr 2026, see outputs/walkfo
            COACH_LOCK_TOTALS (4) games for totals / COACH_LOCK_SIDES (8) for sides (coach_lock_study.py).
   LINE MOVE — a total whose DK line moved >= 3 pts open -> current AWAY from our side is skipped
            (backtest: 24-42, -31% ROI). A side that moved >= 3 against us is flagged only.
+  TRACK  — SHADOW tier, paper only, flat 1u, never staked: sides >= 4% vs open with >= 2% still left vs current
+           that are not official (all other rules identical). Logged, graded and reported as a separate record so the
+           4%/4% and 4%/2% side rules can be compared on a public, timestamped, hash-sealed ledger.
   Stake  — quarter Kelly at the actual price using a conservative hit-rate estimate per rule
            (not the model's own probability), capped at 2.5% of the current paper bankroll.
 """
@@ -110,6 +113,16 @@ def coach_lock_n(market: str | None = None) -> int:
         return COACH_LOCK_SIDES
     return max(COACH_LOCK_TOTALS, COACH_LOCK_SIDES)
 TOP_N_EDGES = 10
+# SHADOW tier 'track' (paper only, flat 1u, never staked on the bankroll): a side that clears the threshold vs the
+# OPEN (4%) and still has >= TRACK_SIDE_CUR_THR (2%) left vs the current line, but is not an official play. Every
+# other rule (same side, not started, NEW COACH lock, move skips) is identical to the official tier, so the two
+# records compare exactly one thing: the vs-current bar (4% official vs 2% track). Backtest (analysis/side_move_study.py,
+# graded at the price taken): 4%/4% 28-20 (58.3%, +11%); 4% open / 2% left 41-29 (58.6%, +11.8%).
+TRACK_SIDE_CUR_THR = 0.02
+# The NEW COACH lock applies to the track tier too by default (so the tiers differ ONLY in the vs-current bar).
+# True = track also logs coach-locked sides (e.g. LSU -23.5 on 2026-11-03), at the cost of a clean A/B comparison.
+TRACK_IGNORE_COACH_LOCK = False
+TIERS = ("official", "track")
 # Totals PACE FIX (analysis/totals_pace_fix.py -> outputs/walkforward/totals_pace_fix.txt). OFF by default:
 # walk-forward by season it did not clearly beat the current totals. Games DO play slower than projected in
 # November / when a team has < 8 games / at neutral sites (fit: -0.35 / -0.30 / -0.44 poss), but the v1 TOTAL
@@ -173,6 +186,14 @@ LEDGER_COLS = [
     "price_source", "kalshi_ref", "model_version",
     "status", "graded_ct", "away_score", "home_score", "close_line", "close_price", "clv_pts",
     "result", "pnl", "pretip_flag",
+    # track record / proof columns (appended so older ledgers still load)
+    "tier", "source", "logged_ct", "pnl_units", "pick_hash",
+]
+# Fields frozen once a pick is logged (the pick itself). Grading, closing line, CLV and the pre-tip annotation are
+# filled in later; nothing else may ever change. pick_hash = sha256(previous pick_hash + these fields) -> a hash chain.
+PICK_FIELDS = [
+    "pick_id", "created_ct", "game_date", "event_id", "tip_ct", "away", "home", "market", "rule", "side", "line",
+    "price", "open_line", "model_value", "edge_pct", "edge_pct_vs_open", "stake", "bankroll_at_pick", "tier", "source",
 ]
 
 _S = requests.Session()
@@ -593,6 +614,7 @@ def candidates(games, now) -> list[dict]:
         if c["edge_pct_vs_open"] is None:
             why.append("no opening line")
         eo, ec, thr = c["edge_pct_vs_open"], c["edge_pct"], c["thr"]
+        n_base = len(why)
         if c["market"] == "total":
             # totals: edge vs OPEN only (vs-current check hurt in the backtest); the move-against skip below
             if eo is not None and eo < thr:
@@ -619,50 +641,186 @@ def candidates(games, now) -> list[dict]:
                            f"({x['remaining']} to unlock)")
         c["reasons"] = why
         c["rule_ok"] = not why
+        # SHADOW 'track' tier: sides whose ONLY failing rule is the vs-current bar, with >= TRACK_SIDE_CUR_THR left
+        cur_reasons = [r for r in why[n_base:] if r.startswith(("edge gone vs current", "below "))]
+        others = [r for r in why if r not in cur_reasons
+                  and not (TRACK_IGNORE_COACH_LOCK and r.startswith("NEW COACH lock"))]
+        c["track_ok"] = bool(
+            c["market"] == "spread" and not c["rule_ok"] and not others and c["same_side"]
+            and eo is not None and ec is not None and eo >= thr and ec >= TRACK_SIDE_CUR_THR)
+        c["tier"] = "official" if c["rule_ok"] else ("track" if c["track_ok"] else None)
     return out
 
 
-def flag_plays(games, bankroll, board, now) -> list[dict]:
+TRACK_RULE = f"v2 edge%>=4% open, >={TRACK_SIDE_CUR_THR:.0%} current (track)"
+
+
+def pick_id_for(event_id, market, tier="official") -> str:
+    return f"{event_id}-{market}" + ("-track" if tier == "track" else "")
+
+
+def flag_plays(games, bankroll, board, now, include_track: bool = True, source: str = "live") -> list[dict]:
+    """Official plays (quarter-Kelly paper stake) + SHADOW 'track' sides (flat 1u, stake 0 on the bankroll)."""
     ts = now.isoformat(timespec="seconds")
     plays = []
     for c in candidates(games, now):
-        if not c["rule_ok"]:
+        tier = c.get("tier")
+        if tier is None or (tier == "track" and not include_track):
             continue
-        plays.append(dict(market=c["market"], rule=c["rule"], side=c["side"], line=c["line"], price=c["price"],
+        plays.append(dict(market=c["market"], rule=TRACK_RULE if tier == "track" else c["rule"], side=c["side"],
+                          line=c["line"], price=c["price"],
                           open_line=c["open_line"], model_value=c["model_value"], market_value=c["market_value"],
                           edge_pct=c["edge_pct"], edge_pct_vs_open=c["edge_pct_vs_open"], p_est=c["p_est"],
-                          g=c["g"], ts=ts))
+                          g=c["g"], ts=ts, tier=tier))
     rows = []
     for pl in sorted(plays, key=lambda x: -x["edge_pct"]):
         g = pl.pop("g")
-        stake = kelly_stake(pl["p_est"], pl["price"], bankroll)
-        if stake < MIN_STAKE:          # price too juiced for the assumed hit rate -> no +EV bet
-            continue
+        if pl["tier"] == "track":
+            stake = 0.0                # shadow tier: graded flat 1u, never touches the paper bankroll
+        else:
+            stake = kelly_stake(pl["p_est"], pl["price"], bankroll)
+            if stake < MIN_STAKE:          # price too juiced for the assumed hit rate -> no +EV bet
+                continue
         rows.append({
-            "pick_id": f"{g['event_id']}-{pl['market']}", "created_ct": pl.pop("ts"), "game_date": g["game_date"],
+            "pick_id": pick_id_for(g["event_id"], pl["market"], pl["tier"]), "created_ct": pl.pop("ts"),
+            "game_date": g["game_date"],
             "event_id": g["event_id"], "tip_ct": g["tip_ct"], "away": g["kp_away"], "home": g["kp_home"],
             "neutral": g["neutral"], **pl, "kp_margin_home": g.get("kp_margin_home"), "stake": stake,
             "bankroll_at_pick": round(bankroll, 2), "price_source": g.get("price_source", "espn:DraftKings"),
             "kalshi_ref": kalshi_ref(board, g, pl["market"], pl["side"], pl["line"]),
             "model_version": g.get("model_version", "czarp-v2") if pl["market"] == "spread" else V1_VERSION,
-            "status": "open",
+            "status": "open", "source": source,
         })
     return rows
 
 
 # ── ledger + grading ──────────────────────────────────────────────────────────
+class LedgerImmutableError(RuntimeError):
+    """A write would change or remove an already-logged pick."""
+
+
+_NUM_FIELDS = {"line", "price", "open_line", "model_value", "edge_pct", "edge_pct_vs_open", "stake", "bankroll_at_pick"}
+
+
+def _canon(field, v) -> str:
+    if v is None or (isinstance(v, float) and math.isnan(v)) or (not isinstance(v, str) and pd.isna(v)):
+        return ""
+    if field in _NUM_FIELDS:
+        try:
+            return repr(round(float(v), 6))
+        except (TypeError, ValueError):
+            return str(v)
+    return str(v)
+
+
+def pick_fingerprint(r) -> str:
+    return "|".join(f"{f}={_canon(f, r.get(f) if hasattr(r, 'get') else r[f])}" for f in PICK_FIELDS)
+
+
+def chain_hash(prev: str, r) -> str:
+    import hashlib
+    return hashlib.sha256(((prev or "") + "\n" + pick_fingerprint(r)).encode()).hexdigest()
+
+
+def _normalize(df: pd.DataFrame) -> pd.DataFrame:
+    for c in LEDGER_COLS:
+        if c not in df:
+            df[c] = None
+    df = df[LEDGER_COLS].copy()
+    for c in ("tier", "source", "logged_ct", "pick_hash"):
+        df[c] = df[c].astype(object)
+    df.loc[df.tier.isna(), "tier"] = "official"          # rows logged before tiers existed are official plays
+    df.loc[df.source.isna(), "source"] = "live"
+    # rows from before logged_ct existed were written by the same live run that set created_ct
+    m = df.logged_ct.isna() & (df.source == "live") & df.created_ct.notna()
+    df.loc[m, "logged_ct"] = df.loc[m, "created_ct"]
+    # flat 1u result for rows graded before pnl_units existed
+    df["pnl_units"] = pd.to_numeric(df["pnl_units"], errors="coerce").astype(object)
+    for i in df.index[(df.status == "graded") & df.pnl_units.isna()]:
+        r = df.loc[i]
+        df.at[i, "pnl_units"] = round((american_to_decimal(r.price) - 1) if r.result == "win"
+                                      else (-1.0 if r.result == "loss" else 0.0), 4)
+    return df
+
+
 def read_ledger() -> pd.DataFrame:
     if os.path.exists(LEDGER):
-        df = pd.read_csv(LEDGER, dtype={"event_id": str, "pick_id": str})
-        for c in LEDGER_COLS:
-            if c not in df:
-                df[c] = None
-        return df[LEDGER_COLS]
+        return _normalize(pd.read_csv(LEDGER, dtype={"event_id": str, "pick_id": str}))
     return pd.DataFrame(columns=LEDGER_COLS)
+
+
+def seal(df: pd.DataFrame) -> pd.DataFrame:
+    """Fill pick_hash for rows that lack one, chaining from the previous row (append-only order)."""
+    df["pick_hash"] = df["pick_hash"].astype(object)
+    prev = ""
+    for i in df.index:
+        h = df.at[i, "pick_hash"]
+        if not isinstance(h, str) or not h:
+            df.at[i, "pick_hash"] = h = chain_hash(prev, df.loc[i])
+        prev = h
+    return df
+
+
+def verify_ledger(df: pd.DataFrame) -> list[str]:
+    """Problems with the hash chain (empty list = every logged pick is unchanged since it was sealed)."""
+    bad, prev = [], ""
+    for i in df.index:
+        h = df.at[i, "pick_hash"]
+        if not isinstance(h, str) or not h:
+            bad.append(f"{df.at[i, 'pick_id']}: not sealed")
+        elif chain_hash(prev, df.loc[i]) != h:
+            bad.append(f"{df.at[i, 'pick_id']}: pick fields changed after logging")
+        prev = h if isinstance(h, str) else ""
+    return bad
+
+
+def append_picks(ledger: pd.DataFrame, rows: list[dict], now: datetime) -> pd.DataFrame:
+    """Append new picks (never rewrites existing ones). Live picks must be logged before tip-off."""
+    if not rows:
+        return ledger
+    have = set(ledger.pick_id.astype(str))
+    have_gm = {(str(e), m) for e, m in zip(ledger.event_id, ledger.market)}
+    ts = now.isoformat(timespec="seconds")
+    naive = pd.Timestamp(now.astimezone(CENTRAL).replace(tzinfo=None))
+    keep = []
+    for r in rows:
+        if r["pick_id"] in have or (str(r["event_id"]), r["market"]) in have_gm:
+            continue                                   # one pick per game+market (any tier); first price kept
+        if r.get("source", "live") == "live" and pd.Timestamp(r["tip_ct"]) <= naive:
+            raise LedgerImmutableError(f"{r['pick_id']}: live pick logged at/after tip-off ({r['tip_ct']} CT)")
+        keep.append(dict(r, logged_ct=ts, tier=r.get("tier", "official"), source=r.get("source", "live")))
+        have_gm.add((str(r["event_id"]), r["market"]))
+    if not keep:
+        return ledger
+    new = pd.DataFrame(keep)
+    for c in LEDGER_COLS:
+        if c not in new:
+            new[c] = None
+    out = pd.concat([ledger, new[LEDGER_COLS]], ignore_index=True) if len(ledger) else new[LEDGER_COLS].copy()
+    return seal(_normalize(out))
+
+
+def check_immutable(old: pd.DataFrame, new: pd.DataFrame) -> None:
+    """Raise if any pick already on disk would be removed or have a frozen field changed."""
+    if old is None or old.empty:
+        return
+    newi = {str(p): r for p, r in zip(new.pick_id, new.to_dict("records"))}
+    for r in old.to_dict("records"):
+        n = newi.get(str(r["pick_id"]))
+        if n is None:
+            raise LedgerImmutableError(f"{r['pick_id']}: logged pick would be removed")
+        if pick_fingerprint(r) != pick_fingerprint(n):
+            raise LedgerImmutableError(f"{r['pick_id']}: frozen pick fields would change")
+        if isinstance(r.get("pick_hash"), str) and r["pick_hash"] and n.get("pick_hash") != r["pick_hash"]:
+            raise LedgerImmutableError(f"{r['pick_id']}: pick_hash would change")
+        if r.get("status") == "graded" and (n.get("status") != "graded" or _canon("x", n.get("result")) != _canon("x", r.get("result"))):
+            raise LedgerImmutableError(f"{r['pick_id']}: graded result would change")
 
 
 def write_ledger(df: pd.DataFrame) -> None:
     os.makedirs(LEDGER_DIR, exist_ok=True)
+    df = seal(_normalize(df))
+    check_immutable(read_ledger() if os.path.exists(LEDGER) else None, df)
     tmp = LEDGER + ".tmp"
     df[LEDGER_COLS].to_csv(tmp, index=False)
     os.replace(tmp, LEDGER)
@@ -670,7 +828,10 @@ def write_ledger(df: pd.DataFrame) -> None:
 
 def grade(ledger: pd.DataFrame, now: datetime) -> list[int]:
     """Grade open plays whose games are final; record closing line + CLV."""
-    for c in ("status", "graded_ct", "away_score", "home_score", "close_line", "close_price", "clv_pts", "result", "pnl"):
+    for c in ("status", "graded_ct", "away_score", "home_score", "close_line", "close_price", "clv_pts", "result", "pnl",
+              "pnl_units"):
+        if c not in ledger:
+            ledger[c] = None
         ledger[c] = ledger[c].astype(object)
     open_ = ledger[(ledger.status == "open") & (pd.to_datetime(ledger.tip_ct) < pd.Timestamp(now.replace(tzinfo=None)))]
     graded = []
@@ -686,7 +847,8 @@ def grade(ledger: pd.DataFrame, now: datetime) -> list[int]:
             if g is None:
                 continue
             if g["state"] == "post" and not g["completed"]:      # postponed / canceled
-                ledger.loc[i, ["status", "result", "pnl", "graded_ct"]] = ["void", "void", 0.0, now.isoformat(timespec="seconds")]
+                ledger.loc[i, ["status", "result", "pnl", "pnl_units", "graded_ct"]] = [
+                    "void", "void", 0.0, 0.0, now.isoformat(timespec="seconds")]
                 graded.append(i); continue
             if not g["completed"] or g["home_score"] is None:
                 continue
@@ -708,21 +870,31 @@ def grade(ledger: pd.DataFrame, now: datetime) -> list[int]:
                 cpx = ln.get("close_over_price" if over else "close_under_price")
                 clv = ((close - line) if over else (line - close)) if close is not None else None
             stake = float(r.stake or 0)
+            win_u = american_to_decimal(r.price) - 1
             if res > 0:
-                result, pnl = "win", stake * (american_to_decimal(r.price) - 1)
+                result, pnl, u = "win", stake * win_u, win_u
             elif res < 0:
-                result, pnl = "loss", -stake
+                result, pnl, u = "loss", -stake, -1.0
             else:
-                result, pnl = "push", 0.0
+                result, pnl, u = "push", 0.0, 0.0
             ledger.loc[i, ["status", "graded_ct", "away_score", "home_score", "close_line", "close_price",
-                           "clv_pts", "result", "pnl"]] = [
-                "graded", now.isoformat(timespec="seconds"), as_, hs, close, cpx, clv, result, round(pnl, 2)]
+                           "clv_pts", "result", "pnl", "pnl_units"]] = [
+                "graded", now.isoformat(timespec="seconds"), as_, hs, close, cpx, clv, result, round(pnl, 2), round(u, 4)]
             graded.append(i)
     return graded
 
 
+def official(ledger: pd.DataFrame) -> pd.DataFrame:
+    """Official-tier rows (rows logged before tiers existed count as official)."""
+    if "tier" not in ledger:
+        return ledger
+    return ledger[ledger.tier.isna() | (ledger.tier == "official")]
+
+
 def bankroll(ledger: pd.DataFrame) -> float:
-    return BANKROLL0 + pd.to_numeric(ledger.loc[ledger.status == "graded", "pnl"], errors="coerce").fillna(0).sum()
+    """Paper bankroll: official plays only (the track tier is flat 1u and never staked)."""
+    o = official(ledger)
+    return BANKROLL0 + pd.to_numeric(o.loc[o.status == "graded", "pnl"], errors="coerce").fillna(0).sum()
 
 
 # ── top edges (every candidate, regardless of threshold) ─────────────────────
@@ -803,6 +975,62 @@ def _rec(df: pd.DataFrame) -> str:
             f"(ROI {pnl / st if st else 0:+.1%}; flat 1u-per-play {u.sum():+.2f}u) · avg CLV {clv_s}")
 
 
+def flat_units(r) -> float:
+    """Flat 1u result for one graded row at the price taken (pnl_units if present)."""
+    u = pd.to_numeric(r.get("pnl_units"), errors="coerce")
+    if pd.notna(u):
+        return float(u)
+    return (american_to_decimal(r.price) - 1) if r.result == "win" else (-1.0 if r.result == "loss" else 0.0)
+
+
+def tier_record(df: pd.DataFrame) -> dict:
+    """W-L-P, flat-1u units, ROI per 1u risked, avg CLV, pending — the public per-tier record."""
+    g = df[df.status == "graded"]
+    w, l, p = int((g.result == "win").sum()), int((g.result == "loss").sum()), int((g.result == "push").sum())
+    units = float(sum(flat_units(r) for _, r in g.iterrows())) if len(g) else 0.0
+    n = w + l + p
+    clv = pd.to_numeric(g.clv_pts, errors="coerce")
+    return {"w": w, "l": l, "p": p, "n": n, "pct": (w / (w + l)) if (w + l) else None, "units": round(units, 2),
+            "roi": (units / n) if n else None, "clv": None if clv.dropna().empty else round(float(clv.mean()), 2),
+            "beat_close": int((clv > 0).sum()), "clv_n": int(clv.notna().sum()),
+            "pending": int((df.status == "open").sum())}
+
+
+def tier_records(ledger: pd.DataFrame) -> dict:
+    t = ledger.tier.fillna("official") if "tier" in ledger else pd.Series("official", index=ledger.index)
+    out = {}
+    for tier in TIERS:
+        d = ledger[t == tier]
+        out[tier] = {"all": tier_record(d), "spread": tier_record(d[d.market == "spread"]),
+                     "total": tier_record(d[d.market == "total"])}
+    return out
+
+
+def tier_record_md(ledger: pd.DataFrame) -> list[str]:
+    recs = tier_records(ledger)
+    L = ["## Running record by tier",
+         "_OFFICIAL = the plays (sides ≥4% vs open AND current; totals ≥3% vs open), quarter-Kelly paper stakes. "
+         f"TRACK = shadow sides ≥4% vs open with ≥{TRACK_SIDE_CUR_THR:.0%} still left vs current that are not official; "
+         "paper only, flat 1u, never staked. Units are flat 1u per pick at the price taken; ROI = units ÷ picks graded; "
+         "CLV = points beaten vs the DK close. Every pick is logged with a timestamp before tip and sealed with a hash chain._",
+         "",
+         "| Tier | Market | W-L-P | Win% | Units (1u flat) | ROI | Avg CLV | Beat close | Pending |",
+         "|---|---|---|---|---|---|---|---|---|"]
+    for tier in TIERS:
+        for m in ("all", "spread", "total"):
+            if tier == "track" and m == "total":
+                continue
+            r = recs[tier][m]
+            label = {"all": "All", "spread": "Sides", "total": "Totals"}[m]
+            pct = "—" if r["pct"] is None else f"{r['pct']:.1%}"
+            roi = "—" if r["roi"] is None else f"{r['roi']:+.1%}"
+            clv = "—" if r["clv"] is None else f"{r['clv']:+.2f}"
+            L.append(f"| {tier.upper()} | {label} | {r['w']}-{r['l']}-{r['p']} | {pct} | {r['units']:+.2f}u | {roi} | "
+                     f"{clv} | {r['beat_close']}/{r['clv_n']} | {r['pending']} |")
+    L.append("")
+    return L
+
+
 def write_summary(today: str, now: datetime, games, new_rows, ledger, graded_idx, notes, top=None,
                   path: str | None = None) -> str:
     os.makedirs(OUT_DIR, exist_ok=True)
@@ -814,7 +1042,8 @@ def write_summary(today: str, now: datetime, games, new_rows, ledger, graded_idx
     L.append(f"**Slate:** {len(games)} games on ESPN, {len(d1)} D-I vs D-I projected, {len(priced)} with DK lines. "
              f"Bankroll now **${bankroll(ledger):,.2f}**.")
     L.append("")
-    today_rows = ledger[(ledger.game_date == today) & (ledger.status != "void")]
+    td = ledger[(ledger.game_date == today) & (ledger.status != "void")]
+    today_rows = official(td)
     L.append(f"## Today's plays ({len(today_rows)})")
     if today_rows.empty:
         L.append("No plays met the rules today.")
@@ -829,6 +1058,22 @@ def write_summary(today: str, now: datetime, games, new_rows, ledger, graded_idx
             L.append(f"| {str(r.tip_ct)[11:]} | {r.away} @ {r.home}{' (N)' if str(r.neutral) == 'True' else ''} | {bet} | "
                      f"{int(float(r.price)):+d} | {op} | {mv} | {float(r.edge_pct):.1%}{eo} | ${float(r.stake):.2f} | {r.kalshi_ref or ''} |")
     L.append("")
+    track_rows = td[td.tier == "track"] if "tier" in td else td.iloc[0:0]
+    L.append(f"## Tracked (not played) ({len(track_rows)})")
+    L.append(f"_TRACK tier: sides ≥{RULES['spread'][1]:.0%} vs open with ≥{TRACK_SIDE_CUR_THR:.0%} still left vs current "
+             "that missed the official bar. Paper only, flat 1u, NOT bet and not staked on the bankroll; graded every "
+             "morning to compare against the official rule._")
+    if track_rows.empty:
+        L.append("No tracked sides today.")
+    else:
+        L.append("| Tip (CT) | Game | Pick | Price | Open line | CZarp (pick-side margin) | Edge% vs current (vs open) | Logged (CT) |")
+        L.append("|---|---|---|---|---|---|---|---|")
+        for _, r in track_rows.sort_values("tip_ct").iterrows():
+            op = "" if pd.isna(r.open_line) else f"{float(r.open_line):+g}"
+            L.append(f"| {str(r.tip_ct)[11:]} | {r.away} @ {r.home}{' (N)' if str(r.neutral) == 'True' else ''} | "
+                     f"{r.side} {float(r.line):+g} | {int(float(r.price)):+d} | {op} | {float(r.model_value):+.1f} | "
+                     f"{float(r.edge_pct):.1%} ({float(r.edge_pct_vs_open):.1%}) | {str(r.created_ct)[11:16]} |")
+    L.append("")
     L.extend(top_edges_md(top or []))
     yday = (date.fromisoformat(today) - timedelta(days=1)).isoformat()
     yr = ledger[ledger.game_date == yday]
@@ -836,22 +1081,36 @@ def write_summary(today: str, now: datetime, games, new_rows, ledger, graded_idx
     if yr.empty:
         L.append("No plays yesterday.")
     else:
-        L.append(f"Record: {_rec(yr)}")
+        L.append(f"Official: {_rec(official(yr))}")
+        tr = yr[yr.tier == "track"] if "tier" in yr else yr.iloc[0:0]
+        if len(tr):
+            r = tier_record(tr)
+            L.append(f"Track (flat 1u, not bet): {r['w']}-{r['l']}" + (f"-{r['p']}" if r["p"] else "") + f", {r['units']:+.2f}u")
         L.append("")
-        L.append("| Game | Bet | Result | Score | Close | CLV | P&L |")
-        L.append("|---|---|---|---|---|---|---|")
+        L.append("| Tier | Game | Bet | Result | Score | Close | CLV | P&L |")
+        L.append("|---|---|---|---|---|---|---|---|")
         for _, r in yr.iterrows():
+            tier = r.get("tier") if isinstance(r.get("tier"), str) else "official"
             sc = "" if pd.isna(r.home_score) else f"{int(r.away_score)}-{int(r.home_score)}"
-            L.append(f"| {r.away} @ {r.home} | {r.side} {r.line} | {r.result if pd.notna(r.result) else 'pending'} | {sc} | "
+            pnl = (f"{float(r.pnl_units):+.2f}u (flat)" if tier == "track" and pd.notna(r.get("pnl_units"))
+                   else ("" if pd.isna(r.pnl) else f"${float(r.pnl):+.2f}"))
+            L.append(f"| {tier.upper()} | {r.away} @ {r.home} | {r.side} {r.line} | {r.result if pd.notna(r.result) else 'pending'} | {sc} | "
                      f"{'' if pd.isna(r.close_line) else r.close_line} | {'' if pd.isna(r.clv_pts) else f'{float(r.clv_pts):+g}'} | "
-                     f"{'' if pd.isna(r.pnl) else f'${float(r.pnl):+.2f}'} |")
+                     f"{pnl} |")
     L.append("")
-    L.append("## Running record")
-    L.append(f"- All: {_rec(ledger)}")
+    off = official(ledger)
+    L.append("## Running record (official plays, $ on the paper bankroll)")
+    L.append(f"- All: {_rec(off)}")
     for m in ("spread", "total"):
-        L.append(f"- {m.title()}s: {_rec(ledger[ledger.market == m])}")
-    pend = (ledger.status == "open").sum()
+        L.append(f"- {m.title()}s: {_rec(off[off.market == m])}")
+    pend = (off.status == "open").sum()
     L.append(f"- Open (ungraded) plays: {pend}")
+    L.append("")
+    L.extend(tier_record_md(ledger))
+    bad = verify_ledger(ledger) if "pick_hash" in ledger else []
+    L.append(f"_Ledger integrity: {len(ledger)} picks, hash chain " + ("OK" if not bad else f"BROKEN ({'; '.join(bad[:3])})")
+             + (f", last hash `{str(ledger.pick_hash.iloc[-1])[:12]}`" if len(ledger) and isinstance(ledger.pick_hash.iloc[-1], str) else "")
+             + "._")
     L.append("")
     L.append("## Notes")
     L.append(f"- Rules: sides = v2 model-only vs DK line, edge% = |model − line| / DK total ≥ {RULES['spread'][1]:.0%}; "
@@ -886,7 +1145,7 @@ def write_summary(today: str, now: datetime, games, new_rows, ledger, graded_idx
 
 # ── main ─────────────────────────────────────────────────────────────────────
 def main(argv=None) -> int:
-    global PACE_FIX, PACE_FIX_MKT_W, LINE_MOVE_EXCLUDE, COACH_LOCK_GAMES, COACH_LOCK_TOTALS, COACH_LOCK_SIDES, SIDE_MOVE_SKIP
+    global TRACK_IGNORE_COACH_LOCK, PACE_FIX, PACE_FIX_MKT_W, LINE_MOVE_EXCLUDE, COACH_LOCK_GAMES, COACH_LOCK_TOTALS, COACH_LOCK_SIDES, SIDE_MOVE_SKIP
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--date")
     ap.add_argument("--no-refresh", action="store_true")
@@ -908,6 +1167,8 @@ def main(argv=None) -> int:
                     help=f"totals pace fix: early-season/neutral pace correction + blend with the OPEN total (default {'on' if PACE_FIX else 'off'})")
     ap.add_argument("--no-pace-fix", dest="pace_fix", action="store_false")
     ap.add_argument("--pace-fix-w", type=float, default=None, help=f"market weight for --pace-fix (default {PACE_FIX_MKT_W})")
+    ap.add_argument("--track-ignore-coach-lock", action="store_true",
+                    help="TRACK tier also logs NEW COACH-locked sides (default: same lock as official plays)")
     ap.add_argument("--config", help="model config JSON (feature list + weights); default czarp_config.json / built-in v2")
     a = ap.parse_args(argv)
     if a.config:
@@ -922,6 +1183,8 @@ def main(argv=None) -> int:
         COACH_LOCK_SIDES = max(0, a.coach_lock_sides)
     if a.skip_side_moves:
         SIDE_MOVE_SKIP = True
+    if a.track_ignore_coach_lock:
+        TRACK_IGNORE_COACH_LOCK = True
     if a.pace_fix is not None:
         PACE_FIX = a.pace_fix
     if a.pace_fix_w is not None:
@@ -932,7 +1195,11 @@ def main(argv=None) -> int:
     os.makedirs(SNAP_DIR, exist_ok=True)
     log(f"CZarp daily run — slate {today}, {now.strftime('%Y-%m-%d %H:%M')} CT")
 
-    ledger = read_ledger()
+    ledger = seal(read_ledger())        # rows from before the hash chain get sealed (in memory; written below)
+    bad = verify_ledger(ledger)
+    if bad:
+        log(f"  ⚠ LEDGER INTEGRITY: {'; '.join(bad[:5])}")
+        notes.append(f"Ledger integrity check FAILED: {'; '.join(bad[:5])}")
     # (f) grade first so the bankroll is current
     try:
         gi = grade(ledger, now)
@@ -1005,11 +1272,16 @@ def main(argv=None) -> int:
         if data is not None:
             new_rows = flag_plays(games, bankroll(ledger), board, now)
             have = set(ledger.pick_id.astype(str))
-            new_rows = [r for r in new_rows if r["pick_id"] not in have]     # one pick per game+market, first price kept
-            log(f"  new plays: {len(new_rows)} ({sum(r['market'] == 'spread' for r in new_rows)} sides, "
-                f"{sum(r['market'] == 'total' for r in new_rows)} totals)")
+            have_gm = {(str(e), m) for e, m in zip(ledger.event_id, ledger.market)}
+            # one pick per game+market (any tier), first price kept
+            new_rows = [r for r in new_rows if r["pick_id"] not in have and (str(r["event_id"]), r["market"]) not in have_gm]
+            off_new = [r for r in new_rows if r.get("tier") != "track"]
+            log(f"  new plays: {len(off_new)} ({sum(r['market'] == 'spread' for r in off_new)} sides, "
+                f"{sum(r['market'] == 'total' for r in off_new)} totals); tracked (not played): "
+                f"{sum(r.get('tier') == 'track' for r in new_rows)} sides")
             cands = candidates(games, now)
-            played = {r["pick_id"] for r in new_rows} | set(ledger.loc[ledger.game_date == today, "pick_id"].astype(str))
+            played = {r["pick_id"] for r in new_rows if r.get("tier") != "track"} | \
+                set(official(ledger).loc[lambda d: d.game_date == today, "pick_id"].astype(str))
             top = top_edges(cands, played)
             nflag = sum(c["flagged"] for c in cands if c["market"] == "spread")
             log(f"  line-move flag (spread moved >= {LINE_MOVE_PTS:g} pts): {nflag} sides"
@@ -1023,7 +1295,7 @@ def main(argv=None) -> int:
 
     # (e) ledger
     if new_rows:
-        ledger = pd.concat([ledger, pd.DataFrame(new_rows)[LEDGER_COLS[:LEDGER_COLS.index("status") + 1]]], ignore_index=True)
+        ledger = append_picks(ledger, new_rows, now)
     if not a.dry_run:
         write_ledger(ledger)
     # optional Supabase mirror (CSV ledger stays the source of truth)
