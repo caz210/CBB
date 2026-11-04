@@ -10,6 +10,10 @@ export const GAME_STATUS_LABEL = {
 export type Market = keyof typeof MARKET_LABEL;
 export type MarketSource = keyof typeof SOURCE_LABEL;
 export type Tier = keyof typeof TIER_LABEL;
+/** picks.tier: 'official' = staked plays, 'track' = paper-only 1u tracking, never bet. */
+export const PICK_TIER_LABEL = { official: "Official", track: "Tracked" } as const;
+export type PickTier = keyof typeof PICK_TIER_LABEL;
+export const isPickTier = (v: unknown): v is PickTier => v === "official" || v === "track";
 
 /** Tip-off (timestamptz) shown in Central time, e.g. "6:00 PM CT". */
 export function fmtTipoff(iso: string) {
@@ -48,3 +52,23 @@ export const TIER_BADGE: Record<EdgeTier, string> = {
   EDGE: "bg-edge-400/25 text-edge-400 ring-1 ring-edge-400/40",
   VALUE: "bg-edge-400/10 text-edge-400",
 };
+
+/** "Posted 3:12 PM CT · 4h 18m before tip" from logged_at vs tipoff. */
+export function fmtPostedProof(loggedAt: string | null | undefined, tipoff: string | null | undefined) {
+  if (!loggedAt) return null;
+  const t = new Date(loggedAt);
+  if (Number.isNaN(t.getTime())) return null;
+  let s = `Posted ${fmtTipoff(loggedAt)}`;
+  if (tipoff) {
+    const mins = Math.round((new Date(tipoff).getTime() - t.getTime()) / 60000);
+    if (Number.isFinite(mins)) {
+      const a = Math.abs(mins), h = Math.floor(a / 60), m = a % 60;
+      const span = h ? `${h}h ${m}m` : `${m}m`;
+      s += mins >= 0 ? ` · ${span} before tip` : ` · ${span} after tip`;
+    }
+  }
+  return s;
+}
+export const shortHash = (h: string | null | undefined) => (h ? h.slice(0, 8) : null);
+export const fmtClv = (c: number) => `${c > 0 ? "+" : c < 0 ? "−" : ""}${Math.abs(c).toFixed(1)} pts`;
+export const LOCKED_NOTE = "Picks are locked once posted: they can't be edited or deleted.";

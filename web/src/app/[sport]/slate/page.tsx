@@ -71,7 +71,7 @@ export default async function SlatePage({
                 <Link href="/pricing" className="font-semibold text-court-400">Pro</Link> sees them as soon as they post.
               </div>
             )}
-            <SlateBoard games={res.data.games} bets={res.data.bets} />
+            <SlateBoard games={res.data.games} bets={res.data.bets} tracked={res.data.tracked} />
           </>
         )}
       </div>

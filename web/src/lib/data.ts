@@ -4,9 +4,9 @@
 // silently falling back to example numbers.
 import { createSupabaseServerClient } from "./supabase/server";
 import type { Sport } from "./sports";
-import type { Archetypes, LedgerRow, PickRecord, SlateGame, ValueBet } from "./types";
+import type { Archetypes, LedgerRow, SlateGame, TierRecord, ValueBet } from "./types";
 import type { ArchetypeName } from "./archetypes";
-import type { Market, MarketSource } from "./labels";
+import { isPickTier, type Market, type MarketSource, type PickTier } from "./labels";
 
 export type Loaded<T> =
   | { state: "live"; data: T }
@@ -75,6 +75,8 @@ function toValueBet(r: Row): ValueBet {
     prob_edge: num(r.prob_edge) ?? 0,
     line_edge_pct: num(r.line_edge_pct) ?? 0,
     kelly_quarter_units: num(r.kelly_quarter_units),
+    pick_tier: isPickTier(r.tier) ? r.tier : "official",
+    logged_at: r.logged_at ? str(r.logged_at) : null,
   };
 }
 
@@ -91,6 +93,12 @@ function toLedgerRow(r: Row): LedgerRow {
     result: res === "W" || res === "L" || res === "P" ? res : null,
     profit_units: num(r.profit_units),
     is_paper: r.is_paper !== false,
+    pick_tier: isPickTier(r.tier) ? r.tier : "official",
+    flat_units: num(r.flat_units),
+    clv: num(r.clv),
+    created_at: r.created_at ? str(r.created_at) : null,
+    source: str(r.source),
+    pick_hash: r.pick_hash ? str(r.pick_hash) : null,
   };
 }
 
@@ -98,7 +106,10 @@ function toLedgerRow(r: Row): LedgerRow {
 export type SlateData = {
   date: string;
   games: SlateGame[];
+  /** official plays (tier = 'official') */
   bets: ValueBet[];
+  /** paper-only 1u tracking picks (tier = 'track'), never bet */
+  tracked: ValueBet[];
   /** nearest dates with games, offered when the requested date is empty */
   prevDate: string | null;
   nextDate: string | null;
@@ -114,12 +125,15 @@ export async function loadSlate(sport: Sport, date: string): Promise<Loaded<Slat
   const games = (g.data ?? []).map(toSlateGame);
 
   let bets: ValueBet[] = [];
+  let tracked: ValueBet[] = [];
   let prevDate: string | null = null;
   let nextDate: string | null = null;
   if (games.length) {
     const b = await sb.from("value_bets").select("*").eq("sport", sport.key).in("game_id", games.map((x) => x.game_id));
     if (b.error) return fail("value_bets", b.error);
-    bets = (b.data ?? []).map(toValueBet).sort((a, z) => z.line_edge_pct - a.line_edge_pct);
+    const all = (b.data ?? []).map(toValueBet).sort((a, z) => z.line_edge_pct - a.line_edge_pct);
+    bets = all.filter((x) => x.pick_tier === "official");
+    tracked = all.filter((x) => x.pick_tier === "track");
   } else {
     const [n, p] = await Promise.all([
       sb.from("slate_games").select("game_date").eq("sport", sport.key).gt("game_date", date).order("game_date").limit(1),
@@ -128,7 +142,7 @@ export async function loadSlate(sport: Sport, date: string): Promise<Loaded<Slat
     nextDate = n.data?.[0] ? str(n.data[0].game_date) : null;
     prevDate = p.data?.[0] ? str(p.data[0].game_date) : null;
   }
-  return { state: "live", data: { date, games, bets, prevDate, nextDate } };
+  return { state: "live", data: { date, games, bets, tracked, prevDate, nextDate } };
 }
 
 // ---- /[sport]/results -------------------------------------------------------
@@ -136,14 +150,17 @@ export const RANGES = { season: { label: "Season", days: null }, "30d": { label:
 export type RangeKey = keyof typeof RANGES;
 
 export type ResultsData = {
+  tier: PickTier;
   ledger: LedgerRow[];
   gameNames: Record<number, string>;
-  /** per-market season record (pick_record, latest season, all model versions combined) */
-  byMarket: PickRecord[];
+  tipoffs: Record<number, string>;
+  /** per-market season record for the selected tier (tier_record, latest season) */
+  byMarket: TierRecord[];
   season: number | null;
   summary: {
     record: string; wins: number; losses: number; pushes: number; pending: number; graded: number;
     winPct: number | null; roi: number | null; units: number; avgClv: number | null;
+    beatClose: number; clvN: number;
   };
   cumulativeUnits: number[];
 };
@@ -151,79 +168,75 @@ export type ResultsData = {
 const LEDGER_LIMIT = 1000;
 const NAME_LOOKUP_LIMIT = 200;
 
-export async function loadResults(sport: Sport, range: RangeKey): Promise<Loaded<ResultsData>> {
+/** Units for a ledger row: official = ¼-Kelly profit_units; tracked = flat 1u result. */
+export const rowUnits = (r: LedgerRow) => (r.pick_tier === "track" ? r.flat_units ?? r.profit_units : r.profit_units);
+
+export async function loadResults(sport: Sport, range: RangeKey, tier: PickTier): Promise<Loaded<ResultsData>> {
   const sb = await createSupabaseServerClient();
   if (!sb) return { state: "unconfigured" };
 
-  let lq = sb.from("ledger").select("*").eq("sport", sport.key);
+  let lq = sb.from("ledger").select("*").eq("sport", sport.key).eq("tier", tier);
   const days = RANGES[range].days;
   if (days) lq = lq.gte("game_date", shiftDate(todayCT(), -days));
-  const [l, pr] = await Promise.all([
+  const [l, tr] = await Promise.all([
     lq.order("game_date", { ascending: false }).order("game_id", { ascending: false }).limit(LEDGER_LIMIT),
-    sb.from("pick_record").select("*").eq("league", sport.league),
+    sb.from("tier_record").select("*").eq("league", sport.league).eq("tier", tier),
   ]);
   if (l.error) return fail("ledger", l.error);
-  if (pr.error) return fail("pick_record", pr.error);
+  if (tr.error) return fail("tier_record", tr.error);
 
   const ledger = (l.data ?? []).map(toLedgerRow);
 
-  // game names for the rows we show
   const ids = [...new Set(ledger.slice(0, NAME_LOOKUP_LIMIT).map((r) => r.game_id))];
   const gameNames: Record<number, string> = {};
+  const tipoffs: Record<number, string> = {};
   if (ids.length) {
-    const n = await sb.from("slate_games").select("game_id, game").in("game_id", ids);
-    for (const r of n.data ?? []) gameNames[Number(r.game_id)] = str(r.game);
+    const n = await sb.from("slate_games").select("game_id, game, tipoff").in("game_id", ids);
+    for (const r of n.data ?? []) {
+      gameNames[Number(r.game_id)] = str(r.game);
+      if (r.tipoff) tipoffs[Number(r.game_id)] = str(r.tipoff);
+    }
   }
 
-  // pick_record: latest season, combine model versions per market
-  const recs = (pr.data ?? []) as Row[];
+  const recs = (tr.data ?? []) as Row[];
   const season = recs.reduce<number | null>((m, r) => (num(r.season) != null && (m == null || num(r.season)! > m) ? num(r.season) : m), null);
-  const byMarketMap = new Map<string, PickRecord & { clvW: number; clvN: number }>();
-  for (const r of recs) {
-    if (season != null && num(r.season) !== season) continue;
-    const k = str(r.market);
-    const cur = byMarketMap.get(k) ?? {
-      league: str(r.league), season: season ?? 0, model_version: "all", market: k as Market,
-      wins: 0, losses: 0, pushes: 0, pending: 0, staked: 0, pnl: 0, avg_clv: null, clvW: 0, clvN: 0,
-    };
-    const w = num(r.wins) ?? 0, lo = num(r.losses) ?? 0, pu = num(r.pushes) ?? 0;
-    cur.wins += w; cur.losses += lo; cur.pushes += pu; cur.pending += num(r.pending) ?? 0;
-    cur.staked += num(r.staked) ?? 0; cur.pnl += num(r.pnl) ?? 0;
-    const clv = num(r.avg_clv);
-    if (clv != null && w + lo + pu > 0) { cur.clvW += clv * (w + lo + pu); cur.clvN += w + lo + pu; }
-    byMarketMap.set(k, cur);
-  }
   const order: Record<string, number> = { spread: 0, total: 1, moneyline: 2 };
-  const byMarket: PickRecord[] = [...byMarketMap.values()]
-    .map(({ clvW, clvN, ...r }) => ({ ...r, avg_clv: clvN ? clvW / clvN : null }))
+  const byMarket: TierRecord[] = recs
+    .filter((r) => season == null || num(r.season) === season)
+    .map((r) => ({
+      league: str(r.league), season: num(r.season) ?? 0, tier, market: str(r.market) as Market,
+      wins: num(r.wins) ?? 0, losses: num(r.losses) ?? 0, pushes: num(r.pushes) ?? 0, pending: num(r.pending) ?? 0,
+      units: num(r.units) ?? 0, roi: num(r.roi), avg_clv: num(r.avg_clv), beat_close: num(r.beat_close) ?? 0, pnl_dollars: num(r.pnl_dollars),
+    }))
     .sort((a, z) => (order[a.market] ?? 9) - (order[z.market] ?? 9));
 
-  // KPIs from the ledger (respects the selected range); units = 1% of bankroll at pick time
-  let wins = 0, losses = 0, pushes = 0, pending = 0, units = 0, staked = 0;
+  // KPIs from the ledger (respects range and tier)
+  let wins = 0, losses = 0, pushes = 0, pending = 0, units = 0, staked = 0, clvS = 0, clvN = 0, beatClose = 0;
   for (const r of ledger) {
     if (r.result == null) { pending++; continue; }
     if (r.result === "W") wins++; else if (r.result === "L") losses++; else pushes++;
-    units += r.profit_units ?? 0;
-    staked += r.stake_units ?? 0;
+    units += rowUnits(r) ?? 0;
+    staked += tier === "track" ? 1 : r.stake_units ?? 0;
+    if (r.clv != null) { clvS += r.clv; clvN++; if (r.clv > 0) beatClose++; }
   }
-  const clvAll = byMarket.reduce((a, r) => (r.avg_clv != null ? { s: a.s + r.avg_clv * (r.wins + r.losses + r.pushes), n: a.n + r.wins + r.losses + r.pushes } : a), { s: 0, n: 0 });
 
   const cumulativeUnits = [0];
   for (const r of [...ledger].reverse()) {
     if (r.result == null) continue;
-    cumulativeUnits.push(Math.round((cumulativeUnits[cumulativeUnits.length - 1] + (r.profit_units ?? 0)) * 100) / 100);
+    cumulativeUnits.push(Math.round((cumulativeUnits[cumulativeUnits.length - 1] + (rowUnits(r) ?? 0)) * 100) / 100);
   }
 
   return {
     state: "live",
     data: {
-      ledger, gameNames, byMarket, season, cumulativeUnits,
+      tier, ledger, gameNames, tipoffs, byMarket, season, cumulativeUnits,
       summary: {
         record: `${wins}-${losses}-${pushes}`, wins, losses, pushes, pending, graded: wins + losses + pushes,
         winPct: wins + losses ? wins / (wins + losses) : null,
         roi: staked ? units / staked : null,
         units: Math.round(units * 100) / 100,
-        avgClv: clvAll.n ? clvAll.s / clvAll.n : null,
+        avgClv: clvN ? clvS / clvN : null,
+        beatClose, clvN,
       },
     },
   };

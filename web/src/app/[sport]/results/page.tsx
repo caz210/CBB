@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getSport } from "@/lib/sports";
-import { RANGES, loadResults, type RangeKey } from "@/lib/data";
+import { RANGES, loadResults, rowUnits, type RangeKey } from "@/lib/data";
 import type { LedgerRow } from "@/lib/types";
-import { MARKET_LABEL, RESULT_LABEL, fmtGameDate, fmtOdds, fmtUnits, pct, signedPct } from "@/lib/labels";
+import { LOCKED_NOTE, MARKET_LABEL, PICK_TIER_LABEL, RESULT_LABEL, fmtClv, fmtGameDate, fmtOdds, fmtPostedProof, fmtUnits, pct, shortHash, signedPct, type PickTier } from "@/lib/labels";
 import { ComingSoon } from "@/components/ComingSoon";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
@@ -17,7 +17,7 @@ export default async function ResultsPage({
   params, searchParams,
 }: {
   params: Promise<{ sport: string }>;
-  searchParams: Promise<{ range?: string }>;
+  searchParams: Promise<{ range?: string; tier?: string }>;
 }) {
   const { sport: key } = await params;
   const sport = getSport(key);
@@ -26,8 +26,16 @@ export default async function ResultsPage({
 
   const sp = await searchParams;
   const range: RangeKey = sp.range && sp.range in RANGES ? (sp.range as RangeKey) : "season";
-  const res = await loadResults(sport, range);
-  const rangeHref = (r: RangeKey) => (r === "season" ? `/${sport.key}/results` : `/${sport.key}/results?range=${r}`);
+  const tier: PickTier = sp.tier === "track" ? "track" : "official";
+  const res = await loadResults(sport, range, tier);
+  const mkHref = (r: RangeKey, t: PickTier) => {
+    const q = new URLSearchParams();
+    if (t !== "official") q.set("tier", t);
+    if (r !== "season") q.set("range", r);
+    const qs = q.toString();
+    return `/${sport.key}/results${qs ? `?${qs}` : ""}`;
+  };
+  const rangeHref = (r: RangeKey) => mkHref(r, tier);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-5 md:px-6 md:py-10">
@@ -48,9 +56,23 @@ export default async function ResultsPage({
         }
       />
 
+      <div role="tablist" aria-label="Record" className="mt-4 grid grid-cols-2 gap-1 rounded-xl border border-ink-700 bg-ink-900 p-1 md:mt-6 md:inline-grid md:w-auto">
+        {(["official", "track"] as PickTier[]).map((t) => (
+          <Link key={t} role="tab" aria-selected={t === tier} href={mkHref(range, t)}
+            className={`flex min-h-10 items-center justify-center rounded-lg px-5 text-sm font-semibold ${t === tier ? "bg-court-500/15 text-court-400" : "text-zinc-400 hover:bg-ink-800"}`}>
+            {PICK_TIER_LABEL[t]}
+          </Link>
+        ))}
+      </div>
+      <p className="mt-2 text-xs text-zinc-500">
+        {tier === "official"
+          ? "Official plays: the picks CZarp actually stakes (¼-Kelly units)."
+          : "Tracked picks: paper-only, flat 1u, never bet. Logged to test ideas in public."}
+      </p>
+
       <div className="mt-4 rounded-xl border border-sky-400/30 bg-sky-400/5 p-3.5 text-sm text-sky-100/90 md:mt-6 md:p-4">
         <span className="mr-2 rounded bg-sky-400/20 px-1.5 py-0.5 text-[10px] font-bold uppercase text-sky-300">Paper trading</span>
-        This season is paper-traded with notional units, no real money. The full record is public, losses included.
+        This season is paper-traded with notional units, no real money. The full record is public, losses included. {LOCKED_NOTE}
       </div>
 
       {res.state === "unconfigured" ? (
@@ -67,7 +89,7 @@ export default async function ResultsPage({
       ) : res.data.ledger.length === 0 && res.data.byMarket.length === 0 ? (
         <div className="mt-4 md:mt-6">
           <EmptyState
-            title={range === "season" ? "No picks logged yet" : `No picks in the ${RANGES[range].label.toLowerCase()}`}
+            title={range === "season" ? `No ${PICK_TIER_LABEL[tier].toLowerCase()} picks logged yet` : `No picks in the ${RANGES[range].label.toLowerCase()}`}
             body="Picks show up here once their games tip off, and they're graded after the final score. Check back after tonight's games."
             actions={[
               { href: `/${sport.key}/slate`, label: "See today's slate" },
@@ -92,14 +114,14 @@ function Live({ data, range }: { data: Extract<Awaited<ReturnType<typeof loadRes
         <Kpi label="Win %" value={s.winPct == null ? "—" : pct(s.winPct, 1)} sub="Break-even at −110: 52.4%" />
         <Kpi label="ROI" value={s.roi == null ? "—" : signedPct(s.roi)} good={s.roi != null && s.roi > 0} />
         <Kpi label="Units" value={s.graded ? fmtUnits(s.units, 1) : "—"} good={s.units > 0} />
-        <Kpi label="Avg CLV" value={s.avgClv == null ? "—" : `${s.avgClv > 0 ? "+" : ""}${s.avgClv.toFixed(2)} pts`} sub={`${s.graded} graded · season`} good={s.avgClv != null && s.avgClv > 0} />
+        <Kpi label="Avg CLV" value={s.avgClv == null ? "—" : `${s.avgClv > 0 ? "+" : ""}${s.avgClv.toFixed(2)} pts`} sub={s.clvN ? `Beat close ${s.beatClose}/${s.clvN}` : `${s.graded} graded`} good={s.avgClv != null && s.avgClv > 0} />
       </div>
 
       <div className="mt-4 grid gap-4 md:mt-6 md:gap-6 lg:grid-cols-[1.4fr_1fr]">
         <div className="card p-4 md:p-5">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="font-bold">Cumulative units</h2>
-            <span className="text-xs text-zinc-500">¼-Kelly · paper · {RANGES[range].label}</span>
+            <span className="text-xs text-zinc-500">{data.tier === "track" ? "flat 1u" : "¼-Kelly"} · paper · {RANGES[range].label}</span>
           </div>
           {data.cumulativeUnits.length >= 3 ? (
             <UnitsChart data={data.cumulativeUnits} />
@@ -110,19 +132,20 @@ function Live({ data, range }: { data: Extract<Awaited<ReturnType<typeof loadRes
           )}
         </div>
         <div className="card p-4 md:p-5">
-          <h2 className="mb-2 font-bold">By market{data.season ? <span className="ml-2 text-xs font-normal text-zinc-500">{data.season - 1}–{String(data.season).slice(2)} season</span> : null}</h2>
+          <h2 className="mb-2 font-bold">{PICK_TIER_LABEL[data.tier]} by market{data.season ? <span className="ml-2 text-xs font-normal text-zinc-500">{data.season - 1}–{String(data.season).slice(2)} season</span> : null}</h2>
           {data.byMarket.length === 0 ? (
             <p className="py-3 text-sm text-zinc-500">No graded picks yet.</p>
           ) : (
             <div className="divide-y divide-ink-700/60">
               {data.byMarket.map((r) => {
-                const roi = r.staked ? r.pnl / r.staked : null;
+                const roi = r.roi;
                 const decided = r.wins + r.losses;
                 return (
                   <div key={r.market} className="flex items-center justify-between py-3 text-sm">
                     <div>
                       <div className="font-semibold">{MARKET_LABEL[r.market] ?? r.market}</div>
-                      <div className="font-mono text-xs text-zinc-500">{r.wins}-{r.losses}-{r.pushes} · {r.pending} pending</div>
+                      <div className="font-mono text-xs text-zinc-500">{r.wins}-{r.losses}-{r.pushes} · {r.pending} pending · {fmtUnits(r.units, 1)}</div>
+                      {r.avg_clv != null && <div className="font-mono text-[11px] text-zinc-600">CLV {fmtClv(r.avg_clv)} · beat close {r.beat_close}</div>}
                     </div>
                     <div className="text-right font-mono">
                       <div>{decided ? pct(r.wins / decided, 1) : "—"}</div>
@@ -150,14 +173,17 @@ function Live({ data, range }: { data: Extract<Awaited<ReturnType<typeof loadRes
             {/* phone: card list */}
             <ul className="space-y-2 md:hidden">
               {rows.map((r, i) => (
-                <li key={i} className="card flex items-center gap-3 p-3.5">
-                  <ResultPill r={r.result} />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-semibold">{r.pick}</div>
-                    <div className="truncate text-xs text-zinc-500">{data.gameNames[r.game_id] ?? `Game #${r.game_id}`}</div>
-                    <div className="mt-0.5 font-mono text-[11px] text-zinc-500">{fmtGameDate(r.game_date)} · {r.odds == null ? "—" : fmtOdds(r.odds)} · {r.stake_units == null ? "—" : `${r.stake_units.toFixed(2)}u`}</div>
+                <li key={r.pick_hash ?? i} className="card p-3.5">
+                  <div className="flex items-center gap-3">
+                    <ResultPill r={r.result} />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-semibold">{r.pick}</div>
+                      <div className="truncate text-xs text-zinc-500">{data.gameNames[r.game_id] ?? `Game #${r.game_id}`}</div>
+                      <div className="mt-0.5 font-mono text-[11px] text-zinc-500">{fmtGameDate(r.game_date)} · {r.odds == null ? "—" : fmtOdds(r.odds)} · {stakeLabel(r)}{r.clv != null ? ` · CLV ${fmtClv(r.clv)}` : ""}</div>
+                    </div>
+                    <PL v={rowUnits(r)} pending={r.result == null} />
                   </div>
-                  <PL v={r.profit_units} pending={r.result == null} />
+                  <Proof r={r} tipoff={data.tipoffs[r.game_id]} />
                 </li>
               ))}
             </ul>
@@ -169,19 +195,20 @@ function Live({ data, range }: { data: Extract<Awaited<ReturnType<typeof loadRes
                   <tr>
                     <th className="px-5 py-2.5">Date</th><th className="py-2.5">Game</th><th className="py-2.5">Pick</th>
                     <th className="py-2.5 text-right">Odds</th><th className="py-2.5 text-right">Stake</th>
-                    <th className="py-2.5 text-center">Result</th><th className="px-5 py-2.5 text-right">P/L</th>
+                    <th className="py-2.5 text-right">CLV</th><th className="py-2.5 text-center">Result</th><th className="px-5 py-2.5 text-right">P/L</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map((r, i) => (
-                    <tr key={i} className="border-t border-ink-700/60 hover:bg-ink-850">
+                    <tr key={r.pick_hash ?? i} className="border-t border-ink-700/60 hover:bg-ink-850">
                       <td className="px-5 py-3 text-zinc-400">{fmtGameDate(r.game_date)}</td>
                       <td className="py-3 text-zinc-300">{data.gameNames[r.game_id] ?? `Game #${r.game_id}`}</td>
-                      <td className="py-3 font-semibold">{r.pick}</td>
+                      <td className="py-3"><div className="font-semibold">{r.pick}</div><Proof r={r} tipoff={data.tipoffs[r.game_id]} inline /></td>
                       <td className="py-3 text-right font-mono text-zinc-400">{r.odds == null ? "—" : fmtOdds(r.odds)}</td>
-                      <td className="py-3 text-right font-mono">{r.stake_units == null ? "—" : `${r.stake_units.toFixed(2)}u`}</td>
+                      <td className="py-3 text-right font-mono">{stakeLabel(r)}</td>
+                      <td className="py-3 text-right font-mono text-zinc-400">{r.clv == null ? "—" : fmtClv(r.clv)}</td>
                       <td className="py-3 text-center"><ResultPill r={r.result} /></td>
-                      <td className="px-5 py-3 text-right"><PL v={r.profit_units} pending={r.result == null} /></td>
+                      <td className="px-5 py-3 text-right"><PL v={rowUnits(r)} pending={r.result == null} /></td>
                     </tr>
                   ))}
                 </tbody>
@@ -191,6 +218,23 @@ function Live({ data, range }: { data: Extract<Awaited<ReturnType<typeof loadRes
         )}
       </section>
     </>
+  );
+}
+
+function stakeLabel(r: LedgerRow) {
+  if (r.pick_tier === "track") return "1u flat";
+  return r.stake_units == null ? "—" : `${r.stake_units.toFixed(2)}u`;
+}
+/** Verifiable-record line: posted time vs tip-off + short pick hash. */
+function Proof({ r, tipoff, inline }: { r: LedgerRow; tipoff?: string; inline?: boolean }) {
+  const posted = fmtPostedProof(r.created_at, tipoff);
+  const h = shortHash(r.pick_hash);
+  if (!posted && !h) return null;
+  return (
+    <div className={`${inline ? "mt-0.5" : "mt-2 border-t border-ink-700/50 pt-2"} flex flex-wrap items-center gap-x-2 text-[11px] text-zinc-500`}>
+      {posted && <span>🔒 {posted}</span>}
+      {h && <span className="font-mono text-zinc-600" title={r.pick_hash ?? undefined}>#{h}</span>}
+    </div>
   );
 }
 

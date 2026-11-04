@@ -3,7 +3,7 @@
 // Shared by the live loaders (src/lib/data.ts) and the example fallback (example-data.ts).
 import type { SportKey } from "./sports";
 import type { ArchetypeName } from "./archetypes";
-import type { Market, MarketSource, Tier } from "./labels";
+import type { Market, MarketSource, PickTier, Tier } from "./labels";
 
 // ---- view: slate_games -----------------------------------------------------
 export type Archetypes = {
@@ -47,6 +47,8 @@ export type ValueBet = {
   prob_edge: number; // model_prob - market_prob
   line_edge_pct: number; // |CZarp line - Vegas line| / Vegas line; drives VALUE/EDGE/HOT tiers
   kelly_quarter_units: number | null; // 1u = 1% of bankroll
+  pick_tier?: PickTier; // 'official' (staked) or 'track' (paper-only 1u)
+  logged_at?: string | null; // timestamptz the pick was posted
 };
 
 // ---- view: ledger ----------------------------------------------------------
@@ -61,6 +63,12 @@ export type LedgerRow = {
   result: "W" | "L" | "P" | null; // null = pending
   profit_units: number | null;
   is_paper: boolean;
+  pick_tier?: PickTier;
+  flat_units?: number | null; // 1u flat-stake result
+  clv?: number | null; // closing line value, points
+  created_at?: string | null; // posted at (immutable)
+  source?: string;
+  pick_hash?: string | null;
 };
 
 // ---- view: pick_record (aggregated per market) ------------------------------
@@ -76,6 +84,13 @@ export type PickRecord = {
   staked: number;
   pnl: number;
   avg_clv: number | null;
+};
+
+// ---- view: tier_record (per league/season/tier/market) ---------------------
+export type TierRecord = {
+  league: string; season: number; tier: PickTier; market: Market;
+  wins: number; losses: number; pushes: number; pending: number;
+  units: number; roi: number | null; avg_clv: number | null; beat_close: number; pnl_dollars: number | null;
 };
 
 // ---- tables: profiles / user_models ---------------------------------------
