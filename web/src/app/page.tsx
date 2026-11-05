@@ -3,15 +3,23 @@ import { ExampleBadge, ExampleBanner } from "@/components/ExampleBadge";
 import { ArchetypeChip } from "@/components/ArchetypeChip";
 import { EXAMPLE_SLATE, EXAMPLE_VALUE_BETS, EXAMPLE_PICK_RECORD, summarize } from "@/lib/example-data";
 import { MARKET_LABEL, edgeTier, fmtLine, fmtTipoff, pct, signedPct } from "@/lib/labels";
-import { SPORTS } from "@/lib/sports";
+import { SPORTS, getSport } from "@/lib/sports";
+import { loadHero, type Hero } from "@/lib/data";
+import { RESULT_LABEL, fmtGameDate, fmtPostedProof, fmtUnits } from "@/lib/labels";
 
-export default function Landing() {
+// Hero shows today's top official play, so render per request.
+export const dynamic = "force-dynamic";
+
+export default async function Landing() {
+  const cbb = getSport("cbb");
+  const heroRes = cbb ? await loadHero(cbb) : null;
+  const hero = heroRes?.state === "live" ? heroRes.data : null;
   const g = EXAMPLE_SLATE[0];
   const v = EXAMPLE_VALUE_BETS.find((b) => b.game_id === g.game_id)!;
   const s = summarize(EXAMPLE_PICK_RECORD);
   return (
     <div>
-      <ExampleBanner />
+      {!hero && <ExampleBanner />}
       <section className="grid-bg relative overflow-hidden border-b border-ink-700/60">
         <div className="pointer-events-none absolute -top-40 left-1/2 h-[500px] w-[900px] -translate-x-1/2 rounded-full bg-court-500/15 blur-3xl" />
         <div className="relative mx-auto grid max-w-7xl gap-8 px-4 py-10 md:gap-12 md:px-6 md:py-24 lg:grid-cols-[1.1fr_1fr] lg:items-center">
@@ -38,6 +46,7 @@ export default function Landing() {
             </div>
           </div>
 
+          {hero ? <LiveHero hero={hero} /> : (
           <div className="card relative p-4 shadow-2xl shadow-black/50 md:p-5">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Tonight · {fmtTipoff(g.tipoff!)}</span>
@@ -70,6 +79,7 @@ export default function Landing() {
               </div>
             </div>
           </div>
+          )}
         </div>
       </section>
 
@@ -127,5 +137,58 @@ function Big({ label, value }: { label: string; value: string }) {
       <div className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</div>
       <div className="text-lg font-bold md:text-2xl">{value}</div>
     </div>
+  );
+}
+
+function LiveHero({ hero }: { hero: Hero }) {
+  if (hero.kind === "today") {
+    const { game: g, bet: v } = hero;
+    const tier = edgeTier(v.line_edge_pct, v.market);
+    return (
+      <Link href="/cbb/slate?sort=value" className="card relative block p-4 shadow-2xl shadow-black/50 md:p-5">
+        <div className="mb-2 flex items-center justify-between text-xs">
+          <span className="font-semibold uppercase tracking-wider text-edge-400">Top play today</span>
+          <span className="text-zinc-500">{g.tipoff ? fmtTipoff(g.tipoff) : "Tip TBD"}</span>
+        </div>
+        {[{ n: g.away, p: g.proj_away, tags: g.archetypes.away, t: g.archetypes.away_tentative }, { n: g.home, p: g.proj_home, tags: g.archetypes.home, t: g.archetypes.home_tentative }].map((r) => (
+          <div key={r.n} className="flex items-center justify-between gap-3 border-b border-ink-700/60 py-3 last:border-0">
+            <div className="min-w-0">
+              <div className="font-semibold">{r.n}</div>
+              {r.tags.length > 0 && <div className="mt-1.5 flex flex-wrap gap-1">{r.tags.map((a) => <ArchetypeChip key={a} name={a} tentative={r.t} />)}</div>}
+            </div>
+            <div className="font-mono text-2xl font-bold">{r.p == null ? "—" : r.p.toFixed(1)}</div>
+          </div>
+        ))}
+        <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-edge-400/30 bg-edge-400/10 px-4 py-3">
+          <div className="min-w-0">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-edge-400">{tier ?? "Official"} · {MARKET_LABEL[v.market]}</div>
+            <div className="truncate text-sm font-semibold">{v.side}</div>
+            {v.logged_at && <div className="text-[10px] text-zinc-500">🔒 {fmtPostedProof(v.logged_at, g.tipoff)}</div>}
+          </div>
+          <div className="shrink-0 text-right text-xs text-zinc-400">
+            Line edge <b className="text-edge-400">{pct(v.line_edge_pct, 1)}</b><br />¼-Kelly <b className="text-white">{v.kelly_quarter_units == null ? "—" : `${v.kelly_quarter_units.toFixed(2)}u`}</b>
+          </div>
+        </div>
+      </Link>
+    );
+  }
+  const r = hero.row;
+  const tone = r.result === "W" ? "text-edge-400" : r.result === "L" ? "text-red-400" : "text-zinc-300";
+  return (
+    <Link href="/cbb/results" className="card relative block p-4 shadow-2xl shadow-black/50 md:p-5">
+      <div className="mb-2 flex items-center justify-between text-xs">
+        <span className="font-semibold uppercase tracking-wider text-zinc-400">{hero.when === "yesterday" ? "Yesterday's top play" : "Latest graded play"}</span>
+        <span className="text-zinc-500">{fmtGameDate(r.game_date)}</span>
+      </div>
+      {hero.game && <div className="text-sm text-zinc-400">{hero.game}</div>}
+      <div className="mt-1 text-xl font-bold">{r.pick}{r.line != null ? ` ${fmtLine(r.line)}` : ""}</div>
+      <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+        <Mini label="Result" value={r.result ? RESULT_LABEL[r.result] : "Pending"} />
+        <Mini label="Stake" value={r.stake_units == null ? "—" : `${r.stake_units.toFixed(2)}u`} />
+        <Mini label="P/L" value={r.profit_units == null ? "—" : fmtUnits(r.profit_units)} />
+      </div>
+      {r.result && <div className={`mt-3 text-center text-sm font-semibold ${tone}`}>{RESULT_LABEL[r.result]}</div>}
+      {r.logged_at && <div className="mt-2 text-[11px] text-zinc-500">🔒 {fmtPostedProof(r.logged_at, null)}</div>}
+    </Link>
   );
 }

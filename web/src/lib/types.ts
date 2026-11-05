@@ -34,6 +34,24 @@ export type SlateGame = {
   market_spread: number | null;
   market_total: number | null;
   market_source: MarketSource | null;
+  /** game is final, or a pick on it has been graded */
+  completed?: boolean;
+  /** extra detail for the game sheet; fields are null when not published */
+  insight?: GameInsight;
+};
+export type GameInsight = {
+  proj_home: number | null;
+  proj_away: number | null;
+  home_win_prob: number | null;
+  home_cover_prob: number | null;
+  over_prob: number | null;
+  neutral: boolean;
+  open_spread: number | null; // Vegas, home-line notation
+  cur_spread: number | null;
+  open_total: number | null;
+  cur_total: number | null;
+  reason: string | null; // projections.reason (may not exist yet)
+  proj_possessions: number | null; // projections.proj_possessions (may not exist yet)
 };
 
 // ---- view: value_bets ------------------------------------------------------
