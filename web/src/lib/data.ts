@@ -4,7 +4,7 @@
 // silently falling back to example numbers.
 import { createSupabaseServerClient } from "./supabase/server";
 import type { Sport } from "./sports";
-import type { Archetypes, LedgerRow, SlateGame, TierRecord, ValueBet } from "./types";
+import type { Archetypes, GameInsight, LedgerRow, SlateGame, TierRecord, ValueBet } from "./types";
 import type { ArchetypeName } from "./archetypes";
 import { isPickTier, type Market, type MarketSource, type PickTier } from "./labels";
 
@@ -134,6 +134,19 @@ export async function loadSlate(sport: Sport, date: string): Promise<Loaded<Slat
     if (b.error) return fail("value_bets", b.error);
     const all = (b.data ?? []).map(toValueBet).sort((a, z) => z.line_edge_pct - a.line_edge_pct);
     bets = all.filter((x) => x.pick_tier === "official");
+    // Completed = games.status 'final' or any graded pick in the ledger. Best-effort: a failure here
+    // just means nothing is marked completed.
+    const ids = games.map((x) => x.game_id);
+    const [st, gr] = await Promise.all([
+      sb.from("games").select("id,status").in("id", ids),
+      sb.from("ledger").select("game_id,result").in("game_id", ids).not("result", "is", null),
+    ]);
+    const done = new Set<number>();
+    for (const r of st.data ?? []) if (str(r.status) === "final") done.add(Number(r.id));
+    for (const r of gr.data ?? []) done.add(Number(r.game_id));
+    for (const x of games) x.completed = done.has(x.game_id);
+    const ins = await loadInsights(sb, ids);
+    for (const x of games) x.insight = ins.get(x.game_id);
     tracked = all.filter((x) => x.pick_tier === "track");
   } else {
     const [n, p] = await Promise.all([
@@ -144,6 +157,86 @@ export async function loadSlate(sport: Sport, date: string): Promise<Loaded<Slat
     prevDate = p.data?.[0] ? str(p.data[0].game_date) : null;
   }
   return { state: "live", data: { date, games, bets, tracked, prevDate, nextDate } };
+}
+
+type SB = NonNullable<Awaited<ReturnType<typeof createSupabaseServerClient>>>;
+
+/** Per-game sheet detail. `select *` on projections so reason / proj_possessions are picked up
+ *  automatically once CZarp adds them, without breaking before then. Never throws. */
+async function loadInsights(sb: SB, ids: number[]): Promise<Map<number, GameInsight>> {
+  const out = new Map<number, GameInsight>();
+  try {
+    const [cfg, pr, ml, gm] = await Promise.all([
+      sb.from("model_configs").select("model_version").eq("is_default", true),
+      sb.from("projections").select("*").in("game_id", ids).order("created_at", { ascending: false }),
+      sb.from("market_lines").select("game_id,source,line_type,spread,total,fetched_at").in("game_id", ids).eq("source", "vegas").order("fetched_at", { ascending: false }),
+      sb.from("games").select("id,neutral").in("id", ids),
+    ]);
+    const defaults = new Set((cfg.data ?? []).map((r) => str(r.model_version)));
+    const proj = new Map<number, Row>();
+    for (const r of (pr.data ?? []) as Row[]) {
+      const id = Number(r.game_id);
+      const cur = proj.get(id);
+      // newest row wins, but a default-model row beats a non-default one
+      if (!cur || (!defaults.has(str(cur.model_version)) && defaults.has(str(r.model_version)))) proj.set(id, r);
+    }
+    const lines = new Map<string, Row>(); // newest snapshot per game + line_type
+    for (const r of (ml.data ?? []) as Row[]) {
+      const k = `${r.game_id}:${r.line_type}`;
+      if (!lines.has(k)) lines.set(k, r);
+    }
+    const neutral = new Map((gm.data ?? []).map((r) => [Number(r.id), r.neutral === true]));
+    for (const id of ids) {
+      const p = proj.get(id) ?? {};
+      const o = lines.get(`${id}:open`), c = lines.get(`${id}:current`);
+      out.set(id, {
+        proj_home: num(p.proj_home), proj_away: num(p.proj_away),
+        home_win_prob: num(p.home_win_prob), home_cover_prob: num(p.home_cover_prob), over_prob: num(p.over_prob),
+        neutral: neutral.get(id) ?? false,
+        open_spread: num(o?.spread), cur_spread: num(c?.spread), open_total: num(o?.total), cur_total: num(c?.total),
+        reason: typeof p.reason === "string" && p.reason.trim() ? p.reason.trim() : null,
+        proj_possessions: num(p.proj_possessions),
+      });
+    }
+  } catch { /* sheet just shows less */ }
+  return out;
+}
+
+// ---- landing hero -----------------------------------------------------------
+export type Hero =
+  | { kind: "today"; game: SlateGame; bet: ValueBet }
+  | { kind: "graded"; when: "yesterday" | "latest"; row: LedgerRow; game: string | null };
+
+/** Top official play today (highest line edge); else yesterday's top official pick with its result;
+ *  else the latest graded official pick. Tracked picks are never used. */
+export async function loadHero(sport: Sport): Promise<Loaded<Hero | null>> {
+  const sb = await createSupabaseServerClient();
+  if (!sb) return { state: "unconfigured" };
+  const today = todayCT();
+  const g = await sb.from("slate_games").select("*").eq("sport", sport.key).eq("game_date", today);
+  if (g.error) return fail("slate_games", g.error);
+  const games = (g.data ?? []).map(toSlateGame);
+  if (games.length) {
+    const b = await sb.from("value_bets").select("*").eq("sport", sport.key).eq("tier", "official")
+      .in("game_id", games.map((x) => x.game_id)).order("line_edge_pct", { ascending: false }).limit(1);
+    if (b.error) return fail("value_bets", b.error);
+    const bet = b.data?.[0] ? toValueBet(b.data[0]) : null;
+    const game = bet && games.find((x) => x.game_id === bet.game_id);
+    if (bet && game) return { state: "live", data: { kind: "today", game, bet } };
+  }
+  const pick = async (q: PromiseLike<{ data: Row[] | null; error: { message: string } | null }>, when: "yesterday" | "latest") => {
+    const r = await q;
+    const row = r.data?.[0] ? toLedgerRow(r.data[0]) : null;
+    if (!row) return null;
+    const n = await sb.from("slate_games").select("game").eq("game_id", row.game_id).limit(1);
+    return { kind: "graded" as const, when, row, game: n.data?.[0] ? str(n.data[0].game) : null };
+  };
+  const y = await pick(sb.from("ledger").select("*").eq("sport", sport.key).eq("tier", "official")
+    .eq("game_date", shiftDate(today, -1)).order("stake_units", { ascending: false, nullsFirst: false }).limit(1), "yesterday");
+  if (y) return { state: "live", data: y };
+  const l = await pick(sb.from("ledger").select("*").eq("sport", sport.key).eq("tier", "official")
+    .not("result", "is", null).order("game_date", { ascending: false }).order("stake_units", { ascending: false, nullsFirst: false }).limit(1), "latest");
+  return { state: "live", data: l };
 }
 
 // ---- /[sport]/results -------------------------------------------------------

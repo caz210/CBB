@@ -15,7 +15,7 @@ export default async function SlatePage({
   params, searchParams,
 }: {
   params: Promise<{ sport: string }>;
-  searchParams: Promise<{ date?: string }>;
+  searchParams: Promise<{ date?: string; sort?: string; hide?: string }>;
 }) {
   const { sport: key } = await params;
   const sport = getSport(key);
@@ -26,7 +26,16 @@ export default async function SlatePage({
   const today = todayCT();
   const date = isIsoDate(sp.date) ? sp.date : today;
   const res = await loadSlate(sport, date);
-  const href = (d: string) => (d === today ? `/${sport.key}/slate` : `/${sport.key}/slate?date=${d}`);
+  const sort = sp.sort === "value" ? "value" : "time";
+  const hide = sp.hide === "1";
+  const href = (d: string) => {
+    const q = new URLSearchParams();
+    if (d !== today) q.set("date", d);
+    if (sort === "value") q.set("sort", "value");
+    if (hide) q.set("hide", "1");
+    const qs = q.toString();
+    return `/${sport.key}/slate${qs ? `?${qs}` : ""}`;
+  };
   const navBtn = "flex min-h-10 flex-1 items-center justify-center rounded-lg border border-ink-600 px-3 text-zinc-300 hover:bg-ink-800 md:flex-none";
 
   return (
@@ -35,7 +44,7 @@ export default async function SlatePage({
         badge={res.state === "live" ? "live" : "none"}
         eyebrow={`${sport.long} · Slate`}
         title={`${fmtGameDate(date)}${date === today ? " · Today" : ""}`}
-        sub="Model projections update each morning. Tap a value bet for the edge and stake."
+        sub="Model projections update each morning. Tap a game for insights, or a value bet for the edge and stake."
         right={
           <nav className="flex gap-2 text-sm" aria-label="Slate date">
             <Link href={href(shiftDate(date, -1))} className={navBtn}>‹ Prev</Link>
@@ -67,11 +76,10 @@ export default async function SlatePage({
           <>
             {res.data.bets.length === 0 && (
               <div className="mb-4 rounded-xl border border-ink-700 bg-ink-900 px-3.5 py-3 text-sm text-zinc-400">
-                No value bets are showing for this slate. Picks unlock at tip-off on the Free plan;{" "}
-                <Link href="/pricing" className="font-semibold text-court-400">Pro</Link> sees them as soon as they post.
+                No value bets are showing for this slate yet.
               </div>
             )}
-            <SlateBoard games={res.data.games} bets={res.data.bets} tracked={res.data.tracked} />
+            <SlateBoard games={res.data.games} bets={res.data.bets} tracked={res.data.tracked} sort={sort} hide={hide} />
           </>
         )}
       </div>

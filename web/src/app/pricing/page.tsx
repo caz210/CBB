@@ -6,7 +6,7 @@ const TIERS = [
     key: "free", name: "Free", price: "$0", period: "forever",
     blurb: "Follow along while the model earns its track record.",
     cta: "Create free account", href: "/signup",
-    features: ["Daily CBB slate: score, spread, total", "Win & cover probabilities", "Team archetype tags", "Full public results ledger", "Value bets revealed at tip-off", "1 saved custom model"],
+    features: ["Daily CBB slate: score, spread, total", "Win & cover probabilities", "Team archetype tags", "Full public results ledger", "All value bets as soon as they post", "1 saved custom model"],
   },
   {
     key: "pro", name: "Pro", price: "$—", period: "/ mo (TBD)",
@@ -25,7 +25,7 @@ const TIERS = [
 const COMPARE: [string, string, string][] = [
   ["Daily slate & projections", "✓", "✓"],
   ["Public results ledger", "✓", "✓"],
-  ["Value bets", "At tip-off", "Before tip"],
+  ["Value bets", "As posted", "As posted"],
   ["¼-Kelly stakes", "—", "✓"],
   ["Saved custom models", "1", "Unlimited"],
   ["Alerts", "—", "✓"],
