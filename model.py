@@ -594,6 +594,8 @@ def project_game(
         "team2_win_prob":    float(1 - p1),
         "team1_tags":        list(g1.get("tags_display", g1["tags"])),
         "team2_tags":        list(g2.get("tags_display", g2["tags"])),
+        "team1_tag_objs":    list(g1.get("tag_objs_display", g1.get("tag_objs", []))),
+        "team2_tag_objs":    list(g2.get("tag_objs_display", g2.get("tag_objs", []))),
         "tags_tentative":    bool(g1.get("tentative", False)) or bool(g2.get("tentative", False)),
         "early_season_fill": cfg.early.style_fill,
         "matchup_notes":     notes1 + [f"{n2}: {x}" for x in notes2] if notes2 else notes1,

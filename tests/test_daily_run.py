@@ -45,9 +45,13 @@ def test_feature_config_parsing_and_custom_features():
 
 
 def test_archetypes_strip_tentative():
-    a = dr.archetypes({"team1_tags": ["Arc Wall (tentative)", "Track Meet"], "team2_tags": ["Lock Down"],
-                       "tags_tentative": True, "matchup_notes": []})
-    assert a["away"] == ["Arc Wall", "Track Meet"] and a["home"] == ["Lock Down"]
+    a = dr.archetypes({
+        "team1_tag_objs": [{"name": "Crowd 3s", "kind": "strength", "tentative": True},
+                           {"name": "Fast", "kind": "strength", "tentative": True}],
+        "team2_tag_objs": [{"name": "Wall", "kind": "strength"}],
+        "tags_tentative": True, "matchup_notes": []})
+    assert a["away"] == [{"name": "Crowd 3s", "kind": "strength"}, {"name": "Fast", "kind": "strength"}]
+    assert a["home"] == [{"name": "Wall", "kind": "strength"}]
     assert a["away_tentative"] and not a["home_tentative"] and a["tentative"]
 
 

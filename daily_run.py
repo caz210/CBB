@@ -421,13 +421,38 @@ TENTATIVE_SUFFIX = " (tentative)"
 
 
 def archetypes(r: dict) -> dict:
-    """Model tag names (display suffix stripped) + per-team tentative flags for the front end."""
-    def split(tags):
-        tags = list(tags or [])
-        return [t[:-len(TENTATIVE_SUFFIX)] if t.endswith(TENTATIVE_SUFFIX) else t for t in tags], \
-            any(t.endswith(TENTATIVE_SUFFIX) for t in tags)
-    away, at = split(r.get("team1_tags"))       # team1 = away in project_all
-    home, ht = split(r.get("team2_tags"))
+    """Tag chips for the front end: list of {name, kind} (max 2), plus tentative flags/notes.
+
+    `home`/`away` are objects with name+kind (strength|weakness|style). Legacy string lists
+    are still accepted as input from the model via team*_tag_objs / team*_tags.
+    """
+    def objs_from(r, side_objs_key, side_tags_key):
+        objs = list(r.get(side_objs_key) or [])
+        if objs:
+            out, tent = [], False
+            for o in objs:
+                if isinstance(o, dict):
+                    name = o.get("name", "")
+                    kind = o.get("kind", "strength")
+                    t = bool(o.get("tentative"))
+                else:
+                    name, kind, t = str(o), "strength", False
+                if name.endswith(TENTATIVE_SUFFIX):
+                    name = name[:-len(TENTATIVE_SUFFIX)]; t = True
+                out.append({"name": name, "kind": kind})
+                tent = tent or t
+            return out, tent
+        # fallback: plain name strings
+        tags = list(r.get(side_tags_key) or [])
+        out, tent = [], False
+        for t in tags:
+            name = t
+            if name.endswith(TENTATIVE_SUFFIX):
+                name = name[:-len(TENTATIVE_SUFFIX)]; tent = True
+            out.append({"name": name, "kind": "strength"})
+        return out, tent
+    away, at = objs_from(r, "team1_tag_objs", "team1_tags")  # team1 = away
+    home, ht = objs_from(r, "team2_tag_objs", "team2_tags")
     return {"home": home, "away": away, "home_tentative": ht, "away_tentative": at,
             "tentative": bool(r.get("tags_tentative", False)) or ht or at, "notes": r.get("matchup_notes", [])}
 
@@ -435,11 +460,13 @@ def archetypes(r: dict) -> dict:
 def project_all(games: list[dict], data: dict) -> None:
     import model as M
     import czarp.legacy_v1 as V1
+    from czarp import teamstats as TS
     from backtest import NameMatcher
     match = NameMatcher(data["ratings"]["TeamName"].astype(str))
+    ctx = None
     try:
-        tt = M._context(data, data["config"])["tt"]
-        v1data = v1_frames(tt)
+        ctx = M._context(data, data["config"])
+        v1data = v1_frames(ctx["tt"])
     except Exception as e:
         log(f"  v1 inputs unavailable ({type(e).__name__}: {e}) — totals rule disabled")
         v1data = None
@@ -456,6 +483,24 @@ def project_all(games: list[dict], data: dict) -> None:
             g["v2_home_win_prob"] = 1 - float(r.get("team1_win_prob", 0.5))
             g["model_version"] = r.get("model_version", "czarp-v2")
             g["archetype_tags"] = archetypes(r)
+            g["proj_possessions"] = float(r.get("pace_raw") or r.get("projected_pace") or 0) or None
+            vegas = g.get("current_home_spread")
+            if vegas is None:
+                vegas = g.get("open_home_spread")
+            upset, ureason = False, ""
+            if ctx is not None:
+                upset, ureason = TS.upset_alert(
+                    h, a, ctx["tags"], float(g["v2_home_margin"]),
+                    float(vegas) if vegas is not None else None,
+                    home_win_prob=g.get("v2_home_win_prob"))
+            g["upset_alert"] = bool(upset)
+            g["upset_reason"] = ureason or None
+            home_names = [x["name"] for x in g["archetype_tags"]["home"]]
+            away_names = [x["name"] for x in g["archetype_tags"]["away"]]
+            g["reason"] = TS.projection_reason(
+                h, a, home_names, away_names, g.get("proj_possessions"),
+                matchup_notes=g["archetype_tags"].get("notes"),
+                upset=upset, upset_reason=ureason)
         except Exception as e:
             g["skip"] = f"v2 failed: {e}"
             continue
@@ -1258,6 +1303,7 @@ def main(argv=None) -> int:
     new_rows = []
     top = []
     data = None
+    nc = {}
     if games:
         # (a) data
         try:
@@ -1346,7 +1392,8 @@ def main(argv=None) -> int:
             else:
                 from czarp.config import load_config
                 cfg = load_config()
-            n = sync(games, ledger, cfg, now, log=log)
+            n = sync(games, ledger, cfg, now, log=log, data=data,
+                     new_coach=nc if data is not None else None)
             log(f"  Supabase: synced {n}")
         except Exception as e:
             log(f"  Supabase sync failed ({type(e).__name__}: {e}) — CSV ledger unaffected")

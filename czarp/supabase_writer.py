@@ -1,9 +1,10 @@
 """Optional Supabase mirror for daily_run.py (outputs only; CSV ledger is the source of truth).
 
 Runs only when SUPABASE_URL and SUPABASE_SERVICE_KEY are set. Talks to the PostgREST API
-(/rest/v1) with plain `requests` — no extra dependency. Writes: model_configs, teams, games,
-projections (v2 + v1 totals; spreads/totals/scores rounded to 0.1, the site rounds to 0.5 for display), market_lines (DK open/current, Kalshi board), picks (full ledger
-upsert, so grading updates flow through). Schema: db/schema.sql. The key is never logged.
+(/rest/v1) with plain `requests` — no extra dependency. Writes: model_configs, teams, games, team_profiles (daily Four Factors stamp),
+projections (v2 + v1 totals; reason / proj_possessions / upset_alert; spreads/totals rounded to 0.1),
+market_lines (DK open/current, Kalshi board), picks (full ledger upsert).
+Schema: db/schema.sql + db/migrations/. The key is never logged.
 """
 from __future__ import annotations
 
@@ -138,7 +139,8 @@ def _ncdf(x: float) -> float:
     return 0.5 * (1 + math.erf(x / math.sqrt(2)))
 
 
-def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print, client: Client | None = None) -> str:
+def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print, client: Client | None = None,
+         data: dict | None = None, new_coach: dict | None = None) -> str:
     c = client or Client()
     sport = c.get("sports", code=f"eq.{SPORT}", select="id")
     if not sport:
@@ -165,6 +167,57 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
     names = sorted({g["kp_home"] for g in gl} | {g["kp_away"] for g in gl})
     teams = c.upsert("teams", [{**base, "season": season, "name": n} for n in names], on_conflict="league,name")
     tid = {t["name"]: t["id"] for t in teams}
+
+    # team_profiles: stamp every D-I team for today (as_of = America/Chicago date of `now`)
+    n_profiles = 0
+    if data is not None and season is not None:
+        try:
+            import model as M
+            from czarp import teamstats as TS
+            ctx = M._context(data, cfg)
+            as_of = now.astimezone(_CT).date().isoformat()
+            # Ensure ALL D-I teams exist so profiles can FK
+            all_names = sorted(ctx["tt"].index.astype(str))
+            missing = [n for n in all_names if n not in tid]
+            if missing:
+                extra = c.upsert("teams", [{**base, "season": season, "name": n} for n in missing],
+                                 on_conflict="league,name")
+                tid.update({t["name"]: t["id"] for t in extra})
+            profiles = TS.build_team_profiles(
+                ctx["tt"], ctx["tags"], as_of=as_of, season=season,
+                hca_df=data.get("hca"), new_coach=new_coach or {})
+            prows = []
+            for pr in profiles:
+                teid = tid.get(pr["name"])
+                if teid is None:
+                    continue
+                f = pr["factors"]
+                prows.append({
+                    "team_id": teid, **base, "season": pr["season"], "as_of": pr["as_of"],
+                    "games_played": pr["games_played"], "tentative": pr["tentative"],
+                    "efg": f.get("efg"), "efg_pctile": f.get("efg_pctile"),
+                    "d_efg": f.get("d_efg"), "d_efg_pctile": f.get("d_efg_pctile"),
+                    "to_pct": f.get("to_pct"), "to_pct_pctile": f.get("to_pct_pctile"),
+                    "d_to_pct": f.get("d_to_pct"), "d_to_pct_pctile": f.get("d_to_pct_pctile"),
+                    "or_pct": f.get("or_pct"), "or_pct_pctile": f.get("or_pct_pctile"),
+                    "opp_or_pct": f.get("opp_or_pct"), "opp_or_pct_pctile": f.get("opp_or_pct_pctile"),
+                    "ftr": f.get("ftr"), "ftr_pctile": f.get("ftr_pctile"),
+                    "d_ftr": f.get("d_ftr"), "d_ftr_pctile": f.get("d_ftr_pctile"),
+                    "tempo": f.get("tempo"), "tempo_pctile": f.get("tempo_pctile"),
+                    "fg3a_rate": f.get("fg3a_rate"), "fg3a_rate_pctile": f.get("fg3a_rate_pctile"),
+                    "fg3_pct": f.get("fg3_pct"), "fg3_pct_pctile": f.get("fg3_pct_pctile"),
+                    "opp_fg3_pct": f.get("opp_fg3_pct"), "opp_fg3_pct_pctile": f.get("opp_fg3_pct_pctile"),
+                    "ft_pct": f.get("ft_pct"), "ft_pct_pctile": f.get("ft_pct_pctile"),
+                    "adj_oe": pr.get("adj_oe"), "adj_de": pr.get("adj_de"), "hca": pr.get("hca"),
+                    "tags": pr.get("tags") or [], "tags_all": pr.get("tags_all") or [],
+                    "new_coach": bool(pr.get("new_coach")),
+                    "new_coach_games": pr.get("new_coach_games"),
+                    "created_at": ts,
+                })
+            c.upsert("team_profiles", prows, on_conflict="team_id,as_of", returning=False)
+            n_profiles = len(prows)
+        except Exception as e:
+            log(f"  team_profiles stamp skipped ({type(e).__name__}: {e})")
 
     def status(g):
         if g.get("completed"):
@@ -209,7 +262,12 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
                      "home_win_prob": round(g.get("v2_home_win_prob", _ncdf(hm / msd)), 4),
                      "home_cover_prob": round(_ncdf((hm + L) / msd), 4) if L is not None else None,
                      "over_prob": round(1 - _ncdf((MT - T) / tsd), 4) if MT is not None else None,
-                     "archetype_tags": g.get("archetype_tags", {}), "created_at": ts})
+                     "archetype_tags": g.get("archetype_tags", {}),
+                     "reason": g.get("reason"),
+                     "proj_possessions": round(g["proj_possessions"], 1) if g.get("proj_possessions") is not None else None,
+                     "upset_alert": bool(g.get("upset_alert")),
+                     "upset_reason": g.get("upset_reason"),
+                     "created_at": ts})
         if g.get("v1_total") is not None:
             t1, m1 = g["v1_total"], g.get("v1_home_margin")
             proj.append({**base, "season": _season(g["game_date"]), "game_id": gid[str(g["event_id"])],
@@ -284,4 +342,5 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
         log(f"  Supabase: {len(stale)} published picks are not in the local ledger (kept; picks are immutable): "
             + ", ".join(stale[:5]))
     return (f"{len(grows)} games, {len(proj)} projections, {len(ml)} market lines, {len(pk)} picks"
+            + (f", {n_profiles} team_profiles" if n_profiles else "")
             + (f", {len(stale)} published picks not in ledger" if stale else ""))

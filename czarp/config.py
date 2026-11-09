@@ -70,18 +70,18 @@ class MatchupConfig:
     # opponent that is in the BOTTOM top_pct of the same defensive stat ("weakness"),
     # it gains `exploit` pts. FIT all of these.
     counter: dict = field(default_factory=lambda: {
-        "Addicted to 3s|Arc Wall": 0.75,
-        "Board Crashers|No Rebounds for You": 0.75,
-        "Don't Blink|Lock Down": 0.5,
-        "Free Throw Merchants|Lock Down": 0.25,
+        "Volume 3s|Crowd 3s": 0.75,
+        "Crash|Control Glass": 0.75,
+        "Fast|Wall": 0.5,
+        "At the Line|Wall": 0.25,
     })
     exploit: dict = field(default_factory=lambda: {
-        "Addicted to 3s|Arc Wall": 0.5,
-        "Board Crashers|No Rebounds for You": 0.5,
-        "Don't Blink|Lock Down": 0.25,
-        "Free Throw Merchants|Lock Down": 0.25,
+        "Volume 3s|Crowd 3s": 0.5,
+        "Crash|Control Glass": 0.5,
+        "Fast|Wall": 0.25,
+        "At the Line|Wall": 0.25,
     })
-    # Turnover Machine defense vs a careless offense (bottom 15% TO%)
+    # Disrupt defense vs a Careless offense (high TO%)
     turnover_machine_vs_careless: float = 0.5
     max_adj: float = 2.0             # cap on total matchup swing per team (points)
 
