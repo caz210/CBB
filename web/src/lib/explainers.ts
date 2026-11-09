@@ -2,7 +2,7 @@
 export const EXPLAINERS = {
   edge: {
     title: "Edge",
-    body: "How far the market price is from our fair value, as a percent of the line. Bigger edge means a better price — not a guaranteed win. Judge it over hundreds of bets.",
+    body: "The gap between our number and the Vegas price, as a share of the expected total score. Example: we like a team by 4.5 more points than Vegas, and the total is 154.5 → edge ≈ 2.9%. Bigger edge means a better price — not a guaranteed win. Judge it over hundreds of bets.",
   },
   fairValue: {
     title: "Fair value",

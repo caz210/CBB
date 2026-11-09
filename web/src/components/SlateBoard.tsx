@@ -146,20 +146,29 @@ function Star({ filled, className = "h-4 w-4" }: { filled: boolean; className?: 
   );
 }
 
-/** Headline edge for a game: best posted play, else computed fair-vs-price (muted). */
-function headlineEdge(g: SlateGame, bets: ValueBet[]): { pct: number; muted: boolean; tier: ReturnType<typeof edgeTier>; fromBet: ValueBet | null } {
+/**
+ * Headline edge: posted value_bet.line_edge_pct wins; else CZarp formula
+ * |fair − price| ÷ Vegas total (same denom for sides and totals). Below threshold → muted.
+ */
+function headlineEdge(g: SlateGame, bets: ValueBet[]): {
+  pct: number; muted: boolean; tier: ReturnType<typeof edgeTier>; fromBet: ValueBet | null; market: "spread" | "total" | "moneyline" | null;
+} {
   if (bets.length) {
     const best = bets.reduce((a, b) => (b.line_edge_pct > a.line_edge_pct ? b : a));
-    return { pct: best.line_edge_pct, muted: edgeTier(best.line_edge_pct, best.market) == null, tier: edgeTier(best.line_edge_pct, best.market), fromBet: best };
+    const tier = edgeTier(best.line_edge_pct, best.market);
+    return { pct: best.line_edge_pct, muted: tier == null, tier, fromBet: best, market: best.market };
   }
-  const edges = [
-    computedLineEdge(g.proj_spread, g.market_spread),
-    computedLineEdge(g.proj_total, g.market_total),
-  ].filter((x): x is number => x != null);
-  if (!edges.length) return { pct: 0, muted: true, tier: null, fromBet: null };
-  const pctVal = Math.max(...edges);
-  // No market when computing — treat as muted informational edge
-  return { pct: pctVal, muted: true, tier: null, fromBet: null };
+  // Denom is always Vegas total (never the spread line — that explodes near pick'em).
+  const total = g.market_total ?? g.proj_total;
+  const candidates: { pct: number; market: "spread" | "total" }[] = [];
+  const s = computedLineEdge(g.proj_spread, g.market_spread, total);
+  if (s != null) candidates.push({ pct: s, market: "spread" });
+  const tot = computedLineEdge(g.proj_total, g.market_total, g.market_total ?? total);
+  if (tot != null) candidates.push({ pct: tot, market: "total" });
+  if (!candidates.length) return { pct: 0, muted: true, tier: null, fromBet: null, market: null };
+  const best = candidates.reduce((a, b) => (b.pct > a.pct ? b : a));
+  const tier = edgeTier(best.pct, best.market);
+  return { pct: best.pct, muted: tier == null, tier, fromBet: null, market: best.market };
 }
 
 function GameCard({ g, bets, watched, onWatch, onOpen, onGame }: {
@@ -172,7 +181,7 @@ function GameCard({ g, bets, watched, onWatch, onOpen, onGame }: {
     { side: "Home", name: g.home, proj: g.proj_home, win: g.home_win_prob, cover: g.home_cover_prob, tags: g.archetypes.home, tent: g.archetypes.home_tentative },
   ];
   const edge = headlineEdge(g, bets);
-  const hasEdge = bets.length > 0 || edge.pct > 0;
+  const hasEdge = edge.fromBet != null || edge.market != null;
   return (
     <article
       role="button" tabIndex={0} aria-label={`Insights for ${g.game}`}
@@ -201,7 +210,7 @@ function GameCard({ g, bets, watched, onWatch, onOpen, onGame }: {
             {edge.tier && <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold normal-case tracking-normal ${TIER_BADGE[edge.tier]}`}>{edge.tier}</span>}
           </div>
           <div className="mt-0.5 truncate text-sm font-semibold text-zinc-300">
-            {edge.fromBet ? edge.fromBet.side : g.game}
+            {edge.fromBet ? edge.fromBet.side : edge.market ? `${edge.market === "spread" ? "Spread" : edge.market === "total" ? "Total" : "ML"} · fair vs price` : g.game}
           </div>
         </div>
         <div className={`shrink-0 font-mono text-4xl font-black leading-none ${!hasEdge ? "text-zinc-700" : edge.muted ? "text-zinc-500" : "text-edge-400"}`}>
@@ -360,7 +369,7 @@ function GameSheet({ g, bets, onClose }: { g: SlateGame | null; bets: ValueBet[]
   const move = (o: number | null, c: number | null) => (o == null || c == null ? "—" : c === o ? "No move" : `${c > o ? "+" : "−"}${Math.abs(c - o).toFixed(1)}`);
   const hw = i?.home_win_prob ?? g.home_win_prob, hc = i?.home_cover_prob ?? g.home_cover_prob, ov = i?.over_prob ?? null;
   const edge = headlineEdge(g, bets);
-  const hasEdge = bets.length > 0 || edge.pct > 0;
+  const hasEdge = edge.fromBet != null || edge.market != null;
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center" role="dialog" aria-modal="true" aria-label={`${g.game} insights`}>
       <button aria-label="Close" onClick={onClose} className="absolute inset-0 bg-black/70" />
@@ -376,7 +385,7 @@ function GameSheet({ g, bets, onClose }: { g: SlateGame | null; bets: ValueBet[]
               <TermLabel term="edge">Edge</TermLabel>
               {edge.tier && <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold normal-case tracking-normal ${TIER_BADGE[edge.tier]}`}>{edge.tier}</span>}
             </div>
-            <div className="mt-0.5 text-sm text-zinc-400">{edge.fromBet ? edge.fromBet.side : "Fair value vs price"}</div>
+            <div className="mt-0.5 text-sm text-zinc-400">{edge.fromBet ? edge.fromBet.side : edge.market ? `${edge.market === "spread" ? "Spread" : edge.market === "total" ? "Total" : "ML"} · fair vs price` : "Fair value vs price"}</div>
           </div>
           <div className={`font-mono text-4xl font-black ${!hasEdge ? "text-zinc-700" : edge.muted ? "text-zinc-500" : "text-edge-400"}`}>
             {hasEdge ? pct(edge.pct, 1) : "—"}
