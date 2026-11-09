@@ -5,8 +5,9 @@
 import { createSupabaseServerClient } from "./supabase/server";
 import type { Sport } from "./sports";
 import type { Archetypes, GameInsight, LedgerRow, SlateGame, TierRecord, ValueBet } from "./types";
-import { portfolioRisk, type PortfolioRisk } from "./portfolio";
-import { parseTagList } from "./archetypes";
+import { portfolioRisk, computedLineEdge, type PortfolioRisk } from "./portfolio";
+import { parseTagList, type ArchetypeTag } from "./archetypes";
+import { teamSlug, type ModelGrade, type TeamModelRecord, type TeamProfile } from "./teams";
 import { isPickTier, type Market, type MarketSource, type PickTier } from "./labels";
 
 export type Loaded<T> =
@@ -350,4 +351,160 @@ export async function loadResults(sport: Sport, range: RangeKey, tier: PickTier)
 function fail(view: string, error: { message: string; code?: string }): { state: "error" } {
   console.error(`[supabase] ${view}: ${error.code ?? ""} ${error.message}`);
   return { state: "error" };
+}
+
+// ---- /[sport]/team/[slug] -------------------------------------------------
+
+export type TeamPageData = {
+  profile: TeamProfile | null;
+  record: TeamModelRecord | null;
+  grades: ModelGrade[];
+  next: (SlateGame & { edgePct: number | null; edgeMarket: "spread" | "total" | null }) | null;
+  tags: ArchetypeTag[];
+};
+
+function toProfile(r: Row): TeamProfile {
+  return {
+    team_id: Number(r.team_id),
+    team_name: str(r.team_name),
+    season: num(r.season) ?? 0,
+    as_of: r.as_of ? str(r.as_of) : null,
+    games_played: num(r.games_played),
+    tentative: r.tentative === true,
+    new_coach: r.new_coach === true,
+    new_coach_games: num(r.new_coach_games),
+    efg_pctile: num(r.efg_pctile),
+    d_efg_pctile: num(r.d_efg_pctile),
+    to_pct_pctile: num(r.to_pct_pctile),
+    d_to_pct_pctile: num(r.d_to_pct_pctile),
+    or_pct_pctile: num(r.or_pct_pctile),
+    opp_or_pct_pctile: num(r.opp_or_pct_pctile),
+    ftr_pctile: num(r.ftr_pctile),
+    d_ftr_pctile: num(r.d_ftr_pctile),
+    tempo_pctile: num(r.tempo_pctile),
+    fg3a_rate_pctile: num(r.fg3a_rate_pctile),
+    fg3_pct_pctile: num(r.fg3_pct_pctile),
+    opp_fg3_pct_pctile: num(r.opp_fg3_pct_pctile),
+    ft_pct_pctile: num(r.ft_pct_pctile),
+    adj_oe: num(r.adj_oe),
+    adj_de: num(r.adj_de),
+    hca: num(r.hca),
+    tags: r.tags,
+    tags_all: r.tags_all,
+  };
+}
+
+function toRecord(r: Row): TeamModelRecord {
+  const n0 = (v: unknown) => num(v) ?? 0;
+  return {
+    team_id: Number(r.team_id),
+    team_name: str(r.team_name),
+    season: n0(r.season),
+    model_ats_wins: n0(r.model_ats_wins),
+    model_ats_losses: n0(r.model_ats_losses),
+    model_ats_pushes: n0(r.model_ats_pushes),
+    model_ou_wins: n0(r.model_ou_wins),
+    model_ou_losses: n0(r.model_ou_losses),
+    model_ou_pushes: n0(r.model_ou_pushes),
+    official_wins: n0(r.official_wins),
+    official_losses: n0(r.official_losses),
+    official_pushes: n0(r.official_pushes),
+    official_ats_wins: n0(r.official_ats_wins),
+    official_ats_losses: n0(r.official_ats_losses),
+    official_ou_wins: n0(r.official_ou_wins),
+    official_ou_losses: n0(r.official_ou_losses),
+  };
+}
+
+function toGrade(r: Row): ModelGrade {
+  return {
+    game_id: Number(r.game_id),
+    game_date: str(r.game_date),
+    home: str(r.home),
+    away: str(r.away),
+    home_team_id: num(r.home_team_id),
+    away_team_id: num(r.away_team_id),
+    home_score: num(r.home_score),
+    away_score: num(r.away_score),
+    status: r.status ? str(r.status) : null,
+    model_spread: num(r.model_spread),
+    model_total: num(r.model_total),
+    vegas_spread: num(r.vegas_spread),
+    vegas_total: num(r.vegas_total),
+    model_ats_side: r.model_ats_side ? str(r.model_ats_side) : null,
+    model_ou_side: r.model_ou_side ? str(r.model_ou_side) : null,
+    model_ats_result: r.model_ats_result ? str(r.model_ats_result) : null,
+    model_ou_result: r.model_ou_result ? str(r.model_ou_result) : null,
+    actual_ats_cover: r.actual_ats_cover ? str(r.actual_ats_cover) : null,
+    actual_ou: r.actual_ou ? str(r.actual_ou) : null,
+  };
+}
+
+/** Resolve team by numeric id or name slug; load profile, record, grades, next slate game. */
+export async function loadTeam(sport: Sport, slug: string): Promise<Loaded<TeamPageData | null>> {
+  const sb = await createSupabaseServerClient();
+  if (!sb) return { state: "unconfigured" };
+
+  const isId = /^\d+$/.test(slug);
+  let teamId: number | null = isId ? Number(slug) : null;
+  let teamName: string | null = null;
+
+  if (teamId != null) {
+    const t = await sb.from("teams").select("id,name").eq("id", teamId).eq("league", sport.league).limit(1);
+    if (t.error) return fail("teams", t.error);
+    if (t.data?.[0]) teamName = str(t.data[0].name);
+  } else {
+    // Match slug against teams.name (league-scoped). Fetch candidates — names are unique enough per league.
+    const t = await sb.from("teams").select("id,name").eq("league", sport.league).limit(500);
+    if (t.error) return fail("teams", t.error);
+    const hit = (t.data ?? []).find((r) => teamSlug(str(r.name)) === slug);
+    if (hit) { teamId = Number(hit.id); teamName = str(hit.name); }
+  }
+
+  if (teamId == null || !teamName) {
+    // Fall back: profile view may have a name the teams table missed
+    const p = await sb.from("team_profile_latest").select("*").eq("league", sport.league).limit(500);
+    if (p.error) return fail("team_profile_latest", p.error);
+    const hit = (p.data ?? []).find((r) => (isId ? Number(r.team_id) === Number(slug) : teamSlug(str(r.team_name)) === slug));
+    if (!hit) return { state: "live", data: null };
+    teamId = Number(hit.team_id);
+    teamName = str(hit.team_name);
+  }
+
+  const [pr, rec, gr, nx] = await Promise.all([
+    sb.from("team_profile_latest").select("*").eq("team_id", teamId).limit(1),
+    sb.from("team_model_record").select("*").eq("team_id", teamId).limit(1),
+    sb.from("model_grades").select("*").or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
+      .order("game_date", { ascending: false }).limit(40),
+    // Filter by name in JS — PostgREST .or() breaks on apostrophes (St. John's).
+    sb.from("slate_games").select("*").eq("sport", sport.key).gte("game_date", todayCT())
+      .order("game_date", { ascending: true }).order("tipoff", { ascending: true, nullsFirst: false }).limit(120),
+  ]);
+  if (pr.error) return fail("team_profile_latest", pr.error);
+  if (rec.error) return fail("team_model_record", rec.error);
+  if (gr.error) return fail("model_grades", gr.error);
+  if (nx.error) return fail("slate_games", nx.error);
+
+  const profile = pr.data?.[0] ? toProfile(pr.data[0] as Row) : null;
+  const record = rec.data?.[0] ? toRecord(rec.data[0] as Row) : null;
+  const grades = (gr.data ?? []).map((r) => toGrade(r as Row));
+  const tags = parseTagList(profile?.tags ?? [], profile?.tentative ?? false);
+
+  let next: TeamPageData["next"] = null;
+  const nextRow = (nx.data ?? []).find((r) => str(r.home) === teamName || str(r.away) === teamName);
+  if (nextRow) {
+    const g = toSlateGame(nextRow as Row);
+    const total = g.market_total ?? g.proj_total;
+    const spreadE = computedLineEdge(g.proj_spread, g.market_spread, total);
+    const totalE = computedLineEdge(g.proj_total, g.market_total, g.market_total ?? total);
+    let edgePct: number | null = null;
+    let edgeMarket: "spread" | "total" | null = null;
+    if (spreadE != null || totalE != null) {
+      if ((spreadE ?? -1) >= (totalE ?? -1)) { edgePct = spreadE; edgeMarket = "spread"; }
+      else { edgePct = totalE; edgeMarket = "total"; }
+    }
+    next = { ...g, edgePct, edgeMarket };
+  }
+
+  return { state: "live", data: { profile, record, grades, next, tags } };
 }
