@@ -2,13 +2,13 @@
 //   slate_games, value_bets, ledger, pick_record, profiles, user_models.
 // Shared by the live loaders (src/lib/data.ts) and the example fallback (example-data.ts).
 import type { SportKey } from "./sports";
-import type { ArchetypeName } from "./archetypes";
+import type { ArchetypeTag } from "./archetypes";
 import type { Market, MarketSource, PickTier, Tier } from "./labels";
 
 // ---- view: slate_games -----------------------------------------------------
 export type Archetypes = {
-  home: ArchetypeName[];
-  away: ArchetypeName[];
+  home: ArchetypeTag[];
+  away: ArchetypeTag[];
   home_tentative: boolean;
   away_tentative: boolean;
   tentative: boolean;
@@ -34,6 +34,10 @@ export type SlateGame = {
   market_spread: number | null;
   market_total: number | null;
   market_source: MarketSource | null;
+  reason?: string | null;
+  proj_possessions?: number | null;
+  upset_alert?: boolean;
+  upset_reason?: string | null;
   /** game is final, or a pick on it has been graded */
   completed?: boolean;
   /** extra detail for the game sheet; fields are null when not published */
@@ -50,8 +54,10 @@ export type GameInsight = {
   cur_spread: number | null;
   open_total: number | null;
   cur_total: number | null;
-  reason: string | null; // projections.reason (may not exist yet)
-  proj_possessions: number | null; // projections.proj_possessions (may not exist yet)
+  reason: string | null;
+  proj_possessions: number | null;
+  upset_alert?: boolean;
+  upset_reason?: string | null;
 };
 
 // ---- view: value_bets ------------------------------------------------------
