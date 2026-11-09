@@ -5,6 +5,7 @@
 import { createSupabaseServerClient } from "./supabase/server";
 import type { Sport } from "./sports";
 import type { Archetypes, GameInsight, LedgerRow, SlateGame, TierRecord, ValueBet } from "./types";
+import { portfolioRisk, type PortfolioRisk } from "./portfolio";
 import type { ArchetypeName } from "./archetypes";
 import { isPickTier, type Market, type MarketSource, type PickTier } from "./labels";
 
@@ -256,6 +257,7 @@ export type ResultsData = {
     winPct: number | null; roi: number | null; units: number; avgClv: number | null;
     beatClose: number; clvN: number;
   };
+  risk: PortfolioRisk;
   cumulativeUnits: number[];
 };
 
@@ -324,6 +326,7 @@ export async function loadResults(sport: Sport, range: RangeKey, tier: PickTier)
     state: "live",
     data: {
       tier, ledger, gameNames, tipoffs, byMarket, season, cumulativeUnits,
+      risk: portfolioRisk(ledger),
       summary: {
         record: `${wins}-${losses}-${pushes}`, wins, losses, pushes, pending, graded: wins + losses + pushes,
         winPct: wins + losses ? wins / (wins + losses) : null,

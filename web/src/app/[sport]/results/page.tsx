@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getSport } from "@/lib/sports";
@@ -7,6 +8,7 @@ import { LOCKED_NOTE, MARKET_LABEL, PICK_TIER_LABEL, RESULT_LABEL, fmtClv, fmtGa
 import { ComingSoon } from "@/components/ComingSoon";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
+import { TermLabel } from "@/components/InfoTip";
 
 // Live data: render per request (fresh picks every request).
 export const dynamic = "force-dynamic";
@@ -41,9 +43,9 @@ export default async function ResultsPage({
     <div className="mx-auto max-w-7xl px-4 py-5 md:px-6 md:py-10">
       <PageHeader
         badge={res.state === "live" ? "live" : "none"}
-        eyebrow={`${sport.long} · Results`}
-        title="Every pick, graded in public"
-        sub="Picks lock before tip-off and are graded from final scores. Nothing is deleted."
+        eyebrow={`${sport.long} · Portfolio`}
+        title="The book, treated like a portfolio"
+        sub="Buy at value. Grade every pick in public. Judge results over hundreds of bets — not one night."
         right={
           <nav className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 text-sm md:mx-0 md:px-0" aria-label="Date range">
             {(Object.keys(RANGES) as RangeKey[]).map((r) => (
@@ -56,7 +58,7 @@ export default async function ResultsPage({
         }
       />
 
-      <div role="tablist" aria-label="Record" className="mt-4 grid grid-cols-2 gap-1 rounded-xl border border-ink-700 bg-ink-900 p-1 md:mt-6 md:inline-grid md:w-auto">
+      <div role="tablist" aria-label="Portfolio" className="mt-4 grid grid-cols-2 gap-1 rounded-xl border border-ink-700 bg-ink-900 p-1 md:mt-6 md:inline-grid md:w-auto">
         {(["official", "track"] as PickTier[]).map((t) => (
           <Link key={t} role="tab" aria-selected={t === tier} href={mkHref(range, t)}
             className={`flex min-h-10 items-center justify-center rounded-lg px-5 text-sm font-semibold ${t === tier ? "bg-court-500/15 text-court-400" : "text-zinc-400 hover:bg-ink-800"}`}>
@@ -66,13 +68,13 @@ export default async function ResultsPage({
       </div>
       <p className="mt-2 text-xs text-zinc-500">
         {tier === "official"
-          ? "Official plays: the picks CZarp actually stakes (¼-Kelly units)."
-          : "Tracked picks: paper-only, flat 1u, never bet. Logged to test ideas in public."}
+          ? "Official portfolio: the picks CZarp actually stakes (¼-Kelly units)."
+          : "Tracked picks: paper-only, flat 1u, never bet. Logged to test ideas in public — not the official portfolio."}
       </p>
 
       <div className="mt-4 rounded-xl border border-sky-400/30 bg-sky-400/5 p-3.5 text-sm text-sky-100/90 md:mt-6 md:p-4">
         <span className="mr-2 rounded bg-sky-400/20 px-1.5 py-0.5 text-[10px] font-bold uppercase text-sky-300">Paper trading</span>
-        This season is paper-traded with notional units, no real money. The full record is public, losses included. {LOCKED_NOTE}
+        This season is paper-traded with notional units, no real money. The full record is public, losses and drawdowns included. {LOCKED_NOTE}
       </div>
 
       {res.state === "unconfigured" ? (
@@ -82,7 +84,7 @@ export default async function ResultsPage({
         </div>
       ) : res.state === "error" ? (
         <div className="mt-4 md:mt-6">
-          <EmptyState tone="warn" title="Couldn't load results"
+          <EmptyState tone="warn" title="Couldn't load portfolio"
             body="The data service didn't respond. Please refresh in a minute."
             actions={[{ href: rangeHref(range), label: "Try again" }]} />
         </div>
@@ -106,16 +108,49 @@ export default async function ResultsPage({
 
 function Live({ data, range }: { data: Extract<Awaited<ReturnType<typeof loadResults>>, { state: "live" }>["data"]; range: RangeKey }) {
   const s = data.summary;
+  const risk = data.risk;
   const rows = data.ledger.slice(0, SHOWN_ROWS);
+  const hasClv = s.clvN > 0;
+  const streakLabel = risk.currentStreak.result == null
+    ? "—"
+    : `${risk.currentStreak.n}${risk.currentStreak.result}`;
   return (
     <>
       <div className="mt-4 grid grid-cols-2 gap-3 md:mt-6 md:grid-cols-5 md:gap-4">
         <Kpi label="Record (W-L-P)" value={s.record} sub={s.pending ? `${s.pending} pending` : undefined} wide />
         <Kpi label="Win %" value={s.winPct == null ? "—" : pct(s.winPct, 1)} sub="Break-even at −110: 52.4%" />
         <Kpi label="ROI" value={s.roi == null ? "—" : signedPct(s.roi)} good={s.roi != null && s.roi > 0} />
-        <Kpi label="Units" value={s.graded ? fmtUnits(s.units, 1) : "—"} good={s.units > 0} />
-        <Kpi label="Avg CLV" value={s.avgClv == null ? "—" : `${s.avgClv > 0 ? "+" : ""}${s.avgClv.toFixed(2)} pts`} sub={s.clvN ? `Beat close ${s.beatClose}/${s.clvN}` : `${s.graded} graded`} good={s.avgClv != null && s.avgClv > 0} />
+        <Kpi label="Units P/L" value={s.graded ? fmtUnits(s.units, 1) : "—"} good={s.units > 0} />
+        <Kpi
+          label={<TermLabel term="clv">Avg CLV</TermLabel>}
+          value={hasClv && s.avgClv != null ? `${s.avgClv > 0 ? "+" : ""}${s.avgClv.toFixed(2)} pts` : "—"}
+          sub={hasClv ? `Beat close ${s.beatClose}/${s.clvN}` : "Closing lines logged"}
+          good={s.avgClv != null && s.avgClv > 0}
+        />
       </div>
+
+      {/* Variance — record page only */}
+      <section className="card mt-4 p-4 md:mt-6 md:p-5" aria-label="Variance">
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="flex items-center gap-1.5 font-bold">
+            <TermLabel term="variance">Variance</TermLabel>
+          </h2>
+          <span className="text-xs text-zinc-500">Shown only here · swings are normal</span>
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          <RiskStat label="Max drawdown" value={s.graded ? `−${risk.maxDrawdown.toFixed(1)}u` : "—"} hint="Peak to trough" />
+          <RiskStat label="Longest losing streak" value={s.graded ? String(risk.longestLosingStreak) : "—"} hint="Consecutive L" />
+          <RiskStat
+            label="Current streak"
+            value={streakLabel}
+            hint={risk.currentStreak.result === "W" ? "Winning" : risk.currentStreak.result === "L" ? "Losing" : "No graded picks"}
+            tone={risk.currentStreak.result === "W" ? "good" : risk.currentStreak.result === "L" ? "bad" : undefined}
+          />
+        </div>
+        <p className="mt-3 text-xs leading-relaxed text-zinc-500">
+          A +EV book still loses nights. Drawdowns and streaks are part of buying value — judge the portfolio over hundreds of bets.
+        </p>
+      </section>
 
       <div className="mt-4 grid gap-4 md:mt-6 md:gap-6 lg:grid-cols-[1.4fr_1fr]">
         <div className="card p-4 md:p-5">
@@ -160,6 +195,27 @@ function Live({ data, range }: { data: Extract<Awaited<ReturnType<typeof loadRes
         </div>
       </div>
 
+      {/* CLV detail */}
+      <section className="card mt-4 p-4 md:mt-6 md:p-5">
+        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="flex items-center gap-1.5 font-bold">
+            <TermLabel term="clv">Closing line value</TermLabel>
+          </h2>
+          <span className="text-xs text-zinc-500">{hasClv ? `${s.clvN} graded with close` : "Pipeline live"}</span>
+        </div>
+        {hasClv ? (
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+            <RiskStat label="Avg CLV" value={s.avgClv == null ? "—" : fmtClv(s.avgClv)} hint="Points vs close" tone={s.avgClv != null && s.avgClv > 0 ? "good" : s.avgClv != null && s.avgClv < 0 ? "bad" : undefined} />
+            <RiskStat label="Beat close" value={`${s.beatClose}/${s.clvN}`} hint="Picks better than close" />
+            <RiskStat label="Hit rate" value={s.clvN ? pct(s.beatClose / s.clvN, 0) : "—"} hint="Share with +CLV" className="col-span-2 md:col-span-1" />
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-ink-700 px-4 py-6 text-center text-sm text-zinc-500">
+            Closing line value is wired up — waiting on graded closes in this range. Once closes land, avg CLV and beat-close show here.
+          </div>
+        )}
+      </section>
+
       <section className="mt-4 md:mt-6">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="font-bold">Pick ledger</h2>
@@ -170,7 +226,6 @@ function Live({ data, range }: { data: Extract<Awaited<ReturnType<typeof loadRes
           <p className="card p-4 text-sm text-zinc-500">No picks in this range.</p>
         ) : (
           <>
-            {/* phone: card list */}
             <ul className="space-y-2 md:hidden">
               {rows.map((r, i) => (
                 <li key={r.pick_hash ?? i} className="card p-3.5">
@@ -188,7 +243,6 @@ function Live({ data, range }: { data: Extract<Awaited<ReturnType<typeof loadRes
               ))}
             </ul>
 
-            {/* tablet/desktop: table (scrolls horizontally if squeezed) */}
             <div className="card hidden overflow-x-auto md:block">
               <table className="w-full min-w-[720px] text-sm">
                 <thead className="bg-ink-850 text-left text-[11px] uppercase tracking-wider text-zinc-500">
@@ -225,7 +279,6 @@ function stakeLabel(r: LedgerRow) {
   if (r.pick_tier === "track") return "1u flat";
   return r.stake_units == null ? "—" : `${r.stake_units.toFixed(2)}u`;
 }
-/** Verifiable-record line: posted time vs tip-off + short pick hash. */
 function Proof({ r, tipoff, inline }: { r: LedgerRow; tipoff?: string; inline?: boolean }) {
   const posted = fmtPostedProof(r.logged_at ?? r.created_at, tipoff);
   const h = shortHash(r.pick_hash);
@@ -250,12 +303,21 @@ function PL({ v, pending }: { v: number | null; pending?: boolean }) {
   if (pending || v == null) return <span className="font-mono text-xs text-amber-300">Pending</span>;
   return <span className={`font-mono text-sm font-semibold ${v > 0 ? "text-edge-400" : v < 0 ? "text-fade-400" : "text-zinc-500"}`}>{fmtUnits(v)}</span>;
 }
-function Kpi({ label, value, sub, good, wide }: { label: string; value: string; sub?: string; good?: boolean; wide?: boolean }) {
+function Kpi({ label, value, sub, good, wide }: { label: ReactNode; value: string; sub?: string; good?: boolean; wide?: boolean }) {
   return (
     <div className={`card p-3.5 md:p-4 ${wide ? "col-span-2 md:col-span-1" : ""}`}>
       <div className="text-[10px] uppercase tracking-wider text-zinc-500 md:text-[11px]">{label}</div>
       <div className={`mt-1 font-mono text-xl font-bold md:text-2xl ${good ? "text-edge-400" : ""}`}>{value}</div>
       {sub && <div className="mt-0.5 text-[10px] text-zinc-500 md:text-[11px]">{sub}</div>}
+    </div>
+  );
+}
+function RiskStat({ label, value, hint, tone, className = "" }: { label: string; value: string; hint?: string; tone?: "good" | "bad"; className?: string }) {
+  return (
+    <div className={`rounded-xl bg-ink-850 p-3 ${className}`}>
+      <div className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</div>
+      <div className={`mt-1 font-mono text-xl font-bold ${tone === "good" ? "text-edge-400" : tone === "bad" ? "text-fade-400" : ""}`}>{value}</div>
+      {hint && <div className="mt-0.5 text-[10px] text-zinc-600">{hint}</div>}
     </div>
   );
 }

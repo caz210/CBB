@@ -1,9 +1,12 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { SlateGame, ValueBet } from "@/lib/types";
 import { LOCKED_NOTE, MARKET_LABEL, SOURCE_LABEL, TIER_BADGE, edgeTier, fmtLine, fmtPostedProof, fmtWinProb, fmtTipoff, pct, signedPct } from "@/lib/labels";
+import { computedLineEdge } from "@/lib/portfolio";
+import { useWatchlist } from "@/lib/watchlist";
 import { ArchetypeChip, ArchetypeLegend } from "./ArchetypeChip";
+import { TermLabel } from "./InfoTip";
 
 type Sel = { game: SlateGame; bet: ValueBet } | null;
 
@@ -12,6 +15,8 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
 }) {
   const [sel, setSel] = useState<Sel>(null);
   const [gameSel, setGameSel] = useState<SlateGame | null>(null);
+  const [watchOnly, setWatchOnly] = useState(false);
+  const { has, toggle, count: watchCount, ready } = useWatchlist();
   const router = useRouter();
   const pathname = usePathname();
   const search = useSearchParams();
@@ -28,6 +33,7 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
   const completedCount = games.filter((g) => g.completed).length;
   const shown = games
     .filter((g) => !(hide && g.completed))
+    .filter((g) => !(watchOnly && ready && !has(g.game_id)))
     .slice()
     .sort(sort === "value"
       ? (a, z) => {
@@ -45,7 +51,7 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
             <button key={k} role="radio" aria-checked={sort === k}
               onClick={() => setParam("sort", k === "time" ? null : "value")}
               className={`min-h-11 flex-1 rounded-lg px-4 text-sm font-semibold transition sm:flex-none ${sort === k ? "bg-court-500/20 text-court-400" : "text-zinc-400 hover:bg-ink-800"}`}>
-              {k === "time" ? "Game time" : "Value"}
+              {k === "time" ? "Game time" : "Edge"}
             </button>
           ))}
         </div>
@@ -56,10 +62,26 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
           </span>
           Hide completed{completedCount ? ` · ${completedCount}` : ""}
         </button>
+        <button role="switch" aria-checked={watchOnly} onClick={() => setWatchOnly((w) => !w)}
+          className={`flex min-h-11 items-center gap-2 rounded-xl border px-3 text-sm font-semibold ${watchOnly ? "border-amber-400/50 bg-amber-400/10 text-amber-300" : "border-ink-600 text-zinc-300 hover:bg-ink-800"}`}>
+          <Star filled={watchOnly} />
+          Watchlist{ready && watchCount ? ` · ${watchCount}` : ""}
+        </button>
         <div className="ml-auto hidden md:block"><ArchetypeLegend /></div>
       </div>
 
-      {shown.length === 0 && (
+      {watchOnly && ready && shown.length === 0 && (
+        <div className="mb-4 rounded-xl border border-ink-700 bg-ink-900 px-3.5 py-3 text-sm text-zinc-400">
+          {watchCount === 0
+            ? <>No starred games yet. Tap the star on a game card to watch it.</>
+            : <>None of your watched games are on this slate{hide ? " (or they are hidden as completed)" : ""}.</>}
+          {watchCount > 0 && hide && (
+            <>{" "}<button onClick={() => setParam("hide", null)} className="font-semibold text-court-400">Show completed</button></>
+          )}
+        </div>
+      )}
+
+      {shown.length === 0 && !watchOnly && (
         <div className="rounded-xl border border-ink-700 bg-ink-900 px-3.5 py-3 text-sm text-zinc-400">
           All {games.length} games on this slate are completed.{" "}
           <button onClick={() => setParam("hide", null)} className="font-semibold text-court-400">Show them</button>
@@ -68,7 +90,15 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
 
       <div className="grid gap-3 md:gap-4 lg:grid-cols-2">
         {shown.map((g) => (
-          <GameCard key={g.game_id} g={g} bets={byGame(g.game_id)} onOpen={(bet) => setSel({ game: g, bet })} onGame={() => setGameSel(g)} />
+          <GameCard
+            key={g.game_id}
+            g={g}
+            bets={byGame(g.game_id)}
+            watched={ready && has(g.game_id)}
+            onWatch={() => toggle(g.game_id)}
+            onOpen={(bet) => setSel({ game: g, bet })}
+            onGame={() => setGameSel(g)}
+          />
         ))}
       </div>
 
@@ -76,7 +106,7 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
         <section className="mt-6 rounded-2xl border border-dashed border-ink-700 p-3 md:p-4" aria-label="Tracked picks">
           <div className="mb-2 flex flex-wrap items-baseline gap-x-2">
             <h2 className="text-sm font-semibold text-zinc-400">Tracked · {tracked.length}</h2>
-            <span className="text-[11px] text-zinc-500">Paper-only 1u, never bet. Not part of the official record.</span>
+            <span className="text-[11px] text-zinc-500">Paper-only 1u, never bet. Not part of the official portfolio.</span>
           </div>
           <ul className="divide-y divide-ink-700/50">
             {tracked.map((b) => {
@@ -86,7 +116,7 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
                 <li key={`${b.game_id}-${b.market}-${b.side}`} className="flex items-center gap-3 py-2 text-sm text-zinc-400">
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-medium text-zinc-300">{b.side}</span>
-                    <span className="block truncate text-[11px] text-zinc-500">{g?.game ?? `Game #${b.game_id}`} · {MARKET_LABEL[b.market]} · line edge {pct(b.line_edge_pct, 1)}</span>
+                    <span className="block truncate text-[11px] text-zinc-500">{g?.game ?? `Game #${b.game_id}`} · {MARKET_LABEL[b.market]} · edge {pct(b.line_edge_pct, 1)}</span>
                     {proof && <span className="block text-[11px] text-zinc-600">🔒 {proof}</span>}
                   </span>
                   <span className="font-mono text-xs text-zinc-500">1u</span>
@@ -99,7 +129,7 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
 
       <div className="mt-4 md:hidden"><ArchetypeLegend /></div>
       <p className="mt-3 text-xs leading-relaxed text-zinc-500">
-        Spreads use home-line notation (−5.5 = home favored). Market = Vegas consensus. Stakes are ¼-Kelly in units (1u = 1% of bankroll, capped at 2.5u). {LOCKED_NOTE}
+        Spreads use home-line notation (−5.5 = home favored). Price = Vegas consensus. Fair value = our model. Stakes are ¼-Kelly in units (1u = 1% of bankroll, capped at 2.5u). {LOCKED_NOTE}
       </p>
 
       <ValueSheet sel={sel} onClose={() => setSel(null)} />
@@ -108,22 +138,76 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
   );
 }
 
-function GameCard({ g, bets, onOpen, onGame }: { g: SlateGame; bets: ValueBet[]; onOpen: (b: ValueBet) => void; onGame: () => void }) {
+function Star({ filled, className = "h-4 w-4" }: { filled: boolean; className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+      <path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.2 1 5.8L12 17.8 6.8 19.7l1-5.8L3.5 9.7l5.9-.9L12 3.5z" />
+    </svg>
+  );
+}
+
+/** Headline edge for a game: best posted play, else computed fair-vs-price (muted). */
+function headlineEdge(g: SlateGame, bets: ValueBet[]): { pct: number; muted: boolean; tier: ReturnType<typeof edgeTier>; fromBet: ValueBet | null } {
+  if (bets.length) {
+    const best = bets.reduce((a, b) => (b.line_edge_pct > a.line_edge_pct ? b : a));
+    return { pct: best.line_edge_pct, muted: edgeTier(best.line_edge_pct, best.market) == null, tier: edgeTier(best.line_edge_pct, best.market), fromBet: best };
+  }
+  const edges = [
+    computedLineEdge(g.proj_spread, g.market_spread),
+    computedLineEdge(g.proj_total, g.market_total),
+  ].filter((x): x is number => x != null);
+  if (!edges.length) return { pct: 0, muted: true, tier: null, fromBet: null };
+  const pctVal = Math.max(...edges);
+  // No market when computing — treat as muted informational edge
+  return { pct: pctVal, muted: true, tier: null, fromBet: null };
+}
+
+function GameCard({ g, bets, watched, onWatch, onOpen, onGame }: {
+  g: SlateGame; bets: ValueBet[]; watched: boolean; onWatch: () => void; onOpen: (b: ValueBet) => void; onGame: () => void;
+}) {
   const awayWin = g.home_win_prob == null ? null : 1 - g.home_win_prob;
   const awayCover = g.home_cover_prob == null ? null : 1 - g.home_cover_prob;
   const rows = [
     { side: "Away", name: g.away, proj: g.proj_away, win: awayWin, cover: awayCover, tags: g.archetypes.away, tent: g.archetypes.away_tentative },
     { side: "Home", name: g.home, proj: g.proj_home, win: g.home_win_prob, cover: g.home_cover_prob, tags: g.archetypes.home, tent: g.archetypes.home_tentative },
   ];
+  const edge = headlineEdge(g, bets);
+  const hasEdge = bets.length > 0 || edge.pct > 0;
   return (
     <article
       role="button" tabIndex={0} aria-label={`Insights for ${g.game}`}
       onClick={onGame} onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onGame())}
       className={`card cursor-pointer overflow-hidden transition hover:border-ink-500 active:scale-[0.995] ${g.completed ? "opacity-70" : ""}`}>
-      <header className="flex items-center justify-between border-b border-ink-700/60 px-4 py-2.5 text-xs">
+      <header className="flex items-center gap-2 border-b border-ink-700/60 px-4 py-2.5 text-xs">
         <span className="font-semibold text-zinc-300">{g.tipoff ? fmtTipoff(g.tipoff) : "Tip-off TBD"}</span>
-        <span className="font-mono text-zinc-600"><span className="mr-2 text-court-400">Insights ›</span>{g.completed && <span className="mr-2 font-sans font-semibold uppercase text-zinc-500">Final</span>}#{g.game_id}</span>
+        {g.completed && <span className="font-semibold uppercase text-zinc-500">Final</span>}
+        <button
+          type="button"
+          aria-label={watched ? "Remove from watchlist" : "Add to watchlist"}
+          aria-pressed={watched}
+          onClick={(e) => { e.stopPropagation(); onWatch(); }}
+          className={`ml-auto grid h-9 w-9 place-items-center rounded-lg transition ${watched ? "text-amber-300" : "text-zinc-600 hover:text-zinc-300"}`}
+        >
+          <Star filled={watched} className="h-5 w-5" />
+        </button>
+        <span className="font-mono text-zinc-600"><span className="mr-1 font-sans text-court-400">Insights ›</span>#{g.game_id}</span>
       </header>
+
+      {/* Edge headline */}
+      <div className="flex items-end justify-between gap-3 border-b border-ink-700/40 px-4 py-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            <TermLabel term="edge">Edge</TermLabel>
+            {edge.tier && <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold normal-case tracking-normal ${TIER_BADGE[edge.tier]}`}>{edge.tier}</span>}
+          </div>
+          <div className="mt-0.5 truncate text-sm font-semibold text-zinc-300">
+            {edge.fromBet ? edge.fromBet.side : g.game}
+          </div>
+        </div>
+        <div className={`shrink-0 font-mono text-4xl font-black leading-none ${!hasEdge ? "text-zinc-700" : edge.muted ? "text-zinc-500" : "text-edge-400"}`}>
+          {hasEdge ? pct(edge.pct, 1) : "—"}
+        </div>
+      </div>
 
       <div className="divide-y divide-ink-700/40 px-4">
         {rows.map((r) => (
@@ -144,9 +228,21 @@ function GameCard({ g, bets, onOpen, onGame }: { g: SlateGame; bets: ValueBet[];
       </div>
 
       <div className="grid grid-cols-3 gap-px border-t border-ink-700/60 bg-ink-700/40 text-center">
-        <Stat label="Spread" model={g.proj_spread == null ? "—" : fmtLine(g.proj_spread)} mkt={g.market_spread == null ? "—" : fmtLine(g.market_spread)} />
-        <Stat label="Total" model={g.proj_total == null ? "—" : g.proj_total.toFixed(1)} mkt={g.market_total?.toFixed(1) ?? "—"} />
-        <Stat label="Home cover" model={g.home_cover_prob == null ? "—" : pct(g.home_cover_prob)} mkt={g.market_source ? SOURCE_LABEL[g.market_source] : ""} />
+        <MarketStat
+          label="Spread"
+          fair={g.proj_spread == null ? "—" : fmtLine(g.proj_spread)}
+          price={g.market_spread == null ? "—" : fmtLine(g.market_spread)}
+        />
+        <MarketStat
+          label="Total"
+          fair={g.proj_total == null ? "—" : g.proj_total.toFixed(1)}
+          price={g.market_total?.toFixed(1) ?? "—"}
+        />
+        <div className="bg-ink-900 px-2 py-2.5">
+          <div className="text-[10px] uppercase tracking-wider text-zinc-500">Home cover</div>
+          <div className="font-mono text-sm font-semibold">{g.home_cover_prob == null ? "—" : pct(g.home_cover_prob)}</div>
+          <div className="font-mono text-[11px] text-zinc-500">{g.market_source ? SOURCE_LABEL[g.market_source] : ""}</div>
+        </div>
       </div>
 
       {g.archetypes.notes.length > 0 && (
@@ -160,21 +256,22 @@ function GameCard({ g, bets, onOpen, onGame }: { g: SlateGame; bets: ValueBet[];
         <div className="space-y-2 border-t border-ink-700/60 bg-edge-400/[0.03] p-3">
           {bets.map((b) => {
             const tier = edgeTier(b.line_edge_pct, b.market);
+            const muted = tier == null;
             return (
               <button
                 key={`${b.market}-${b.side}`}
                 onClick={(e) => { e.stopPropagation(); onOpen(b); }}
-                className="flex min-h-14 w-full items-center gap-3 rounded-xl border border-edge-400/30 bg-ink-900 px-3 py-2.5 text-left transition active:scale-[0.99] hover:border-edge-400/60"
+                className={`flex min-h-14 w-full items-center gap-3 rounded-xl border bg-ink-900 px-3 py-2.5 text-left transition active:scale-[0.99] ${muted ? "border-ink-600 hover:border-ink-500" : "border-edge-400/30 hover:border-edge-400/60"}`}
               >
-                {tier && <span className={`rounded-md px-1.5 py-1 text-[10px] font-bold ${TIER_BADGE[tier]}`}>{tier}</span>}
+                {tier ? <span className={`rounded-md px-1.5 py-1 text-[10px] font-bold ${TIER_BADGE[tier]}`}>{tier}</span> : <span className="rounded-md bg-ink-800 px-1.5 py-1 text-[10px] font-bold text-zinc-500">—</span>}
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-semibold">{b.side}</span>
-                  <span className="block text-[11px] text-zinc-500">{MARKET_LABEL[b.market]} · line edge {pct(b.line_edge_pct, 1)} <span className="text-zinc-600">· prob {signedPct(b.prob_edge)}</span></span>
+                  <span className="block text-[11px] text-zinc-500">{MARKET_LABEL[b.market]} · edge {pct(b.line_edge_pct, 1)} <span className="text-zinc-600">· prob {signedPct(b.prob_edge)}</span></span>
                   {b.logged_at && <span className="block text-[10px] text-zinc-600">🔒 {fmtPostedProof(b.logged_at, g.tipoff)}</span>}
                 </span>
                 <span className="text-right">
-                  <span className="block font-mono text-base font-bold">{b.kelly_quarter_units == null ? "—" : `${b.kelly_quarter_units.toFixed(1)}u`}</span>
-                  <span className="block text-[10px] text-zinc-500">¼-Kelly</span>
+                  <span className={`block font-mono text-2xl font-black leading-none ${muted ? "text-zinc-500" : "text-edge-400"}`}>{pct(b.line_edge_pct, 1)}</span>
+                  <span className="block text-[10px] text-zinc-500">{b.kelly_quarter_units == null ? "—" : `${b.kelly_quarter_units.toFixed(1)}u`} ¼-K</span>
                 </span>
                 <span className="text-zinc-600">›</span>
               </button>
@@ -183,6 +280,16 @@ function GameCard({ g, bets, onOpen, onGame }: { g: SlateGame; bets: ValueBet[];
         </div>
       )}
     </article>
+  );
+}
+
+function MarketStat({ label, fair, price }: { label: string; fair: string; price: string }) {
+  return (
+    <div className="bg-ink-900 px-2 py-2.5">
+      <div className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</div>
+      <div className="font-mono text-sm font-semibold"><span className="text-[10px] font-sans font-normal text-zinc-600">FV </span>{fair}</div>
+      <div className="font-mono text-[11px] text-zinc-500"><span className="font-sans">Price </span>{price}</div>
+    </div>
   );
 }
 
@@ -207,10 +314,18 @@ function ValueSheet({ sel, onClose }: { sel: Sel; onClose: () => void }) {
         </div>
         <div className="mt-1 text-sm text-zinc-400">{MARKET_LABEL[b.market]}</div>
 
+        <div className="mt-4 text-center">
+          <div className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            <TermLabel term="edge">Edge</TermLabel>
+          </div>
+          <div className={`font-mono text-5xl font-black ${tier ? "text-edge-400" : "text-zinc-500"}`}>{pct(b.line_edge_pct, 1)}</div>
+          <p className="mt-1 text-[11px] text-zinc-500">Buy at value. Judge over hundreds of bets — not tonight.</p>
+        </div>
+
         <div className="mt-5 grid grid-cols-2 gap-2">
           <Big label="Model prob" v={b.model_prob == null ? "—" : pct(b.model_prob, 1)} />
           <Big label="Market prob" v={pct(b.market_prob, 1)} sub="implied, incl. vig" />
-          <Big label="Line edge" v={pct(b.line_edge_pct, 1)} sub="vs Vegas line" accent />
+          <Big label={<TermLabel term="edge">Edge</TermLabel>} v={pct(b.line_edge_pct, 1)} sub="vs price" accent />
           <Big label="Prob edge" v={signedPct(b.prob_edge)} sub="secondary" />
         </div>
 
@@ -238,13 +353,14 @@ function GameSheet({ g, bets, onClose }: { g: SlateGame | null; bets: ValueBet[]
   if (!g) return null;
   const i = g.insight;
   const ph = i?.proj_home ?? g.proj_home, pa = i?.proj_away ?? g.proj_away;
-  // CZarp line from projected margin (proj_home − proj_away), shown in home-line notation like Vegas.
   const czLine = ph != null && pa != null ? -(ph - pa) : g.proj_spread;
   const czTotal = ph != null && pa != null ? ph + pa : g.proj_total;
   const openS = i?.open_spread ?? null, curS = i?.cur_spread ?? g.market_spread;
   const openT = i?.open_total ?? null, curT = i?.cur_total ?? g.market_total;
   const move = (o: number | null, c: number | null) => (o == null || c == null ? "—" : c === o ? "No move" : `${c > o ? "+" : "−"}${Math.abs(c - o).toFixed(1)}`);
   const hw = i?.home_win_prob ?? g.home_win_prob, hc = i?.home_cover_prob ?? g.home_cover_prob, ov = i?.over_prob ?? null;
+  const edge = headlineEdge(g, bets);
+  const hasEdge = bets.length > 0 || edge.pct > 0;
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center" role="dialog" aria-modal="true" aria-label={`${g.game} insights`}>
       <button aria-label="Close" onClick={onClose} className="absolute inset-0 bg-black/70" />
@@ -254,6 +370,19 @@ function GameSheet({ g, bets, onClose }: { g: SlateGame | null; bets: ValueBet[]
         <h3 className="mt-1 text-xl font-bold">{g.game}</h3>
         {i?.neutral && <div className="mt-2 inline-block rounded-md border border-ink-600 px-2 py-0.5 text-[11px] text-zinc-400">Neutral site: no home-court edge applied</div>}
 
+        <div className="mt-4 flex items-end justify-between rounded-2xl border border-ink-700 bg-ink-850 px-4 py-3">
+          <div>
+            <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+              <TermLabel term="edge">Edge</TermLabel>
+              {edge.tier && <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold normal-case tracking-normal ${TIER_BADGE[edge.tier]}`}>{edge.tier}</span>}
+            </div>
+            <div className="mt-0.5 text-sm text-zinc-400">{edge.fromBet ? edge.fromBet.side : "Fair value vs price"}</div>
+          </div>
+          <div className={`font-mono text-4xl font-black ${!hasEdge ? "text-zinc-700" : edge.muted ? "text-zinc-500" : "text-edge-400"}`}>
+            {hasEdge ? pct(edge.pct, 1) : "—"}
+          </div>
+        </div>
+
         <div className="mt-4 grid grid-cols-2 gap-2">
           <Big label={`${g.away} proj`} v={pa == null ? "—" : pa.toFixed(1)} />
           <Big label={`${g.home} proj`} v={ph == null ? "—" : ph.toFixed(1)} />
@@ -261,7 +390,11 @@ function GameSheet({ g, bets, onClose }: { g: SlateGame | null; bets: ValueBet[]
 
         <div className="mt-3 overflow-hidden rounded-xl border border-ink-700 text-sm">
           <div className="grid grid-cols-5 bg-ink-850 px-3 py-2 text-[10px] uppercase tracking-wider text-zinc-500">
-            <span className="col-span-1" /><span className="text-right">CZarp</span><span className="text-right">Open</span><span className="text-right">Now</span><span className="text-right">Move</span>
+            <span className="col-span-1" />
+            <span className="flex items-center justify-end gap-0.5 text-right"><TermLabel term="fairValue">FV</TermLabel></span>
+            <span className="text-right">Open</span>
+            <span className="flex items-center justify-end gap-0.5 text-right"><TermLabel term="price">Price</TermLabel></span>
+            <span className="text-right">Move</span>
           </div>
           {[
             { k: "Spread", cz: czLine == null ? "—" : fmtLine(czLine), o: openS == null ? "—" : fmtLine(openS), c: curS == null ? "—" : fmtLine(curS), m: move(openS, curS) },
@@ -276,7 +409,7 @@ function GameSheet({ g, bets, onClose }: { g: SlateGame | null; bets: ValueBet[]
             </div>
           ))}
         </div>
-        <p className="mt-1 text-[10px] text-zinc-600">Home-line notation (−5.5 = {g.home} favored). Vegas consensus.</p>
+        <p className="mt-1 text-[10px] text-zinc-600">Home-line notation (−5.5 = {g.home} favored). Price = Vegas consensus. Fair value = our model.</p>
 
         <div className="mt-3 grid grid-cols-3 gap-2">
           <Big label="Home win" v={hw == null ? "—" : fmtWinProb(hw)} />
@@ -306,8 +439,8 @@ function GameSheet({ g, bets, onClose }: { g: SlateGame | null; bets: ValueBet[]
                 <div key={`${b.market}-${b.side}`} className="flex items-center gap-2 rounded-xl border border-edge-400/30 px-3 py-2 text-sm">
                   {tier && <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${TIER_BADGE[tier]}`}>{tier}</span>}
                   <span className="min-w-0 flex-1 truncate font-semibold">{b.side}</span>
-                  <span className="font-mono text-xs text-zinc-400">{pct(b.line_edge_pct, 1)}</span>
-                  <span className="font-mono font-bold">{b.kelly_quarter_units == null ? "—" : `${b.kelly_quarter_units.toFixed(2)}u`}</span>
+                  <span className={`font-mono text-base font-black ${tier ? "text-edge-400" : "text-zinc-500"}`}>{pct(b.line_edge_pct, 1)}</span>
+                  <span className="font-mono text-xs text-zinc-400">{b.kelly_quarter_units == null ? "—" : `${b.kelly_quarter_units.toFixed(2)}u`}</span>
                 </div>
               );
             })}
@@ -319,16 +452,7 @@ function GameSheet({ g, bets, onClose }: { g: SlateGame | null; bets: ValueBet[]
   );
 }
 
-function Stat({ label, model, mkt }: { label: string; model: string; mkt: string }) {
-  return (
-    <div className="bg-ink-900 px-2 py-2.5">
-      <div className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</div>
-      <div className="font-mono text-sm font-semibold">{model}</div>
-      <div className="font-mono text-[11px] text-zinc-500">{mkt && (label === "Home cover" ? mkt : `mkt ${mkt}`)}</div>
-    </div>
-  );
-}
-function Big({ label, v, sub, accent }: { label: string; v: string; sub?: string; accent?: boolean }) {
+function Big({ label, v, sub, accent }: { label: ReactNode; v: string; sub?: string; accent?: boolean }) {
   return (
     <div className="rounded-xl bg-ink-850 p-3">
       <div className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</div>

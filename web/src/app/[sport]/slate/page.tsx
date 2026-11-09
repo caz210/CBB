@@ -44,7 +44,7 @@ export default async function SlatePage({
         badge={res.state === "live" ? "live" : "none"}
         eyebrow={`${sport.long} · Slate`}
         title={`${fmtGameDate(date)}${date === today ? " · Today" : ""}`}
-        sub="Model projections update each morning. Tap a game for insights, or a value bet for the edge and stake."
+        sub="Price vs fair value on every game. Edge % is the headline — star games to watch. Tap a card for insights."
         right={
           <nav className="flex gap-2 text-sm" aria-label="Slate date">
             <Link href={href(shiftDate(date, -1))} className={navBtn}>‹ Prev</Link>

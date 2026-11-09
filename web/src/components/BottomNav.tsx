@@ -16,7 +16,7 @@ export function BottomNav() {
   const sport = SPORTS.some((s) => s.key === seg) ? seg : DEFAULT_SPORT;
   const tabs = [
     { href: `/${sport}/slate`, label: "Slate", icon: Icon.slate, match: "/slate" },
-    { href: `/${sport}/results`, label: "Results", icon: Icon.results, match: "/results" },
+    { href: `/${sport}/results`, label: "Portfolio", icon: Icon.results, match: "/results" },
     { href: "/models", label: "My Models", icon: Icon.models, match: "/models" },
     { href: "/pricing", label: "Plans", icon: Icon.pricing, match: "/pricing" },
   ];

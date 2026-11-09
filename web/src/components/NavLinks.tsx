@@ -9,7 +9,7 @@ export function NavLinks() {
   const sport = SPORTS.some((s) => s.key === seg) ? seg : DEFAULT_SPORT;
   const links = [
     { href: `/${sport}/slate`, label: "Daily Slate", match: "/slate" },
-    { href: `/${sport}/results`, label: "Results", match: "/results" },
+    { href: `/${sport}/results`, label: "Portfolio", match: "/results" },
     { href: "/models", label: "My Models", match: "/models" },
     { href: "/pricing", label: "Pricing", match: "/pricing" },
   ];
