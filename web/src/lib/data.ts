@@ -6,7 +6,7 @@ import { createSupabaseServerClient } from "./supabase/server";
 import type { Sport } from "./sports";
 import type { Archetypes, GameInsight, LedgerRow, SlateGame, TierRecord, ValueBet } from "./types";
 import { portfolioRisk, type PortfolioRisk } from "./portfolio";
-import type { ArchetypeName } from "./archetypes";
+import { parseTagList } from "./archetypes";
 import { isPickTier, type Market, type MarketSource, type PickTier } from "./labels";
 
 export type Loaded<T> =
@@ -33,11 +33,13 @@ export const isIsoDate = (d: unknown): d is string => typeof d === "string" && /
 
 function toArchetypes(v: unknown): Archetypes {
   const a = (v && typeof v === "object" ? v : {}) as Row;
+  const homeTent = Boolean(a.home_tentative);
+  const awayTent = Boolean(a.away_tentative);
   return {
-    home: strs(a.home) as ArchetypeName[],
-    away: strs(a.away) as ArchetypeName[],
-    home_tentative: Boolean(a.home_tentative),
-    away_tentative: Boolean(a.away_tentative),
+    home: parseTagList(a.home, homeTent),
+    away: parseTagList(a.away, awayTent),
+    home_tentative: homeTent,
+    away_tentative: awayTent,
     tentative: Boolean(a.tentative),
     notes: strs(a.notes),
   };
@@ -62,6 +64,10 @@ function toSlateGame(r: Row): SlateGame {
     market_spread: num(r.market_spread),
     market_total: num(r.market_total),
     market_source: (r.market_source ? str(r.market_source).toLowerCase() : null) as MarketSource | null,
+    reason: typeof r.reason === "string" && r.reason.trim() ? r.reason.trim() : null,
+    proj_possessions: num(r.proj_possessions),
+    upset_alert: r.upset_alert === true,
+    upset_reason: typeof r.upset_reason === "string" && r.upset_reason.trim() ? r.upset_reason.trim() : null,
   };
 }
 
@@ -197,6 +203,8 @@ async function loadInsights(sb: SB, ids: number[]): Promise<Map<number, GameInsi
         open_spread: num(o?.spread), cur_spread: num(c?.spread), open_total: num(o?.total), cur_total: num(c?.total),
         reason: typeof p.reason === "string" && p.reason.trim() ? p.reason.trim() : null,
         proj_possessions: num(p.proj_possessions),
+        upset_alert: p.upset_alert === true,
+        upset_reason: typeof p.upset_reason === "string" && p.upset_reason.trim() ? String(p.upset_reason).trim() : null,
       });
     }
   } catch { /* sheet just shows less */ }

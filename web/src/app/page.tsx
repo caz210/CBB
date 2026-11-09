@@ -59,7 +59,7 @@ export default async function Landing() {
               <div key={r.n} className="flex items-center justify-between gap-3 border-b border-ink-700/60 py-3 last:border-0">
                 <div className="min-w-0">
                   <div className="font-semibold">{r.n}</div>
-                  <div className="mt-1.5 flex flex-wrap gap-1">{r.tags.map((a) => <ArchetypeChip key={a} name={a} tentative={r.t} />)}</div>
+                  <div className="mt-1.5 flex flex-wrap gap-1">{r.tags.map((a) => <ArchetypeChip key={a.name} tag={a} />)}</div>
                 </div>
                 <div className="font-mono text-2xl font-bold">{r.p?.toFixed(1)}</div>
               </div>
@@ -153,7 +153,7 @@ function LiveHero({ hero }: { hero: Hero }) {
           <div key={r.n} className="flex items-center justify-between gap-3 border-b border-ink-700/60 py-3 last:border-0">
             <div className="min-w-0">
               <div className="font-semibold">{r.n}</div>
-              {r.tags.length > 0 && <div className="mt-1.5 flex flex-wrap gap-1">{r.tags.map((a) => <ArchetypeChip key={a} name={a} tentative={r.t} />)}</div>}
+              {r.tags.length > 0 && <div className="mt-1.5 flex flex-wrap gap-1">{r.tags.map((a) => <ArchetypeChip key={a.name} tag={a} />)}</div>}
             </div>
             <div className="font-mono text-2xl font-bold">{r.p == null ? "—" : r.p.toFixed(1)}</div>
           </div>

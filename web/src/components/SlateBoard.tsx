@@ -5,6 +5,7 @@ import type { SlateGame, ValueBet } from "@/lib/types";
 import { LOCKED_NOTE, MARKET_LABEL, SOURCE_LABEL, TIER_BADGE, edgeTier, fmtLine, fmtPostedProof, fmtWinProb, fmtTipoff, pct, signedPct } from "@/lib/labels";
 import { computedLineEdge } from "@/lib/portfolio";
 import { useWatchlist } from "@/lib/watchlist";
+import { weaknessesOnly } from "@/lib/archetypes";
 import { ArchetypeChip, ArchetypeLegend } from "./ArchetypeChip";
 import { TermLabel } from "./InfoTip";
 
@@ -227,9 +228,9 @@ function GameCard({ g, bets, watched, onWatch, onOpen, onGame }: {
               <span className={`text-right font-mono text-xs ${r.win != null && r.win >= 0.5 ? "text-white" : "text-zinc-500"}`}>{r.win == null ? "—" : fmtWinProb(r.win)}<span className="ml-0.5 font-sans text-[10px] text-zinc-600">win</span></span>
               <span className="w-12 text-right font-mono text-xl font-bold">{r.proj == null ? "—" : r.proj.toFixed(1)}</span>
             </div>
-            {r.tags.length > 0 && (
+            {weaknessesOnly(r.tags, 2).length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1.5 pl-12">
-                {r.tags.map((t) => <ArchetypeChip key={t} name={t} tentative={r.tent} />)}
+                {weaknessesOnly(r.tags, 2).map((tag) => <ArchetypeChip key={tag.name} tag={tag} />)}
               </div>
             )}
           </div>
@@ -254,10 +255,17 @@ function GameCard({ g, bets, watched, onWatch, onOpen, onGame }: {
         </div>
       </div>
 
-      {g.archetypes.notes.length > 0 && (
-        <div className="border-t border-ink-700/60 px-4 py-2 text-[11px] text-zinc-400">
-          <span className="font-semibold text-zinc-500">Matchup: </span>{g.archetypes.notes.join(" · ")}
-          {g.archetypes.tentative && <span className="text-zinc-600"> (tentative)</span>}
+      {(g.archetypes.notes.length > 0 || g.reason) && (
+        <div className="space-y-1 border-t border-ink-700/60 px-4 py-2 text-[11px] text-zinc-400">
+          {g.archetypes.notes.length > 0 && (
+            <div>
+              <span className="font-semibold text-zinc-500">Matchup: </span>{g.archetypes.notes.join(" · ")}
+              {g.archetypes.tentative && <span className="text-zinc-600"> (tentative)</span>}
+            </div>
+          )}
+          {g.reason && (
+            <div><span className="font-semibold text-zinc-500">Why: </span>{g.reason}</div>
+          )}
         </div>
       )}
 
@@ -377,6 +385,12 @@ function GameSheet({ g, bets, onClose }: { g: SlateGame | null; bets: ValueBet[]
         <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-ink-600 md:hidden" />
         <div className="text-xs text-zinc-500">{g.tipoff ? fmtTipoff(g.tipoff) : "Tip-off TBD"}{g.completed ? " · Final" : ""}</div>
         <h3 className="mt-1 text-xl font-bold">{g.game}</h3>
+        {(i?.upset_alert || g.upset_alert) && (
+          <div className="mt-2 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-amber-300">Upset alert</div>
+            <div className="mt-0.5 text-[13px] text-amber-50/90">{i?.upset_reason || g.upset_reason || "Underdog style matchup flagged by the model."}</div>
+          </div>
+        )}
         {i?.neutral && <div className="mt-2 inline-block rounded-md border border-ink-600 px-2 py-0.5 text-[11px] text-zinc-400">Neutral site: no home-court edge applied</div>}
 
         <div className="mt-4 flex items-end justify-between rounded-2xl border border-ink-700 bg-ink-850 px-4 py-3">
@@ -425,20 +439,20 @@ function GameSheet({ g, bets, onClose }: { g: SlateGame | null; bets: ValueBet[]
           <Big label="Home cover" v={hc == null ? "—" : pct(hc)} />
           <Big label="Over" v={ov == null ? "—" : pct(ov)} />
         </div>
-        {i?.proj_possessions != null && <p className="mt-2 text-xs text-zinc-400">Projected pace: <b className="font-mono text-white">{i.proj_possessions.toFixed(1)}</b> possessions</p>}
+        {(i?.proj_possessions ?? g.proj_possessions) != null && <p className="mt-2 text-xs text-zinc-400">Projected pace: <b className="font-mono text-white">{(i?.proj_possessions ?? g.proj_possessions)!.toFixed(1)}</b> possessions</p>}
 
         {(g.archetypes.away.length > 0 || g.archetypes.home.length > 0) && (
           <div className="mt-4 space-y-2">
-            {[{ n: g.away, t: g.archetypes.away, x: g.archetypes.away_tentative }, { n: g.home, t: g.archetypes.home, x: g.archetypes.home_tentative }].filter((r) => r.t.length).map((r) => (
+            {[{ n: g.away, t: g.archetypes.away }, { n: g.home, t: g.archetypes.home }].filter((r) => r.t.length).map((r) => (
               <div key={r.n}>
                 <div className="mb-1 text-[11px] font-semibold text-zinc-500">{r.n}</div>
-                <div className="flex flex-wrap gap-1.5">{r.t.map((t) => <ArchetypeChip key={t} name={t} tentative={r.x} />)}</div>
+                <div className="flex flex-wrap gap-1.5">{r.t.map((tag) => <ArchetypeChip key={`${tag.kind}-${tag.name}`} tag={tag} />)}</div>
               </div>
             ))}
             {g.archetypes.notes.length > 0 && <p className="text-[11px] text-zinc-400">{g.archetypes.notes.join(" · ")}</p>}
           </div>
         )}
-        {i?.reason && <div className="mt-4 rounded-xl bg-ink-850 p-3 text-sm text-zinc-300"><div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">Why CZarp likes it</div>{i.reason}</div>}
+        {(i?.reason || g.reason) && <div className="mt-4 rounded-xl bg-ink-850 p-3 text-sm text-zinc-300"><div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">Why CZarp likes it</div>{i?.reason || g.reason}</div>}
 
         {bets.length > 0 && (
           <div className="mt-4 space-y-1.5">
