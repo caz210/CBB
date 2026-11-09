@@ -46,8 +46,21 @@ export function portfolioRisk(ledger: LedgerRow[]): PortfolioRisk {
   return { maxDrawdown, longestLosingStreak, currentStreak };
 }
 
-/** Line edge fraction from fair value vs price. Null when either side is missing or price is 0. */
-export function computedLineEdge(fair: number | null | undefined, price: number | null | undefined): number | null {
-  if (fair == null || price == null || price === 0) return null;
-  return Math.abs(fair - price) / Math.abs(price);
+/**
+ * CZarp line edge: |fair − price| ÷ Vegas total (game total), for sides AND totals.
+ * Denominator is always the market total — never the spread itself (that blows up near pick'em).
+ * Returns null when inputs are missing or the result is not a sane fraction (< 0 or > 50%).
+ */
+export function computedLineEdge(
+  fair: number | null | undefined,
+  price: number | null | undefined,
+  vegasTotal: number | null | undefined,
+): number | null {
+  if (fair == null || price == null || vegasTotal == null) return null;
+  const t = Math.abs(vegasTotal);
+  if (!(t > 0)) return null;
+  const edge = Math.abs(fair - price) / t;
+  // Sanity: real posted edges top out ~8%; anything >50% is bad data / wrong denom
+  if (!Number.isFinite(edge) || edge < 0 || edge > 0.5) return null;
+  return edge;
 }
