@@ -20,6 +20,10 @@ export const EXPLAINERS = {
     title: "Closing line value (CLV)",
     body: "Did you beat the closing price? Positive CLV means you bought cheaper than the market settled. It's the cleanest long-run signal that you're getting value.",
   },
+  percentile: {
+    title: "Percentile",
+    body: "Where this team ranks among D1 teams this season, from 0 (worst) to 100 (best). We show percentiles — not KenPom ranks — so you can compare style without obsessing over a leaderboard.",
+  },
 } as const;
 
 export type ExplainerKey = keyof typeof EXPLAINERS;

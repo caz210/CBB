@@ -6,13 +6,15 @@ import { LOCKED_NOTE, MARKET_LABEL, SOURCE_LABEL, TIER_BADGE, edgeTier, fmtLine,
 import { computedLineEdge } from "@/lib/portfolio";
 import { useWatchlist } from "@/lib/watchlist";
 import { weaknessesOnly } from "@/lib/archetypes";
+import { teamHref } from "@/lib/teams";
+import Link from "next/link";
 import { ArchetypeChip, ArchetypeLegend } from "./ArchetypeChip";
 import { TermLabel } from "./InfoTip";
 
 type Sel = { game: SlateGame; bet: ValueBet } | null;
 
-export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = false }: {
-  games: SlateGame[]; bets: ValueBet[]; tracked?: ValueBet[]; sort?: "time" | "value"; hide?: boolean;
+export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = false, sportKey = "cbb" }: {
+  games: SlateGame[]; bets: ValueBet[]; tracked?: ValueBet[]; sort?: "time" | "value"; hide?: boolean; sportKey?: string;
 }) {
   const [sel, setSel] = useState<Sel>(null);
   const [gameSel, setGameSel] = useState<SlateGame | null>(null);
@@ -94,6 +96,7 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
           <GameCard
             key={g.game_id}
             g={g}
+            sportKey={sportKey}
             bets={byGame(g.game_id)}
             watched={ready && has(g.game_id)}
             onWatch={() => toggle(g.game_id)}
@@ -134,7 +137,7 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
       </p>
 
       <ValueSheet sel={sel} onClose={() => setSel(null)} />
-      <GameSheet g={gameSel} bets={gameSel ? byGame(gameSel.game_id) : []} onClose={() => setGameSel(null)} />
+      <GameSheet g={gameSel} sportKey={sportKey} bets={gameSel ? byGame(gameSel.game_id) : []} onClose={() => setGameSel(null)} />
     </div>
   );
 }
@@ -172,8 +175,8 @@ function headlineEdge(g: SlateGame, bets: ValueBet[]): {
   return { pct: best.pct, muted: tier == null, tier, fromBet: null, market: best.market };
 }
 
-function GameCard({ g, bets, watched, onWatch, onOpen, onGame }: {
-  g: SlateGame; bets: ValueBet[]; watched: boolean; onWatch: () => void; onOpen: (b: ValueBet) => void; onGame: () => void;
+function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
+  g: SlateGame; sportKey: string; bets: ValueBet[]; watched: boolean; onWatch: () => void; onOpen: (b: ValueBet) => void; onGame: () => void;
 }) {
   const awayWin = g.home_win_prob == null ? null : 1 - g.home_win_prob;
   const awayCover = g.home_cover_prob == null ? null : 1 - g.home_cover_prob;
@@ -224,7 +227,7 @@ function GameCard({ g, bets, watched, onWatch, onOpen, onGame }: {
           <div key={r.side} className="py-3">
             <div className="flex items-center gap-3">
               <span className="w-9 shrink-0 text-[10px] font-semibold uppercase text-zinc-600">{r.side}</span>
-              <span className="min-w-0 flex-1 truncate text-[15px] font-semibold">{r.name}</span>
+              <Link href={teamHref(sportKey, r.name)} onClick={(e) => e.stopPropagation()} className="min-w-0 flex-1 truncate text-[15px] font-semibold hover:text-court-400">{r.name}</Link>
               <span className={`text-right font-mono text-xs ${r.win != null && r.win >= 0.5 ? "text-white" : "text-zinc-500"}`}>{r.win == null ? "—" : fmtWinProb(r.win)}<span className="ml-0.5 font-sans text-[10px] text-zinc-600">win</span></span>
               <span className="w-12 text-right font-mono text-xl font-bold">{r.proj == null ? "—" : r.proj.toFixed(1)}</span>
             </div>
@@ -361,7 +364,7 @@ function ValueSheet({ sel, onClose }: { sel: Sel; onClose: () => void }) {
   );
 }
 
-function GameSheet({ g, bets, onClose }: { g: SlateGame | null; bets: ValueBet[]; onClose: () => void }) {
+function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportKey: string; bets: ValueBet[]; onClose: () => void }) {
   useEffect(() => {
     const k = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", k);
@@ -384,7 +387,11 @@ function GameSheet({ g, bets, onClose }: { g: SlateGame | null; bets: ValueBet[]
       <div className="relative max-h-[88dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl border border-ink-700 bg-ink-900 p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl md:rounded-3xl">
         <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-ink-600 md:hidden" />
         <div className="text-xs text-zinc-500">{g.tipoff ? fmtTipoff(g.tipoff) : "Tip-off TBD"}{g.completed ? " · Final" : ""}</div>
-        <h3 className="mt-1 text-xl font-bold">{g.game}</h3>
+        <h3 className="mt-1 text-xl font-bold">
+          <Link href={teamHref(sportKey, g.away)} onClick={(e) => e.stopPropagation()} className="hover:text-court-400">{g.away}</Link>
+          <span className="text-zinc-500"> @ </span>
+          <Link href={teamHref(sportKey, g.home)} onClick={(e) => e.stopPropagation()} className="hover:text-court-400">{g.home}</Link>
+        </h3>
         {(i?.upset_alert || g.upset_alert) && (
           <div className="mt-2 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
             <div className="text-[10px] font-bold uppercase tracking-wider text-amber-300">Upset alert</div>

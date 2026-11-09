@@ -79,7 +79,7 @@ export default async function SlatePage({
                 No value bets are showing for this slate yet.
               </div>
             )}
-            <SlateBoard games={res.data.games} bets={res.data.bets} tracked={res.data.tracked} sort={sort} hide={hide} />
+            <SlateBoard games={res.data.games} bets={res.data.bets} tracked={res.data.tracked} sort={sort} hide={hide} sportKey={sport.key} />
           </>
         )}
       </div>
