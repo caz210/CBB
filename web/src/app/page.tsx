@@ -28,10 +28,10 @@ export default async function Landing() {
               <span className="h-1.5 w-1.5 rounded-full bg-edge-400" /> 2026–27 · paper-trading in public
             </div>
             <h1 className="text-[2.5rem] font-black leading-[1.05] tracking-tight md:text-6xl">
-              Projections you can <span className="bg-gradient-to-r from-court-400 to-amber-300 bg-clip-text text-transparent">audit</span>, not just trust.
+              Buy bets like <span className="bg-gradient-to-r from-court-400 to-amber-300 bg-clip-text text-transparent">stocks</span> — at a price.
             </h1>
             <p className="mt-4 max-w-xl text-base text-zinc-400 md:mt-6 md:text-lg">
-              Every D1 men&apos;s college basketball game: score, spread, total, win and cover odds. Plus value flags vs the market and a public ledger of every pick.
+              Fair value vs market price on every D1 men&apos;s game. Edge % is the headline. A public portfolio grades every pick — wins, losses, and drawdowns.
             </p>
             <div className="mt-6 grid gap-3 sm:flex md:mt-8">
               <Link href="/signup" className="flex min-h-12 items-center justify-center rounded-xl bg-court-500 px-5 font-semibold text-ink-950 hover:bg-court-400">Create free account</Link>
@@ -71,12 +71,11 @@ export default async function Landing() {
             </div>
             <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-edge-400/30 bg-edge-400/10 px-4 py-3">
               <div className="min-w-0">
-                <div className="text-[11px] font-semibold uppercase tracking-wider text-edge-400">{edgeTier(v.line_edge_pct, v.market) ?? "No label"} · {MARKET_LABEL[v.market]}</div>
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-edge-400">{edgeTier(v.line_edge_pct, v.market) ?? "No label"} · {MARKET_LABEL[v.market]} · Edge</div>
                 <div className="truncate text-sm font-semibold">{v.side}</div>
+                <div className="mt-0.5 text-[11px] text-zinc-500">prob {signedPct(v.prob_edge)} · ¼-Kelly {v.kelly_quarter_units!.toFixed(1)}u</div>
               </div>
-              <div className="shrink-0 text-right text-xs text-zinc-400">
-                Line edge <b className="text-edge-400">{pct(v.line_edge_pct, 1)}</b><br /><span className="text-[11px] text-zinc-500">prob {signedPct(v.prob_edge)}</span><br />¼-Kelly <b className="text-white">{v.kelly_quarter_units!.toFixed(1)}u</b>
-              </div>
+              <div className="shrink-0 font-mono text-4xl font-black leading-none text-edge-400">{pct(v.line_edge_pct, 1)}</div>
             </div>
           </div>
           )}
@@ -86,9 +85,9 @@ export default async function Landing() {
       <section className="mx-auto max-w-7xl px-4 py-10 md:px-6 md:py-20">
         <div className="grid gap-3 md:grid-cols-3 md:gap-5">
           {[
-            { t: "Daily slate", d: "Projected score, spread, total and win/cover % for every game, tagged with archetypes like Addicted to 3s, Lock Down and Arc Wall." },
-            { t: "Value vs. the market", d: "Model probability vs Vegas, Kalshi and Robinhood prices. Stakes are sized at quarter-Kelly." },
-            { t: "Open ledger", d: "Every pick is locked before tip and graded after. Record, ATS %, ROI and closing-line value, losses included." },
+            { t: "Price vs fair value", d: "Every game shows the market price next to our fair value. Edge % is the big number — buy when the price is wrong, not when you feel it." },
+            { t: "Portfolio, not vibes", d: "ROI, units P/L, cumulative curve, CLV, and open variance (drawdowns and streaks) on the record page. Judge hundreds of bets." },
+            { t: "Watchlist", d: "Star games on the slate and filter to what you're watching. No alerts yet — just a clean list you control." },
           ].map((f) => (
             <div key={f.t} className="card p-5 md:p-6">
               <h3 className="text-lg font-bold">{f.t}</h3>
@@ -99,15 +98,15 @@ export default async function Landing() {
 
         <div className="card mt-6 p-5 md:mt-10 md:flex md:items-center md:justify-between md:gap-6 md:p-6">
           <div>
-            <div className="flex items-center gap-2"><h3 className="text-lg font-bold">Season ledger</h3><ExampleBadge /></div>
-            <p className="mt-1 text-sm text-zinc-400">Paper-traded: a public record before anyone pays.</p>
+            <div className="flex items-center gap-2"><h3 className="text-lg font-bold">Season portfolio</h3><ExampleBadge /></div>
+            <p className="mt-1 text-sm text-zinc-400">Paper-traded: a public book before anyone pays.</p>
           </div>
           <div className="mt-4 grid grid-cols-3 gap-3 font-mono md:mt-0 md:flex md:gap-8">
             <Big label="Record" value={s.record} />
             <Big label="ATS" value={pct(s.winPct, 1)} />
             <Big label="ROI" value={signedPct(s.roi)} />
           </div>
-          <Link href="/cbb/results" className="mt-4 flex min-h-11 items-center justify-center rounded-xl border border-ink-600 px-4 text-sm font-semibold hover:bg-ink-800 md:mt-0">Full ledger →</Link>
+          <Link href="/cbb/results" className="mt-4 flex min-h-11 items-center justify-center rounded-xl border border-ink-600 px-4 text-sm font-semibold hover:bg-ink-800 md:mt-0">Full portfolio →</Link>
         </div>
 
         <div className="mt-6 rounded-2xl border border-court-500/30 bg-gradient-to-br from-court-500/10 to-transparent p-5 md:mt-10 md:flex md:items-center md:justify-between md:gap-6 md:p-8">
@@ -147,7 +146,7 @@ function LiveHero({ hero }: { hero: Hero }) {
     return (
       <Link href="/cbb/slate?sort=value" className="card relative block p-4 shadow-2xl shadow-black/50 md:p-5">
         <div className="mb-2 flex items-center justify-between text-xs">
-          <span className="font-semibold uppercase tracking-wider text-edge-400">Top play today</span>
+          <span className="font-semibold uppercase tracking-wider text-edge-400">Highest edge today</span>
           <span className="text-zinc-500">{g.tipoff ? fmtTipoff(g.tipoff) : "Tip TBD"}</span>
         </div>
         {[{ n: g.away, p: g.proj_away, tags: g.archetypes.away, t: g.archetypes.away_tentative }, { n: g.home, p: g.proj_home, tags: g.archetypes.home, t: g.archetypes.home_tentative }].map((r) => (
@@ -161,13 +160,12 @@ function LiveHero({ hero }: { hero: Hero }) {
         ))}
         <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-edge-400/30 bg-edge-400/10 px-4 py-3">
           <div className="min-w-0">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-edge-400">{tier ?? "Official"} · {MARKET_LABEL[v.market]}</div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-edge-400">{tier ?? "Official"} · {MARKET_LABEL[v.market]} · Edge</div>
             <div className="truncate text-sm font-semibold">{v.side}</div>
             {v.logged_at && <div className="text-[10px] text-zinc-500">🔒 {fmtPostedProof(v.logged_at, g.tipoff)}</div>}
+            <div className="mt-0.5 text-[11px] text-zinc-500">¼-Kelly {v.kelly_quarter_units == null ? "—" : `${v.kelly_quarter_units.toFixed(2)}u`}</div>
           </div>
-          <div className="shrink-0 text-right text-xs text-zinc-400">
-            Line edge <b className="text-edge-400">{pct(v.line_edge_pct, 1)}</b><br />¼-Kelly <b className="text-white">{v.kelly_quarter_units == null ? "—" : `${v.kelly_quarter_units.toFixed(2)}u`}</b>
-          </div>
+          <div className={`shrink-0 font-mono text-4xl font-black leading-none ${tier ? "text-edge-400" : "text-zinc-400"}`}>{pct(v.line_edge_pct, 1)}</div>
         </div>
       </Link>
     );
