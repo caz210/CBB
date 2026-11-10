@@ -165,7 +165,7 @@ function LiveHero({ hero }: { hero: Hero }) {
     return (
       <Link href="/cbb/slate?sort=value" className="card relative block p-4 shadow-2xl shadow-black/50 md:p-5">
         <div className="mb-2 flex items-center justify-between text-xs">
-          <span className="font-semibold uppercase tracking-wider text-edge-400">Highest edge today</span>
+          <span className="font-semibold uppercase tracking-wider text-edge-400">Today&apos;s official play</span>
           <span className="text-zinc-500">{g.tipoff ? fmtTipoff(g.tipoff) : "Tip TBD"}</span>
         </div>
         {[{ n: g.away, p: g.proj_away, tags: g.archetypes.away, t: g.archetypes.away_tentative }, { n: g.home, p: g.proj_home, tags: g.archetypes.home, t: g.archetypes.home_tentative }].map((r) => (

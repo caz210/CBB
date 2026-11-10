@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { fmtUpdated, isStale } from "@/lib/labels";
 
 /** Clear, mobile-friendly empty / not-connected state for live data pages. */
 export function EmptyState({
@@ -30,10 +31,21 @@ export function EmptyState({
   );
 }
 
-export function LiveBadge() {
+/** Freshness chip. "Live" only when the slate is current (<2h) and not finished. */
+export function LiveBadge({ updatedAt, finished }: { updatedAt?: string | null; finished?: boolean } = {}) {
+  const stale = isStale(updatedAt ?? null);
+  const when = updatedAt ? fmtUpdated(updatedAt) : null;
+  if (finished || stale) {
+    if (!when) return null;
+    return (
+      <span className="inline-flex items-center gap-1 rounded-md border border-ink-600 bg-ink-850 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+        {finished ? "Final" : "Updated"} · {when}
+      </span>
+    );
+  }
   return (
     <span className="inline-flex items-center gap-1 rounded-md border border-edge-400/40 bg-edge-400/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-edge-400">
-      <span className="h-1.5 w-1.5 rounded-full bg-edge-400" /> Live
+      <span className="h-1.5 w-1.5 rounded-full bg-edge-400" /> Live{when ? ` · ${when}` : ""}
     </span>
   );
 }

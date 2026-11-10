@@ -86,6 +86,10 @@ function toValueBet(r: Row): ValueBet {
     kelly_quarter_units: num(r.kelly_quarter_units),
     pick_tier: isPickTier(r.tier) ? r.tier : "official",
     logged_at: r.logged_at ? str(r.logged_at) : null,
+    model_version: r.model_version ? str(r.model_version) : null,
+    posted_line: num(r.line_or_price) ?? num(r.posted_line),
+    posted_odds: num(r.price) ?? num(r.posted_odds),
+    pick_hash: r.pick_hash ? str(r.pick_hash) : null,
   };
 }
 
@@ -123,6 +127,10 @@ export type SlateData = {
   /** nearest dates with games, offered when the requested date is empty */
   prevDate: string | null;
   nextDate: string | null;
+  /** Newest games.updated_at / projection / line timestamp on this slate. */
+  updatedAt: string | null;
+  /** Every game is completed (final or graded). */
+  finished: boolean;
 };
 
 export async function loadSlate(sport: Sport, date: string): Promise<Loaded<SlateData>> {
@@ -138,22 +146,47 @@ export async function loadSlate(sport: Sport, date: string): Promise<Loaded<Slat
   let tracked: ValueBet[] = [];
   let prevDate: string | null = null;
   let nextDate: string | null = null;
+  let updatedAt: string | null = null;
+  let finished = false;
   if (games.length) {
     const b = await sb.from("value_bets").select("*").eq("sport", sport.key).in("game_id", games.map((x) => x.game_id));
     if (b.error) return fail("value_bets", b.error);
-    const all = (b.data ?? []).map(toValueBet).sort((a, z) => z.line_edge_pct - a.line_edge_pct);
-    bets = all.filter((x) => x.pick_tier === "official");
-    // Completed = games.status 'final' or any graded pick in the ledger. Best-effort: a failure here
-    // just means nothing is marked completed.
+    const all = (b.data ?? []).map(toValueBet);
     const ids = games.map((x) => x.game_id);
-    const [st, gr] = await Promise.all([
-      sb.from("games").select("id,status").in("id", ids),
+    const pk = await sb.from("picks").select("game_id,market,bet,model_version,line_or_price,price,edge,pick_hash,tier").in("game_id", ids);
+    if (!pk.error) {
+      const key = (gid: number, mkt: string, side: string) => `${gid}|${mkt}|${side}`;
+      const extra = new Map<string, Row>();
+      for (const r of (pk.data ?? []) as Row[]) extra.set(key(Number(r.game_id), str(r.market), str(r.bet)), r);
+      for (const v of all) {
+        const r = extra.get(key(v.game_id, v.market, v.side));
+        if (!r) continue;
+        v.model_version = r.model_version ? str(r.model_version) : v.model_version;
+        v.posted_line = num(r.line_or_price);
+        v.posted_odds = num(r.price);
+        v.pick_hash = r.pick_hash ? str(r.pick_hash) : v.pick_hash;
+      }
+    }
+    all.sort((a, z) => z.line_edge_pct - a.line_edge_pct);
+    bets = all.filter((x) => x.pick_tier === "official");
+    const [st, gr, pr, ml] = await Promise.all([
+      sb.from("games").select("id,status,updated_at").in("id", ids),
       sb.from("ledger").select("game_id,result").in("game_id", ids).not("result", "is", null),
+      sb.from("projections").select("game_id,model_version,spread,total,created_at").in("game_id", ids).order("created_at", { ascending: false }),
+      sb.from("market_lines").select("game_id,fetched_at").in("game_id", ids).eq("source", "vegas"),
     ]);
     const done = new Set<number>();
     for (const r of st.data ?? []) if (str(r.status) === "final") done.add(Number(r.id));
     for (const r of gr.data ?? []) done.add(Number(r.game_id));
     for (const x of games) x.completed = done.has(x.game_id);
+    finished = games.every((x) => x.completed);
+    const stamps: number[] = [];
+    const bump = (v: unknown) => { const t = v ? Date.parse(str(v)) : NaN; if (Number.isFinite(t)) stamps.push(t); };
+    for (const r of st.data ?? []) bump(r.updated_at);
+    for (const r of pr.data ?? []) bump(r.created_at);
+    for (const r of ml.data ?? []) bump(r.fetched_at);
+    if (stamps.length) updatedAt = new Date(Math.max(...stamps)).toISOString();
+    attachRawEdges(games, (pr.data ?? []) as Row[]);
     const ins = await loadInsights(sb, ids);
     for (const x of games) x.insight = ins.get(x.game_id);
     tracked = all.filter((x) => x.pick_tier === "track");
@@ -165,7 +198,53 @@ export async function loadSlate(sport: Sport, date: string): Promise<Loaded<Slat
     nextDate = n.data?.[0] ? str(n.data[0].game_date) : null;
     prevDate = p.data?.[0] ? str(p.data[0].game_date) : null;
   }
-  return { state: "live", data: { date, games, bets, tracked, prevDate, nextDate } };
+  return { state: "live", data: { date, games, bets, tracked, prevDate, nextDate, updatedAt, finished } };
+}
+
+
+const V2 = "czarp-v2";
+const V1_TOTALS = "czarp-v1-totals";
+
+function modelLabel(v: string) {
+  if (v === V1_TOTALS) return "czarp-v1-totals";
+  if (v === V2) return "czarp-v2";
+  return v;
+}
+
+/** Latest projection row per game + model_version. */
+function latestByModel(rows: Row[]) {
+  const m = new Map<string, Row>();
+  for (const r of rows) {
+    const k = `${r.game_id}:${r.model_version}`;
+    if (!m.has(k)) m.set(k, r);
+  }
+  return m;
+}
+
+/** Attach raw |fair − price| ÷ Vegas total for sides (v2) and totals (v1 and v2). */
+function attachRawEdges(games: SlateGame[], projRows: Row[]) {
+  const latest = latestByModel(projRows);
+  for (const g of games) {
+    const v2 = latest.get(`${g.game_id}:${V2}`);
+    const v1 = latest.get(`${g.game_id}:${V1_TOTALS}`);
+    const spread = num(v2?.spread) ?? g.proj_spread;
+    const totalV2 = num(v2?.total) ?? g.proj_total;
+    const totalV1 = num(v1?.total);
+    g.proj_total_v2 = totalV2;
+    g.proj_total_v1 = totalV1;
+    const vegasT = g.market_total ?? totalV2 ?? totalV1;
+    const spreadE = computedLineEdge(spread, g.market_spread, vegasT);
+    const totV2E = computedLineEdge(totalV2, g.market_total, g.market_total ?? vegasT);
+    const totV1E = computedLineEdge(totalV1, g.market_total, g.market_total ?? vegasT);
+    const cands: { pct: number; market: "spread" | "total"; model: string }[] = [];
+    if (spreadE != null) cands.push({ pct: spreadE, market: "spread", model: V2 });
+    if (totV1E != null) cands.push({ pct: totV1E, market: "total", model: V1_TOTALS });
+    if (totV2E != null) cands.push({ pct: totV2E, market: "total", model: V2 });
+    const best = cands.sort((a, z) => z.pct - a.pct)[0];
+    g.rawEdge = best?.pct ?? null;
+    g.rawEdgeMarket = best?.market ?? null;
+    g.rawEdgeModel = best ? modelLabel(best.model) : null;
+  }
 }
 
 type SB = NonNullable<Awaited<ReturnType<typeof createSupabaseServerClient>>>;

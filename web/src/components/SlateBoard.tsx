@@ -30,7 +30,7 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
     router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false });
   };
   const byGame = (id: number) => bets.filter((b) => b.game_id === id);
-  const bestEdge = (id: number) => Math.max(-Infinity, ...byGame(id).map((b) => b.line_edge_pct));
+  const raw = (g: SlateGame) => g.rawEdge ?? -Infinity;
   const tipMs = (g: SlateGame) => (g.tipoff ? Date.parse(g.tipoff) : Infinity);
   const byTime = (a: SlateGame, z: SlateGame) => tipMs(a) - tipMs(z) || a.game_id - z.game_id;
   const completedCount = games.filter((g) => g.completed).length;
@@ -40,11 +40,12 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
     .slice()
     .sort(sort === "value"
       ? (a, z) => {
-          const ea = bestEdge(a.game_id), ez = bestEdge(z.game_id);
+          const ea = raw(a), ez = raw(z);
           if (ea === ez) return byTime(a, z);
-          return ez - ea; // -Infinity (no play) sorts last
+          return ez - ea; // no raw edge sorts last
         }
       : byTime);
+  const officialShown = bets.filter((b) => !hide || !games.find((g) => g.game_id === b.game_id)?.completed);
 
   return (
     <div>
@@ -89,6 +90,40 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
           All {games.length} games on this slate are completed.{" "}
           <button onClick={() => setParam("hide", null)} className="font-semibold text-court-400">Show them</button>
         </div>
+      )}
+
+      {officialShown.length > 0 && (
+        <section className="mb-4 rounded-2xl border border-edge-400/30 bg-edge-400/[0.04] p-3 md:p-4" aria-label="Official plays">
+          <div className="mb-2 flex flex-wrap items-baseline gap-x-2">
+            <h2 className="text-sm font-semibold text-edge-400">Official plays · {officialShown.length}</h2>
+            <span className="text-[11px] text-zinc-500">Posted and locked. ¼-Kelly. Official is a badge — the list below is sorted by raw edge, not this tag.</span>
+          </div>
+          <ul className="divide-y divide-ink-700/50">
+            {officialShown.map((b) => {
+              const g = games.find((x) => x.game_id === b.game_id);
+              const tier = edgeTier(b.line_edge_pct, b.market);
+              const proof = fmtPostedProof(b.logged_at, g?.tipoff);
+              const model = b.market === "total" ? (b.model_version ?? "czarp-v1-totals") : null;
+              return (
+                <li key={`${b.game_id}-${b.market}-${b.side}`}>
+                  <button type="button" onClick={() => g && setSel({ game: g, bet: b })}
+                    className="flex min-h-12 w-full items-center gap-3 py-2 text-left text-sm">
+                    {tier ? <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${TIER_BADGE[tier]}`}>{tier}</span> : <span className="rounded-md bg-edge-400/15 px-1.5 py-0.5 text-[10px] font-bold text-edge-400">Official</span>}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-semibold text-white">{b.side}</span>
+                      <span className="block truncate text-[11px] text-zinc-500">
+                        {g?.game ?? `Game #${b.game_id}`} · {MARKET_LABEL[b.market]}{model ? ` · ${model}` : ""}
+                        {proof ? ` · 🔒 ${proof}` : ""}
+                      </span>
+                    </span>
+                    <span className="font-mono text-lg font-black text-edge-400">{pct(b.line_edge_pct, 1)}</span>
+                    <span className="font-mono text-xs text-zinc-500">{b.kelly_quarter_units == null ? "—" : `${b.kelly_quarter_units.toFixed(2)}u`}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
       )}
 
       <div className="grid gap-3 md:gap-4 lg:grid-cols-2">
@@ -194,6 +229,7 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
       <header className="flex items-center gap-2 border-b border-ink-700/60 px-4 py-2.5 text-xs">
         <span className="font-semibold text-zinc-300">{g.tipoff ? fmtTipoff(g.tipoff) : "Tip-off TBD"}</span>
         {g.completed && <span className="font-semibold uppercase text-zinc-500">Final</span>}
+        {bets.length > 0 && <span className="rounded-md bg-edge-400/15 px-1.5 py-0.5 text-[10px] font-bold text-edge-400">Official</span>}
         <button
           type="button"
           aria-label={watched ? "Remove from watchlist" : "Add to watchlist"}
@@ -248,8 +284,9 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
         />
         <MarketStat
           label="Total"
-          fair={g.proj_total == null ? "—" : g.proj_total.toFixed(1)}
+          fair={totalFair(g)}
           price={g.market_total?.toFixed(1) ?? "—"}
+          note={totalModelNote(g)}
         />
         <div className="bg-ink-900 px-2 py-2.5">
           <div className="text-[10px] uppercase tracking-wider text-zinc-500">Home cover</div>
@@ -303,12 +340,29 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
   );
 }
 
-function MarketStat({ label, fair, price }: { label: string; fair: string; price: string }) {
+function totalFair(g: SlateGame) {
+  // Prefer the model that owns the raw total edge; fall back to whichever total we have.
+  if (g.rawEdgeMarket === "total" && g.rawEdgeModel === "czarp-v1-totals" && g.proj_total_v1 != null) return g.proj_total_v1.toFixed(1);
+  if (g.proj_total_v2 != null) return g.proj_total_v2.toFixed(1);
+  if (g.proj_total != null) return g.proj_total.toFixed(1);
+  if (g.proj_total_v1 != null) return g.proj_total_v1.toFixed(1);
+  return "—";
+}
+function totalModelNote(g: SlateGame) {
+  const parts: string[] = [];
+  if (g.proj_total_v1 != null) parts.push(`czarp-v1-totals ${g.proj_total_v1.toFixed(1)}`);
+  if (g.proj_total_v2 != null && g.proj_total_v1 != null) parts.push(`czarp-v2 ${g.proj_total_v2.toFixed(1)}`);
+  else if (g.proj_total_v2 != null) parts.push("czarp-v2");
+  return parts.join(" · ") || undefined;
+}
+
+function MarketStat({ label, fair, price, note }: { label: string; fair: string; price: string; note?: string }) {
   return (
     <div className="bg-ink-900 px-2 py-2.5">
       <div className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</div>
       <div className="font-mono text-sm font-semibold"><span className="text-[10px] font-sans font-normal text-zinc-600">FV </span>{fair}</div>
       <div className="font-mono text-[11px] text-zinc-500"><span className="font-sans">Price </span>{price}</div>
+      {note && <div className="text-[10px] leading-tight text-zinc-600">{note}</div>}
     </div>
   );
 }
@@ -428,7 +482,7 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
           </div>
           {[
             { k: "Spread", cz: czLine == null ? "—" : fmtLine(czLine), o: openS == null ? "—" : fmtLine(openS), c: curS == null ? "—" : fmtLine(curS), m: move(openS, curS) },
-            { k: "Total", cz: czTotal == null ? "—" : czTotal.toFixed(1), o: openT?.toFixed(1) ?? "—", c: curT?.toFixed(1) ?? "—", m: move(openT, curT) },
+            { k: g.proj_total_v1 != null || g.proj_total_v2 != null ? `Total${g.rawEdgeMarket === "total" && g.rawEdgeModel ? ` · ${g.rawEdgeModel}` : ""}` : "Total", cz: czTotal == null ? "—" : czTotal.toFixed(1), o: openT?.toFixed(1) ?? "—", c: curT?.toFixed(1) ?? "—", m: move(openT, curT) },
           ].map((r) => (
             <div key={r.k} className="grid grid-cols-5 border-t border-ink-700/60 px-3 py-2.5 font-mono">
               <span className="font-sans text-xs font-semibold text-zinc-400">{r.k}</span>
