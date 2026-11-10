@@ -1,7 +1,8 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 
 from czarp.sync_finals import (
-    DEFAULT_LOOKBACK, date_window, game_status, main, should_apply, sync_finals, today_ct,
+    DEFAULT_LOOKBACK, date_window, espn_end_utc, game_status, main,
+    parse_espn_time, resolve_final_at, should_apply, sync_finals, today_ct,
 )
 import czarp.sync_finals as sf
 import daily_run as dr
@@ -66,6 +67,8 @@ def test_game_status_and_no_downgrade():
     assert should_apply(cur, "final", 81, 70) is True  # score correction
     assert should_apply({"status": "scheduled", "home_score": None, "away_score": None},
                         "final", 80, 70) is True
+    # already final, scores match: only a missing final_at is writable
+    assert should_apply(cur, "final", 80, 70, filling_final_at=True) is True
 
 
 def test_sync_updates_finals_skips_unknown_and_does_not_downgrade():
@@ -83,13 +86,19 @@ def test_sync_updates_finals_skips_unknown_and_does_not_downgrade():
               home_score=40, away_score=38),
     ]
     c = FakeClient(existing)
+    tip = datetime(2026, 11, 8, 18, 0, tzinfo=timezone.utc)
+    espn[0] = _espn(event_id="10", tip_utc=tip)
     s = sync_finals(lookback=0, day=date(2026, 11, 8), client=c, log=lambda *_: None,
-                    scoreboard=lambda d: espn)
+                    scoreboard=lambda d: espn, end_time=lambda eid: None)
     rows = {r["external_id"]: r for r in c.calls["games"]}
     assert s["updated"] == 2 and s["matched"] == 3 and s["unmatched_espn"] == 1
     assert rows["10"]["status"] == "final" and rows["10"]["home_score"] == 80 and rows["10"]["away_score"] == 70
+    assert rows["10"]["final_at"] == (tip + timedelta(hours=2)).astimezone(timezone.utc).isoformat()
+    assert rows["10"]["final_at_estimated"] is True
+    assert "updated_at" not in rows["10"] and "updated_at" not in rows["12"]
     assert "11" not in rows
     assert rows["12"]["status"] == "in_progress" and rows["12"]["home_score"] == 40
+    assert "final_at" not in rows["12"]
 
 
 def test_sync_leaves_final_without_scores_and_marks_postponed():
@@ -104,7 +113,7 @@ def test_sync_leaves_final_without_scores_and_marks_postponed():
     ]
     c = FakeClient(existing)
     s = sync_finals(lookback=0, day=date(2026, 11, 7), client=c, log=lambda *_: None,
-                    scoreboard=lambda d: espn)
+                    scoreboard=lambda d: espn, end_time=lambda eid: None)
     rows = {r["external_id"]: r for r in c.calls.get("games", [])}
     assert "1" not in rows and s["unchanged"] == 1
     assert rows["2"]["status"] == "postponed" and rows["2"]["home_score"] is None
@@ -118,7 +127,8 @@ def test_sync_lookback_fetches_each_day():
         return []
 
     c = FakeClient([])
-    sync_finals(lookback=7, day=date(2026, 11, 9), client=c, log=lambda *_: None, scoreboard=sb)
+    sync_finals(lookback=7, day=date(2026, 11, 9), client=c, log=lambda *_: None, scoreboard=sb,
+                end_time=lambda eid: None)
     assert seen[0] == date(2026, 11, 2) and seen[-1] == date(2026, 11, 9) and len(seen) == 8
 
 
@@ -131,3 +141,106 @@ def test_cli_parses_date_and_lookback(monkeypatch):
     assert main(["--date", "2026-11-09", "--lookback", "7"]) == 0
     assert calls[0]["day"] == date(2026, 11, 9) and calls[0]["lookback"] == 7
     assert main(["--date", "not-a-date"]) == 2
+
+
+TIP = datetime(2026, 11, 8, 18, 0, tzinfo=timezone.utc)
+END = datetime(2026, 11, 8, 20, 14, 27, tzinfo=timezone.utc)
+
+
+def test_parse_and_resolve_final_at():
+    assert parse_espn_time("2026-11-08T20:14:27Z") == END
+    assert parse_espn_time("2026-11-08T20:14:27+00:00") == END
+    assert parse_espn_time("2026-11-08 20:14:27+00") == END
+    fa, est = resolve_final_at({}, end_utc=END)
+    assert fa == END.isoformat() and est is False
+    fa, est = resolve_final_at({"tip_utc": TIP})
+    assert fa == (TIP + timedelta(hours=2)).isoformat() and est is True
+    # end time wins over tip
+    fa, est = resolve_final_at({"tip_utc": TIP, "end_utc": END})
+    assert fa == END.isoformat() and est is False
+    assert resolve_final_at({}) == (None, None)
+
+
+def test_espn_end_utc_reads_end_game_wallclock():
+    class Resp:
+        status_code = 200
+        def json(self):
+            return {"plays": [
+                {"type": {"id": "401", "text": "End Period"}, "wallclock": "2026-11-08T19:00:00Z"},
+                {"type": {"id": "402", "text": "End Game"}, "text": "End of Game",
+                 "wallclock": "2026-11-08T20:14:27Z"},
+            ]}
+    class Sess:
+        def get(self, *a, **k):
+            return Resp()
+    assert espn_end_utc("401920424", session=Sess()) == END
+
+
+def test_sync_uses_espn_end_time_and_never_writes_updated_at():
+    existing = [dict(external_id="10", date="2026-11-08", status="scheduled",
+                     home_score=None, away_score=None, league="ncaam", tipoff=TIP.isoformat())]
+    c = FakeClient(existing)
+    s = sync_finals(lookback=0, day=date(2026, 11, 8), client=c, log=lambda *_: None,
+                    scoreboard=lambda d: [_espn(event_id="10", tip_utc=TIP)],
+                    end_time=lambda eid: END)
+    row = c.calls["games"][0]
+    assert s["final_at_actual"] == 1 and s["final_at_estimated"] == 0
+    assert row["final_at"] == END.isoformat() and row["final_at_estimated"] is False
+    assert "updated_at" not in row
+
+
+def test_sync_backfills_final_at_on_already_final_without_bumping_scores_or_updated_at():
+    existing = [dict(external_id="10", date="2026-11-08", status="final",
+                     home_score=80, away_score=70, league="ncaam", tipoff=TIP.isoformat(),
+                     final_at=None)]
+    c = FakeClient(existing)
+    s = sync_finals(lookback=0, day=date(2026, 11, 8), client=c, log=lambda *_: None,
+                    scoreboard=lambda d: [_espn(event_id="10", tip_utc=TIP)],
+                    end_time=lambda eid: None)
+    row = c.calls["games"][0]
+    assert s["updated"] == 1 and s["final_at_estimated"] == 1
+    assert row["final_at"] == (TIP + timedelta(hours=2)).isoformat()
+    assert row["final_at_estimated"] is True
+    assert "status" not in row and "home_score" not in row and "updated_at" not in row
+
+
+def test_sync_does_not_overwrite_existing_final_at():
+    existing = [dict(external_id="10", date="2026-11-08", status="final",
+                     home_score=80, away_score=70, league="ncaam",
+                     final_at=END.isoformat(), final_at_estimated=False)]
+    c = FakeClient(existing)
+    s = sync_finals(lookback=0, day=date(2026, 11, 8), client=c, log=lambda *_: None,
+                    scoreboard=lambda d: [_espn(event_id="10", tip_utc=TIP)],
+                    end_time=lambda eid: datetime(2026, 11, 8, 23, 0, tzinfo=timezone.utc))
+    assert s["updated"] == 0 and "games" not in c.calls
+
+
+def test_sync_upgrades_estimate_to_espn_end_but_not_to_another_estimate():
+    existing = [dict(external_id="10", date="2026-11-08", status="final",
+                     home_score=80, away_score=70, league="ncaam",
+                     final_at=(TIP + timedelta(hours=2)).isoformat(), final_at_estimated=True)]
+    c = FakeClient(existing)
+    s = sync_finals(lookback=0, day=date(2026, 11, 8), client=c, log=lambda *_: None,
+                    scoreboard=lambda d: [_espn(event_id="10", tip_utc=TIP)],
+                    end_time=lambda eid: END)
+    row = c.calls["games"][0]
+    assert s["updated"] == 1 and s["final_at_actual"] == 1
+    assert row["final_at"] == END.isoformat() and row["final_at_estimated"] is False
+    assert "updated_at" not in row and "status" not in row
+    # no ESPN end: leave the estimate alone
+    c2 = FakeClient(existing)
+    s2 = sync_finals(lookback=0, day=date(2026, 11, 8), client=c2, log=lambda *_: None,
+                     scoreboard=lambda d: [_espn(event_id="10", tip_utc=TIP)],
+                     end_time=lambda eid: None)
+    assert s2["updated"] == 0 and "games" not in c2.calls
+
+
+def test_migration_exposes_final_at_on_views():
+    from pathlib import Path
+    sql = (Path(__file__).resolve().parents[1] / "db/migrations/2026-11-10_games_final_at.sql").read_text()
+    assert "add column if not exists final_at timestamptz" in sql
+    assert "add column if not exists final_at_estimated boolean" in sql
+    assert "g.final_at" in sql and "g.final_at_estimated" in sql
+    assert "create or replace view slate_games" in sql
+    assert "create or replace view model_grades" in sql
+    assert "g.status" in sql
