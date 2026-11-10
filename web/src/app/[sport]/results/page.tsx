@@ -5,6 +5,7 @@ import { getSport } from "@/lib/sports";
 import { RANGES, loadResults, rowUnits, type RangeKey } from "@/lib/data";
 import type { LedgerRow } from "@/lib/types";
 import { LOCKED_NOTE, MARKET_LABEL, PICK_TIER_LABEL, RESULT_LABEL, fmtClv, fmtGameDate, fmtOdds, fmtPostedProof, fmtUnits, pct, shortHash, signedPct, type PickTier } from "@/lib/labels";
+import { SMALL_SAMPLE_N } from "@/lib/stats";
 import { ComingSoon } from "@/components/ComingSoon";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
@@ -118,9 +119,20 @@ function Live({ data, range }: { data: Extract<Awaited<ReturnType<typeof loadRes
     <>
       <div className="mt-4 grid grid-cols-2 gap-3 md:mt-6 md:grid-cols-5 md:gap-4">
         <Kpi label="Record (W-L-P)" value={s.record} sub={s.pending ? `${s.pending} pending` : undefined} wide />
-        <Kpi label="Win %" value={s.winPct == null ? "—" : pct(s.winPct, 1)} sub="Break-even at −110: 52.4%" />
-        <Kpi label="ROI" value={s.roi == null ? "—" : signedPct(s.roi)} good={s.roi != null && s.roi > 0} />
-        <Kpi label="Units P/L" value={s.graded ? fmtUnits(s.units, 1) : "—"} good={s.units > 0} />
+        <Kpi
+          label="Win %"
+          value={s.winPct == null ? "—" : pct(s.winPct, 1)}
+          sub={s.winCi
+            ? `${s.smallSample ? "Small sample · " : ""}95% CI ${pct(s.winCi.lo, 0)}–${pct(s.winCi.hi, 0)}${s.smallSample ? ` · n=${s.wins + s.losses}` : ""}`
+            : "Break-even at −110: 52.4%"}
+        />
+        <Kpi label="ROI" value={s.roi == null ? "—" : signedPct(s.roi)} sub="¼-Kelly" good={s.roi != null && s.roi > 0} />
+        <Kpi
+          label="Units P/L"
+          value={s.graded ? fmtUnits(s.units, 1) : "—"}
+          sub={s.graded ? `¼-Kelly · Flat 1u: ${fmtUnits(s.flatUnits, 1)}` : undefined}
+          good={s.units > 0}
+        />
         <Kpi
           label={<TermLabel term="clv">Avg CLV</TermLabel>}
           value={hasClv && s.avgClv != null ? `${s.avgClv > 0 ? "+" : ""}${s.avgClv.toFixed(2)} pts` : "—"}
@@ -179,8 +191,8 @@ function Live({ data, range }: { data: Extract<Awaited<ReturnType<typeof loadRes
                   <div key={r.market} className="flex items-center justify-between py-3 text-sm">
                     <div>
                       <div className="font-semibold">{MARKET_LABEL[r.market] ?? r.market}</div>
-                      <div className="font-mono text-xs text-zinc-500">{r.wins}-{r.losses}-{r.pushes} · {r.pending} pending · {fmtUnits(r.units, 1)}</div>
-                      {r.avg_clv != null && <div className="font-mono text-[11px] text-zinc-600">CLV {fmtClv(r.avg_clv)} · beat close {r.beat_close}</div>}
+                      <div className="font-mono text-xs text-zinc-500">{r.wins}-{r.losses}-{r.pushes} · {r.pending} pending · {fmtUnits((data.byMarketUnits[r.market]?.kelly) ?? 0, 1)} ¼-K</div>
+                      <div className="font-mono text-[11px] text-zinc-600">Flat 1u: {fmtUnits((data.byMarketUnits[r.market]?.flat) ?? r.units, 1)}{r.avg_clv != null ? ` · CLV ${fmtClv(r.avg_clv)} · beat close ${r.beat_close}` : ""}</div>
                     </div>
                     <div className="text-right font-mono">
                       <div>{decided ? pct(r.wins / decided, 1) : "—"}</div>
@@ -191,7 +203,9 @@ function Live({ data, range }: { data: Extract<Awaited<ReturnType<typeof loadRes
               })}
             </div>
           )}
-          <p className="mt-3 text-xs leading-relaxed text-zinc-500">Small samples are noisy. Confidence intervals come once enough picks are graded.</p>
+          <p className="mt-3 text-xs leading-relaxed text-zinc-500">
+            Units are ¼-Kelly (1u = 1% of bankroll). Flat 1u is shown as a secondary line. {s.smallSample ? `Win-rate 95% CI is a Wilson interval — n=${s.wins + s.losses} is a small sample (under ${SMALL_SAMPLE_N}).` : "Win-rate 95% CI is a Wilson interval."}
+          </p>
         </div>
       </div>
 

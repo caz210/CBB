@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { ExampleBadge, ExampleBanner } from "@/components/ExampleBadge";
 import { ArchetypeChip } from "@/components/ArchetypeChip";
-import { EXAMPLE_SLATE, EXAMPLE_VALUE_BETS, EXAMPLE_PICK_RECORD, summarize } from "@/lib/example-data";
-import { MARKET_LABEL, edgeTier, fmtLine, fmtTipoff, pct, signedPct } from "@/lib/labels";
+import { EXAMPLE_SLATE, EXAMPLE_VALUE_BETS } from "@/lib/example-data";
+import { MARKET_LABEL, edgeTier, fmtLine, fmtTipoff, pct, signedPct, fmtUnits } from "@/lib/labels";
 import { SPORTS, getSport } from "@/lib/sports";
-import { loadHero, type Hero } from "@/lib/data";
-import { RESULT_LABEL, fmtGameDate, fmtPostedProof, fmtUnits } from "@/lib/labels";
+import { loadHero, loadResults, type Hero } from "@/lib/data";
+import { RESULT_LABEL, fmtGameDate, fmtPostedProof } from "@/lib/labels";
 
 // Hero shows today's top official play, so render per request.
 export const dynamic = "force-dynamic";
@@ -13,10 +13,11 @@ export const dynamic = "force-dynamic";
 export default async function Landing() {
   const cbb = getSport("cbb");
   const heroRes = cbb ? await loadHero(cbb) : null;
+  const recRes = cbb ? await loadResults(cbb, "season", "official") : null;
   const hero = heroRes?.state === "live" ? heroRes.data : null;
+  const rec = recRes?.state === "live" ? recRes.data : null;
   const g = EXAMPLE_SLATE[0];
   const v = EXAMPLE_VALUE_BETS.find((b) => b.game_id === g.game_id)!;
-  const s = summarize(EXAMPLE_PICK_RECORD);
   return (
     <div>
       {!hero && <ExampleBanner />}
@@ -98,14 +99,31 @@ export default async function Landing() {
 
         <div className="card mt-6 p-5 md:mt-10 md:flex md:items-center md:justify-between md:gap-6 md:p-6">
           <div>
-            <div className="flex items-center gap-2"><h3 className="text-lg font-bold">Season portfolio</h3><ExampleBadge /></div>
-            <p className="mt-1 text-sm text-zinc-400">Paper-traded: a public book before anyone pays.</p>
+            <h3 className="text-lg font-bold">Season portfolio</h3>
+            <p className="mt-1 text-sm text-zinc-400">
+              {rec ? "Official book, paper-traded in public. ¼-Kelly units." : recRes?.state === "unconfigured" ? "Connect live data to show the official record." : recRes?.state === "error" ? "Couldn't load the official record." : "No official picks graded yet."}
+            </p>
+            {rec && rec.byMarket.length > 0 && (
+              <p className="mt-1 text-xs text-zinc-500">
+                {rec.byMarket.map((r) => `${MARKET_LABEL[r.market] ?? r.market} ${r.wins}-${r.losses}-${r.pushes}`).join(" · ")}
+              </p>
+            )}
           </div>
-          <div className="mt-4 grid grid-cols-3 gap-3 font-mono md:mt-0 md:flex md:gap-8">
-            <Big label="Record" value={s.record} />
-            <Big label="ATS" value={pct(s.winPct, 1)} />
-            <Big label="ROI" value={signedPct(s.roi)} />
-          </div>
+          {rec && rec.summary.graded > 0 ? (
+            <div className="mt-4 grid grid-cols-3 gap-3 font-mono md:mt-0 md:flex md:gap-8">
+              <Big label="Official record" value={rec.summary.record} />
+              <Big
+                label="Win %"
+                value={rec.summary.winPct == null ? "—" : pct(rec.summary.winPct, 1)}
+                sub={rec.summary.winCi
+                  ? `${rec.summary.smallSample ? "Small sample · " : ""}95% CI ${pct(rec.summary.winCi.lo, 0)}–${pct(rec.summary.winCi.hi, 0)}`
+                  : undefined}
+              />
+              <Big label="ROI" value={rec.summary.roi == null ? "—" : signedPct(rec.summary.roi)} sub={`${fmtUnits(rec.summary.units, 1)} ¼-K`} />
+            </div>
+          ) : (
+            <div className="mt-4 text-sm text-zinc-500 md:mt-0">No graded official picks yet.</div>
+          )}
           <Link href="/cbb/results" className="mt-4 flex min-h-11 items-center justify-center rounded-xl border border-ink-600 px-4 text-sm font-semibold hover:bg-ink-800 md:mt-0">Full portfolio →</Link>
         </div>
 
@@ -130,11 +148,12 @@ function Mini({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
-function Big({ label, value }: { label: string; value: string }) {
+function Big({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
     <div>
       <div className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</div>
       <div className="text-lg font-bold md:text-2xl">{value}</div>
+      {sub && <div className="text-[10px] font-sans text-zinc-500">{sub}</div>}
     </div>
   );
 }
