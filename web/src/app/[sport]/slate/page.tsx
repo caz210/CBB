@@ -42,6 +42,8 @@ export default async function SlatePage({
     <div className="mx-auto max-w-7xl px-4 py-5 md:px-6 md:py-10">
       <PageHeader
         badge={res.state === "live" ? "live" : "none"}
+        updatedAt={res.state === "live" ? res.data.updatedAt : null}
+        finished={res.state === "live" ? res.data.finished : false}
         eyebrow={`${sport.long} · Slate`}
         title={`${fmtGameDate(date)}${date === today ? " · Today" : ""}`}
         sub="Price vs fair value on every game. Edge % is the headline — star games to watch. Tap a card for insights."
@@ -63,10 +65,10 @@ export default async function SlatePage({
             actions={[{ href: href(date), label: "Try again" }]} />
         ) : res.data.games.length === 0 ? (
           <EmptyState
-            title={`No ${sport.label} games on ${fmtGameDate(date)}`}
-            body={date >= today
-              ? "Nothing has been posted for this date yet. The model publishes each morning, so check back later."
-              : "There are no projected games for this date."}
+            title={date < today ? "No slate stored for this date" : `No ${sport.label} games on ${fmtGameDate(date)}`}
+            body={date < today
+              ? "We don't have a stored slate for this date."
+              : "Nothing has been posted for this date yet. The model publishes each morning, so check back later."}
             actions={[
               ...(res.data.prevDate ? [{ href: href(res.data.prevDate), label: `‹ ${fmtGameDate(res.data.prevDate)}` }] : []),
               ...(res.data.nextDate ? [{ href: href(res.data.nextDate), label: `${fmtGameDate(res.data.nextDate)} ›` }] : []),

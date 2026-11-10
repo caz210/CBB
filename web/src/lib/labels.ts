@@ -22,6 +22,23 @@ export function fmtTipoff(iso: string) {
     " CT"
   );
 }
+
+/** "3:15 PM CT" or "Sat 3:15 PM CT" when the stamp is not today in Central time. */
+export function fmtUpdated(iso: string, now = new Date()) {
+  const t = new Date(iso);
+  if (Number.isNaN(t.getTime())) return null;
+  const dayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit" });
+  const sameDay = dayFmt.format(t) === dayFmt.format(now);
+  const time = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", hour: "numeric", minute: "2-digit", ...(sameDay ? {} : { weekday: "short" }) }).format(t);
+  return `${time} CT`;
+}
+
+export const STALE_MS = 2 * 60 * 60 * 1000;
+export function isStale(iso: string | null | undefined, now = new Date()) {
+  if (iso == null || iso === "") return false; // no stamp measured — don't hide Live
+  const t = Date.parse(iso);
+  return !Number.isFinite(t) || now.getTime() - t > STALE_MS;
+}
 export function fmtGameDate(d: string) {
   return new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" }).format(
     new Date(d + "T00:00:00Z"),

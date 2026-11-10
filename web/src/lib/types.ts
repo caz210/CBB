@@ -42,6 +42,13 @@ export type SlateGame = {
   completed?: boolean;
   /** extra detail for the game sheet; fields are null when not published */
   insight?: GameInsight;
+  /** Raw |fair − price| ÷ Vegas total (not official-pick sort). */
+  rawEdge?: number | null;
+  rawEdgeMarket?: Market | null;
+  /** Model that produced the total (or spread) used for rawEdge. */
+  rawEdgeModel?: string | null;
+  proj_total_v1?: number | null;
+  proj_total_v2?: number | null;
 };
 export type GameInsight = {
   proj_home: number | null;
@@ -73,6 +80,12 @@ export type ValueBet = {
   kelly_quarter_units: number | null; // 1u = 1% of bankroll
   pick_tier?: PickTier; // 'official' (staked) or 'track' (paper-only 1u)
   logged_at?: string | null; // timestamptz the pick was posted
+  model_version?: string | null;
+  /** Market line at post (picks.line_or_price). */
+  posted_line?: number | null;
+  /** American odds at post (picks.price). */
+  posted_odds?: number | null;
+  pick_hash?: string | null;
 };
 
 // ---- view: ledger ----------------------------------------------------------
