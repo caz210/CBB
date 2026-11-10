@@ -206,11 +206,12 @@ def test_skip_codes_and_attach_reasons():
     # candidates uses price from current_*_spread_price; force a qualifying side with a huge juice
     dr.attach_skip_reasons([g2], now, 1000.0)
     assert "kelly_too_small" in g2["skip_reasons_spread"]
-    # new-coach lock on the total
+    # new-coach hold on the total
     g3 = _game(event_id="3", v1_total=150.0,
                coach_home={"team": "H", "games": 0, "lock_sides": None, "lock_totals": 4})
     dr.attach_skip_reasons([g3], now, 1000.0)
     assert "new_coach_lock" in g3["skip_reasons_total"]
+    assert g3["skip_reason_total"] == "Paused until game 4 (new coach, 0 played)"
 
 
 def test_resync_never_grades_logs_picks_or_writes_ledger(monkeypatch, tmp_path):

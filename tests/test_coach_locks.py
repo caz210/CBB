@@ -39,7 +39,7 @@ def test_per_team_lock_lengths(monkeypatch):
     monkeypatch.setattr(dr, "COACH_LOCK_TOTALS", 4)
     g = _game(v1_total=150.0, coach_home={"team": "H", "games": 3, "lock_sides": None, "lock_totals": 0})
     c = {x["market"]: x for x in dr.candidates([g], _now())}
-    assert not c["spread"]["rule_ok"] and "has played 3 of 8" in " ".join(c["spread"]["reasons"])
+    assert not c["spread"]["rule_ok"] and "Paused until game 8 (new coach, 3 played)" in " ".join(c["spread"]["reasons"])
     assert c["total"]["rule_ok"]                                                        # totals lock off for H
     g["coach_home"]["lock_sides"] = 2
     assert {x["market"]: x for x in dr.candidates([g], _now())}["spread"]["rule_ok"]   # 3 >= custom 2
