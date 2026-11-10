@@ -9,6 +9,7 @@ import { portfolioRisk, computedLineEdge, type PortfolioRisk } from "./portfolio
 import { parseTagList, type ArchetypeTag } from "./archetypes";
 import { teamSlug, type ModelGrade, type TeamModelRecord, type TeamProfile } from "./teams";
 import { isPickTier, type Market, type MarketSource, type PickTier } from "./labels";
+import { wilsonCi, SMALL_SAMPLE_N } from "./stats";
 
 export type Loaded<T> =
   | { state: "live"; data: T }
@@ -263,9 +264,14 @@ export type ResultsData = {
   season: number | null;
   summary: {
     record: string; wins: number; losses: number; pushes: number; pending: number; graded: number;
-    winPct: number | null; roi: number | null; units: number; avgClv: number | null;
-    beatClose: number; clvN: number;
+    winPct: number | null; roi: number | null; units: number; flatUnits: number;
+    avgClv: number | null; beatClose: number; clvN: number;
+    /** 95% Wilson CI on win rate (wins / (wins+losses)); null if no decided bets */
+    winCi: { lo: number; hi: number } | null;
+    smallSample: boolean;
   };
+  /** per-market ¼-Kelly units rolled up from the ledger (tier_record.units is flat 1u) */
+  byMarketUnits: Record<string, { kelly: number; flat: number }>;
   risk: PortfolioRisk;
   cumulativeUnits: number[];
 };
@@ -275,6 +281,14 @@ const NAME_LOOKUP_LIMIT = 200;
 
 /** Units for a ledger row: official = ¼-Kelly profit_units; tracked = flat 1u result. */
 export const rowUnits = (r: LedgerRow) => (r.pick_tier === "track" ? r.flat_units ?? r.profit_units : r.profit_units);
+
+/** Infer market from a ledger pick label (ledger view has no market column). */
+export function marketFromPick(pick: string): Market {
+  const s = pick.toLowerCase();
+  if (s.startsWith("under") || s.startsWith("over")) return "total";
+  if (/ml/.test(s) || s.includes("moneyline")) return "moneyline";
+  return "spread";
+}
 
 export async function loadResults(sport: Sport, range: RangeKey, tier: PickTier): Promise<Loaded<ResultsData>> {
   const sb = await createSupabaseServerClient();
@@ -315,15 +329,26 @@ export async function loadResults(sport: Sport, range: RangeKey, tier: PickTier)
     }))
     .sort((a, z) => (order[a.market] ?? 9) - (order[z.market] ?? 9));
 
-  // KPIs from the ledger (respects range and tier)
-  let wins = 0, losses = 0, pushes = 0, pending = 0, units = 0, staked = 0, clvS = 0, clvN = 0, beatClose = 0;
+  // KPIs from the ledger (respects range and tier). Official units = ¼-Kelly profit_units.
+  let wins = 0, losses = 0, pushes = 0, pending = 0, units = 0, flatUnits = 0, staked = 0, clvS = 0, clvN = 0, beatClose = 0;
+  const byMarketUnits: ResultsData["byMarketUnits"] = {};
   for (const r of ledger) {
     if (r.result == null) { pending++; continue; }
     if (r.result === "W") wins++; else if (r.result === "L") losses++; else pushes++;
-    units += rowUnits(r) ?? 0;
+    const k = rowUnits(r) ?? 0;
+    const f = r.flat_units ?? 0;
+    units += k;
+    flatUnits += f;
     staked += tier === "track" ? 1 : r.stake_units ?? 0;
     if (r.clv != null) { clvS += r.clv; clvN++; if (r.clv > 0) beatClose++; }
+    const mk = marketFromPick(r.pick);
+    const slot = byMarketUnits[mk] ?? (byMarketUnits[mk] = { kelly: 0, flat: 0 });
+    slot.kelly += k;
+    slot.flat += f;
   }
+  const decided = wins + losses;
+  const winCi = wilsonCi(wins, decided);
+  const smallSample = decided > 0 && decided < SMALL_SAMPLE_N;
 
   const cumulativeUnits = [0];
   for (const r of [...ledger].reverse()) {
@@ -334,15 +359,16 @@ export async function loadResults(sport: Sport, range: RangeKey, tier: PickTier)
   return {
     state: "live",
     data: {
-      tier, ledger, gameNames, tipoffs, byMarket, season, cumulativeUnits,
+      tier, ledger, gameNames, tipoffs, byMarket, season, cumulativeUnits, byMarketUnits,
       risk: portfolioRisk(ledger),
       summary: {
         record: `${wins}-${losses}-${pushes}`, wins, losses, pushes, pending, graded: wins + losses + pushes,
         winPct: wins + losses ? wins / (wins + losses) : null,
         roi: staked ? units / staked : null,
         units: Math.round(units * 100) / 100,
+        flatUnits: Math.round(flatUnits * 100) / 100,
         avgClv: clvN ? clvS / clvN : null,
-        beatClose, clvN,
+        beatClose, clvN, winCi, smallSample,
       },
     },
   };
