@@ -692,15 +692,14 @@ def candidates(games, now) -> list[dict]:
             why.append("no opening line")
         eo, ec, thr = c["edge_pct_vs_open"], c["edge_pct"], c["thr"]
         n_base = len(why)
-        if c["market"] == "total":
-            # totals: edge vs OPEN only (vs-current check hurt in the backtest); the move-against skip below
-            if eo is not None and eo < thr:
-                why.append(f"below {thr:.0%} threshold ({eo:.1%})")
-        elif eo is not None and ec is not None and eo >= thr and (ec < thr or not c["same_side"]):
-            why.append("edge gone vs current" + ("" if c["same_side"] else " (flipped side)"))
-        elif (eo is not None and eo < thr) or (ec is not None and ec < thr):
-            low = min(x for x in (eo, ec) if x is not None)
-            why.append(f"below {thr:.0%} threshold ({low:.1%})")
+        # Human skip text names the bar that failed; the card already shows the percentages.
+        if eo is not None and eo < thr:
+            why.append(f"edge vs open below {thr:.0%}")
+        if c["market"] == "spread":
+            if ec is not None and ec < thr:
+                why.append(f"edge vs now below {thr:.0%}" + ("" if c["same_side"] else " (flipped side)"))
+            elif eo is not None and ec is not None and eo >= thr and not c["same_side"]:
+                why.append("edge gone vs current (flipped side)")
         # the line-move flag is about the side's spread; it applies to sides only
         if c["market"] == "spread" and c["flagged"] and LINE_MOVE_EXCLUDE:
             why.append(f"line-move flag: spread moved {c['line_move']:g} pts (likely news/injury)")
@@ -719,7 +718,8 @@ def candidates(games, now) -> list[dict]:
         c["reasons"] = why
         c["rule_ok"] = not why
         # SHADOW 'track' tier: sides whose ONLY failing rule is the vs-current bar, with >= TRACK_SIDE_CUR_THR left
-        cur_reasons = [r for r in why[n_base:] if r.startswith(("edge gone vs current", "below "))]
+        cur_reasons = [r for r in why[n_base:] if r.startswith(
+            ("edge gone vs current", "below ", "edge vs now", "edge vs open"))]
         others = [r for r in why if r not in cur_reasons
                   and not (TRACK_IGNORE_COACH_LOCK and r.startswith("NEW COACH lock"))]
         c["track_ok"] = bool(
