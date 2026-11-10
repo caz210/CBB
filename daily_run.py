@@ -58,6 +58,8 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import requests
 
+from czarp import big_moves as BM
+
 warnings.filterwarnings("ignore", category=UserWarning)
 CENTRAL = ZoneInfo("America/Chicago")
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -1046,6 +1048,9 @@ def top_edges(cands, played_ids, n=TOP_N_EDGES) -> list[dict]:
         ma = c.get("move_against")
         if c["market"] == "spread" and ma is not None and ma >= SIDE_MOVE_AGAINST_PTS and not SIDE_MOVE_SKIP:
             reasons.append(f"⚠ spread moved {ma:g} pts AGAINST our side (flag only)")
+        bnote = BM.top10_note(g, c["market"])
+        if bnote:
+            reasons.append(bnote + (" — against our lean" if (ma or 0) > 0 else ""))
         rows.append(dict(c, pick_id=pid, qualifies=pid in played_ids, reasons=reasons, rank_edge=key(c)))
     return rows
 
@@ -1163,7 +1168,7 @@ def tier_record_md(ledger: pd.DataFrame) -> list[str]:
 
 
 def write_summary(today: str, now: datetime, games, new_rows, ledger, graded_idx, notes, top=None,
-                  path: str | None = None) -> str:
+                  path: str | None = None, big=None, big_record=None) -> str:
     os.makedirs(OUT_DIR, exist_ok=True)
     path = path or os.path.join(OUT_DIR, f"{today}.md")
     L = [f"# CZarp paper trading — {today}",
@@ -1206,6 +1211,8 @@ def write_summary(today: str, now: datetime, games, new_rows, ledger, graded_idx
                      f"{float(r.edge_pct):.1%} ({float(r.edge_pct_vs_open):.1%}) | {str(r.created_ct)[11:16]} |")
     L.append("")
     L.extend(top_edges_md(top or []))
+    if big is not None:
+        L.extend(BM.report_md(big, big_record))
     yday = (date.fromisoformat(today) - timedelta(days=1)).isoformat()
     yr = ledger[ledger.game_date == yday]
     L.append(f"## Yesterday ({yday}) results")
@@ -1370,6 +1377,9 @@ def main(argv=None) -> int:
 
     new_rows = []
     top = []
+    big = None
+    big_record = None
+    played = set()
     data = None
     nc = {}
     if games:
@@ -1444,6 +1454,13 @@ def main(argv=None) -> int:
             for ln in top_edges_md(top):
                 log("  " + ln if ln else "")
             attach_skip_reasons(games, now, bankroll(ledger))
+            big = BM.detect(games, cands, played)
+            if not a.dry_run:
+                try:
+                    BM.save_context(today, cands, big)
+                except Exception as e:
+                    log(f"  big-move context not saved ({type(e).__name__}: {e})")
+            log(f"  BIG MOVES (total >= {BM.TOTAL_PTS:g} / spread >= {BM.SPREAD_PTS:g} pts open->current): {len(big)}")
     else:
         notes.append("No games on the slate today.")
 
@@ -1476,10 +1493,24 @@ def main(argv=None) -> int:
         except Exception as e:
             log(f"  finals sync failed ({type(e).__name__}: {e}) — will retry next run")
             notes.append("Finals sync failed this run; scores will retry next run.")
+        # BIG MOVE tracker (info only; never picks): store today's flags, grade finished ones, read the record
+        try:
+            from czarp.supabase_writer import Client
+            bc = Client()
+            if big:
+                ids = ",".join(sorted({r["event_id"] for r in big}))
+                gid = {x["external_id"]: x["id"] for x in bc.get("games", select="id,external_id",
+                                                                   league="eq.ncaam", external_id=f"in.({ids})")}
+                log(f"  big moves: stored {BM.write_rows(bc, big, gid, now, log=log)} (first report kept)")
+            BM.grade_pending(bc, now, lines_for=espn_dk_lines, log=log)
+            big_record = BM.fetch_record(bc)
+        except Exception as e:
+            log(f"  big-move tracker skipped ({type(e).__name__}: {e})")
     # (g) summary
     path = write_summary(today, now, games, new_rows, ledger, gi, notes, top,
                          path=os.path.join(OUT_DIR, f"{today}.dryrun.md") if a.dry_run
-                         else (os.path.join(OUT_DIR, f"{today}.resync.md") if a.resync else None))
+                         else (os.path.join(OUT_DIR, f"{today}.resync.md") if a.resync else None),
+                         big=big, big_record=big_record)
     log(f"  summary → {path}; ledger → {LEDGER} ({len(ledger)} rows)")
     return 0
 
