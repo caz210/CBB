@@ -49,6 +49,7 @@ export type SlateGame = {
   rawEdgeModel?: string | null;
   proj_total_v1?: number | null;
   proj_total_v2?: number | null;
+  coachLocks?: import("./coach").NewCoachLock[];
 };
 export type GameInsight = {
   proj_home: number | null;
@@ -86,6 +87,13 @@ export type ValueBet = {
   /** American odds at post (picks.price). */
   posted_odds?: number | null;
   pick_hash?: string | null;
+  /** picks.edge — same as line_edge_pct when the view is populated. */
+  posted_edge?: number | null;
+  /** Locked fair at post (projection of the pick's model, else reconstructed). */
+  posted_fair?: number | null;
+  posted_fair_source?: "projection" | "reconstructed" | null;
+  /** picks.created_at (line/price timestamp) used to match a projection at post. */
+  pick_created_at?: string | null;
 };
 
 // ---- view: ledger ----------------------------------------------------------
@@ -107,6 +115,13 @@ export type LedgerRow = {
   logged_at?: string | null; // posted at (immutable)
   source?: string;
   pick_hash?: string | null;
+  /** picks.edge — same as line_edge_pct when the view is populated. */
+  posted_edge?: number | null;
+  /** Locked fair at post (projection of the pick's model, else reconstructed). */
+  posted_fair?: number | null;
+  posted_fair_source?: "projection" | "reconstructed" | null;
+  /** picks.created_at (line/price timestamp) used to match a projection at post. */
+  pick_created_at?: string | null;
 };
 
 // ---- view: pick_record (aggregated per market) ------------------------------

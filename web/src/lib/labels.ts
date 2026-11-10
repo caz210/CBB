@@ -91,3 +91,16 @@ export function fmtPostedProof(loggedAt: string | null | undefined, tipoff: stri
 export const shortHash = (h: string | null | undefined) => (h ? h.slice(0, 8) : null);
 export const fmtClv = (c: number) => `${c > 0 ? "+" : c < 0 ? "−" : ""}${Math.abs(c).toFixed(1)} pts`;
 export const LOCKED_NOTE = "Picks are locked once posted: they can't be edited or deleted.";
+
+/** "Posted 142.0 · 4.1% → Now 146.2" (totals as 1 decimal; spreads as signed lines). */
+export function fmtPostedVsNow(
+  fair: number | null | undefined,
+  edge: number | null | undefined,
+  now: number | null | undefined,
+  market: Market,
+): string | null {
+  if (fair == null || edge == null) return null;
+  const f = market === "total" ? fair.toFixed(1) : fmtLine(fair);
+  const n = now == null ? "—" : market === "total" ? now.toFixed(1) : fmtLine(now);
+  return `Posted ${f} · ${pct(edge, 1)} → Now ${n}`;
+}
