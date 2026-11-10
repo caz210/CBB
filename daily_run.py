@@ -811,8 +811,34 @@ def skip_codes(c, kelly_ok: bool = True) -> list[str]:
     return codes
 
 
+EDGE_FIELDS = (
+    "edge_now_pct_spread", "edge_vs_open_pct_spread",
+    "edge_now_pct_total", "edge_vs_open_pct_total",
+)
+
+
+def attach_market_edges(games, now) -> None:
+    """Stamp per-market edge% fractions from candidates() onto each game.
+
+    Same formulas and line sources the play rules use (daily_run.candidates):
+      spread now     = |v2 home margin + current home spread| / current total
+      spread vs open = |v2 home margin + open home spread| / (open total or current total)
+      total now      = |v1 total − current total| / current total
+      total vs open  = |v1 total − open total| / open total
+    Values are fractions (0.045 = 4.5%), matching picks.edge and edge_at_post_pct.
+    """
+    for g in games:
+        for k in EDGE_FIELDS:
+            g.setdefault(k, None)
+    for c in candidates(games, now):
+        key = "spread" if c["market"] == "spread" else "total"
+        c["g"][f"edge_now_pct_{key}"] = c["edge_pct"]
+        c["g"][f"edge_vs_open_pct_{key}"] = c["edge_pct_vs_open"]
+
+
 def attach_skip_reasons(games, now, bankroll: float) -> None:
-    """Stamp skip_reasons_{spread,total} (codes) and skip_reason_{spread,total} (human text) on each game."""
+    """Stamp skip reasons and per-market edges (via attach_market_edges) on each game."""
+    attach_market_edges(games, now)
     for g in games:
         g.setdefault("skip_reasons_spread", [])
         g.setdefault("skip_reasons_total", [])

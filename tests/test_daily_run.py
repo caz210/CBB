@@ -140,6 +140,32 @@ def test_apply_pace_fix_keeps_raw(tmp_path):
     assert "v1_total_raw" not in games[1]
 
 
+def test_attach_market_edges_reuses_candidates():
+    now = _now()
+    games = [_game()]
+    dr.attach_market_edges(games, now)
+    g = games[0]
+    c = {x["market"]: x for x in dr.candidates([_game()], now)}
+    assert g["edge_now_pct_spread"] == c["spread"]["edge_pct"]
+    assert g["edge_vs_open_pct_spread"] == c["spread"]["edge_pct_vs_open"]
+    assert g["edge_now_pct_total"] == c["total"]["edge_pct"]
+    assert g["edge_vs_open_pct_total"] == c["total"]["edge_pct_vs_open"]
+    assert abs(g["edge_now_pct_spread"] - 6.5 / 140) < 1e-9
+    assert abs(g["edge_vs_open_pct_spread"] - 7 / 140) < 1e-9
+    # UCF-shaped lean: ~4.5% now, ~2.5% vs open (fractions)
+    lean = _game(v2_home_margin=10.2, current_home_spread=-3.0, open_home_spread=-6.2,
+                 current_total=160.0, open_total=160.0)
+    dr.attach_market_edges([lean], now)
+    assert abs(lean["edge_now_pct_spread"] - 0.045) < 1e-9
+    assert abs(lean["edge_vs_open_pct_spread"] - 0.025) < 1e-9
+    # missing lines stay None, not 0
+    bare = _game(current_home_spread=None, open_home_spread=None, current_total=None, open_total=None,
+                 v1_total=None)
+    dr.attach_market_edges([bare], now)
+    assert bare["edge_now_pct_spread"] is None and bare["edge_vs_open_pct_spread"] is None
+    assert bare["edge_now_pct_total"] is None and bare["edge_vs_open_pct_total"] is None
+
+
 def test_skip_codes_and_attach_reasons():
     now = _now()
     # H by 11 vs -4.5 is a qualifying side; total 141 vs 140 is below 3%
@@ -149,6 +175,7 @@ def test_skip_codes_and_attach_reasons():
     g = games[0]
     assert g["skip_reasons_spread"] == [] and g["skip_reason_spread"] is None
     assert "below_open_threshold" in g["skip_reasons_total"]
+    assert abs(g["edge_now_pct_spread"] - 6.5 / 140) < 1e-9
     assert "below 3% threshold" in g["skip_reason_total"]
     # juiced official side: edge is large but price makes Kelly < $1
     g2 = _game(event_id="2", current_home_spread_price=-1000, current_away_spread_price=-1000)
