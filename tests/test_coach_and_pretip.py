@@ -30,11 +30,11 @@ def test_new_coach_lock_blocks_sides_and_totals(monkeypatch):
     g = _game(v1_total=150.0, coach_home={"team": "H", "games": 3, "coach": "X", "prev": "Y"})
     c = {x["market"]: x for x in dr.candidates([g], _now())}
     for m in ("spread", "total"):
-        assert not c[m]["rule_ok"] and any("NEW COACH lock: H has played 3 of 8" in r for r in c[m]["reasons"])
+        assert not c[m]["rule_ok"] and any(r == "Paused until game 8 (new coach, 3 played)" for r in c[m]["reasons"])
         assert c[m]["coach_tag"] == "NEW COACH H 3/8 (5 left)"
-    g["coach_home"]["games"] = 8                                # unlocked after N games
+    g["coach_home"]["games"] = 8                                # hold clears after N games
     c = {x["market"]: x for x in dr.candidates([g], _now())}
-    assert c["spread"]["rule_ok"] and c["total"]["rule_ok"] and "(unlocked)" in c["total"]["coach_tag"]
+    assert c["spread"]["rule_ok"] and c["total"]["rule_ok"] and c["total"]["coach_tag"] == "NEW COACH H 8/8"
     monkeypatch.setattr(dr, "COACH_LOCK_GAMES", 0)
     g["coach_home"]["games"] = 0
     assert all(x["rule_ok"] for x in dr.candidates([g], _now()))
@@ -127,12 +127,12 @@ def test_coach_lock_split_totals_4_sides_8(monkeypatch):
     monkeypatch.setattr(dr, "COACH_LOCK_SIDES", 8)
     g = _game(v1_total=150.0, coach_home={"team": "H", "games": 3, "coach": "X", "prev": "Y"})
     c = {x["market"]: x for x in dr.candidates([g], _now())}
-    assert not c["total"]["rule_ok"] and any("3 of 4" in r for r in c["total"]["reasons"])
-    assert not c["spread"]["rule_ok"] and any("3 of 8" in r for r in c["spread"]["reasons"])
+    assert not c["total"]["rule_ok"] and any(r == "Paused until game 4 (new coach, 3 played)" for r in c["total"]["reasons"])
+    assert not c["spread"]["rule_ok"] and any(r == "Paused until game 8 (new coach, 3 played)" for r in c["spread"]["reasons"])
     g["coach_home"]["games"] = 4
     c = {x["market"]: x for x in dr.candidates([g], _now())}
     assert c["total"]["rule_ok"] and not c["spread"]["rule_ok"]
-    assert c["total"]["coach_tag"] == "NEW COACH H 4/4 (unlocked)" and c["spread"]["coach_tag"] == "NEW COACH H 4/8 (4 left)"
+    assert c["total"]["coach_tag"] == "NEW COACH H 4/4" and c["spread"]["coach_tag"] == "NEW COACH H 4/8 (4 left)"
 
 
 def test_coach_lock_cli_flags(monkeypatch):

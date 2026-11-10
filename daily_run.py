@@ -33,7 +33,7 @@ Rules (from the walk-forward backtest, Jan 2025 – Apr 2026, see outputs/walkfo
   TOTALS — original v1 total vs the DK total; edge% = |model − total| / total >= 3%
            (vs open: n=1248, 54.2%, +3.6% ROI, CLV +1.6; vs close it lost — bet early).
   NEW COACH — a team whose KenPom head coach changed since last season (czarp/coach.py), with
-           config/coach_locks.csv as the git-tracked per-team Y/N flag that overrides auto-detection, is locked out of value plays until it has played
+           config/coach_locks.csv as the git-tracked per-team Y/N flag that overrides auto-detection, is held out of value plays until it has played
            COACH_LOCK_TOTALS (4) games for totals / COACH_LOCK_SIDES (8) for sides (coach_lock_study.py).
   LINE MOVE — a total whose DK line moved >= 3 pts open -> current AWAY from our side is skipped
            (backtest: 24-42, -31% ROI). A side that moved >= 3 against us is flagged only.
@@ -604,13 +604,23 @@ def coach_locks(g, lock_games=None, market=None) -> list[dict]:
     return out
 
 
+def coach_hold_reason(x: dict) -> str:
+    """User-facing skip reason for a still-held new-coach team."""
+    played = int(x.get("games", 0) or 0)
+    return f"Paused until game {x['lock_n']} (new coach, {played} played)"
+
+
+def is_coach_hold_reason(r: str) -> bool:
+    return isinstance(r, str) and r.startswith("Paused until game") and "new coach" in r
+
+
 def coach_tag(g, market=None) -> str:
     """'NEW COACH Air Force 1/8 (7 left)' style tag for the report ('' if no new-coach team)."""
     parts = []
     for x in coach_locks(g, market=market):
         n = x["lock_n"]
-        parts.append(f"NEW COACH {x['team']} {x['games']}/{n} "
-                     + (f"({x['remaining']} left)" if x["locked"] else "(unlocked)"))
+        extra = f" ({x['remaining']} left)" if x["locked"] else ""
+        parts.append(f"NEW COACH {x['team']} {x['games']}/{n}{extra}")
     return "; ".join(parts)
 
 
@@ -713,15 +723,14 @@ def candidates(games, now) -> list[dict]:
         c["coach_tag"] = coach_tag(c["g"], c["market"])
         for x in locks:
             if x["locked"]:
-                why.append(f"NEW COACH lock: {x['team']} has played {x['games']} of {x['lock_n']} games "
-                           f"({x['remaining']} to unlock)")
+                why.append(coach_hold_reason(x))
         c["reasons"] = why
         c["rule_ok"] = not why
         # SHADOW 'track' tier: sides whose ONLY failing rule is the vs-current bar, with >= TRACK_SIDE_CUR_THR left
         cur_reasons = [r for r in why[n_base:] if r.startswith(
             ("edge gone vs current", "below ", "edge vs now", "edge vs open"))]
         others = [r for r in why if r not in cur_reasons
-                  and not (TRACK_IGNORE_COACH_LOCK and r.startswith("NEW COACH lock"))]
+                  and not (TRACK_IGNORE_COACH_LOCK and is_coach_hold_reason(r))]
         c["track_ok"] = bool(
             c["market"] == "spread" and not c["rule_ok"] and not others and c["same_side"]
             and eo is not None and ec is not None and eo >= thr and ec >= TRACK_SIDE_CUR_THR)
@@ -1094,7 +1103,7 @@ def top_edges_md(rows) -> list[str]:
          f"Line move = DK change open→current (spread for sides, total for totals); a side whose spread moved "
          f"≥{LINE_MOVE_PTS:g} pts is flagged ⚠ as likely news/injury; 'against' = moved away from our side "
          f"(a total ≥{TOTAL_MOVE_SKIP_PTS:g} against is skipped). NEW COACH = head coach changed since last season; "
-         f"those games are locked out of value plays until the team has played {coach_lock_n('total')} games (totals) / {coach_lock_n('spread')} (sides)._", ""]
+         f"those games are paused until the team has played {coach_lock_n('total')} games (totals) / {coach_lock_n('spread')} (sides)._", ""]
     if not rows:
         return L + ["No priced D-I games to rank.", ""]
     L.append("| # | Tip (CT) | Game | Market | Pick | Vegas open | Vegas current | CZarp line | Edge% vs open | "
@@ -1292,12 +1301,12 @@ def write_summary(today: str, now: datetime, games, new_rows, ledger, graded_idx
     locked = [x for x in nc if x["locked"]]
     nt, ns = coach_lock_n("total"), coach_lock_n("spread")
     if max(nt, ns) > 0:
-        L.append(f"- NEW COACH lock: games involving a team with a new head coach are not value plays until it has played "
+        L.append(f"- New-coach hold: games involving a team with a new head coach are paused until it has played "
                  f"{nt} games (totals) / {ns} games (sides). On today's slate: "
                  + (", ".join(f"{x['team']} ({x['games']} played, {max(0, nt - x['games'])} left totals / {x['remaining']} sides)" for x in locked)
-                    if locked else "none locked") + ".")
+                    if locked else "none paused") + ".")
     else:
-        L.append("- NEW COACH lock: off (tags shown only).")
+        L.append("- New-coach hold: off (tags shown only).")
     L.append("- Stakes: quarter Kelly with a conservative hit-rate estimate "
              f"({RULES['spread'][2]:.1%} sides / {RULES['total'][2]:.1%} totals), capped at 2.5% of bankroll.")
     for n in notes:
