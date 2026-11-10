@@ -138,3 +138,25 @@ def test_apply_pace_fix_keeps_raw(tmp_path):
     exp = D.pace_fix_total(150.0, 70.0, 150.0, nov=True, min_games=3, neutral=True)
     assert abs(g["v1_total"] - exp) < 1e-9 and g["v1_total"] < 150.0
     assert "v1_total_raw" not in games[1]
+
+
+def test_skip_codes_and_attach_reasons():
+    now = _now()
+    # H by 11 vs -4.5 is a qualifying side; total 141 vs 140 is below 3%
+    games = [_game()]
+    # no bankroll pressure
+    dr.attach_skip_reasons(games, now, 1000.0)
+    g = games[0]
+    assert g["skip_reasons_spread"] == [] and g["skip_reason_spread"] is None
+    assert "below_open_threshold" in g["skip_reasons_total"]
+    assert "below 3% threshold" in g["skip_reason_total"]
+    # juiced official side: edge is large but price makes Kelly < $1
+    g2 = _game(event_id="2", current_home_spread_price=-1000, current_away_spread_price=-1000)
+    # candidates uses price from current_*_spread_price; force a qualifying side with a huge juice
+    dr.attach_skip_reasons([g2], now, 1000.0)
+    assert "kelly_too_small" in g2["skip_reasons_spread"]
+    # new-coach lock on the total
+    g3 = _game(event_id="3", v1_total=150.0,
+               coach_home={"team": "H", "games": 0, "lock_sides": None, "lock_totals": 4})
+    dr.attach_skip_reasons([g3], now, 1000.0)
+    assert "new_coach_lock" in g3["skip_reasons_total"]

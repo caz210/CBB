@@ -410,9 +410,21 @@ PROFILE_STAT_COLS = [
 def build_team_profiles(tt: pd.DataFrame, tags: pd.DataFrame, *,
                         as_of: str, season: int,
                         hca_df: pd.DataFrame | None = None,
-                        new_coach: dict | None = None) -> list[dict]:
-    """One profile dict per team for team_profiles upsert. Percentiles only (no KP ranks)."""
-    new_coach = new_coach or {}
+                        new_coach: dict | None = None,
+                        lock_sides_games: int | None = None,
+                        lock_totals_games: int | None = None) -> list[dict]:
+    """One profile dict per team for team_profiles upsert. Percentiles only (no KP ranks).
+
+    new_coach should be the map from czarp.coach.detect_new_coaches (optionally run through
+    enrich_coach_profile) — the same source daily_run uses for the NEW COACH lock.
+    """
+    from czarp.coach import LOCK_SIDES_GAMES, LOCK_TOTALS_GAMES, enrich_coach_profile
+    if lock_sides_games is None:
+        lock_sides_games = LOCK_SIDES_GAMES
+    if lock_totals_games is None:
+        lock_totals_games = LOCK_TOTALS_GAMES
+    new_coach = enrich_coach_profile(new_coach or {}, lock_sides_games=lock_sides_games,
+                                     lock_totals_games=lock_totals_games)
     hca_map = {}
     if hca_df is not None and not hca_df.empty and "TeamName" in hca_df.columns and "HCA" in hca_df.columns:
         for _, r in hca_df.iterrows():
@@ -435,9 +447,10 @@ def build_team_profiles(tt: pd.DataFrame, tags: pd.DataFrame, *,
         # Also keep full boolean set for grading / research (all fired tags, not just top-2)
         all_fired = [{"name": n, "kind": k} for n, _, _, k in TAG_DEFS
                      if trow is not None and bool(trow.get(n, False))]
-        nc = new_coach.get(name) or {}
+        nc = new_coach.get(str(name)) or {}
+        flagged = bool(nc)
         rows.append({
-            "name": name,
+            "name": str(name),
             "season": season,
             "as_of": as_of,
             "games_played": int(row["Games"]) if pd.notna(row.get("Games")) else None,
@@ -447,10 +460,12 @@ def build_team_profiles(tt: pd.DataFrame, tags: pd.DataFrame, *,
             "factors": factors,
             "adj_oe": float(row["AdjOE"]) if pd.notna(row.get("AdjOE")) else None,
             "adj_de": float(row["AdjDE"]) if pd.notna(row.get("AdjDE")) else None,
-            "hca": hca_map.get(name),
-            "new_coach": bool(nc),
-            "new_coach_games": nc.get("games") if nc else None,
-            "new_coach_lock_sides": nc.get("lock_sides") if nc else None,
-            "new_coach_lock_totals": nc.get("lock_totals") if nc else None,
+            "hca": hca_map.get(name) if name in hca_map else hca_map.get(str(name)),
+            "new_coach": flagged,
+            "new_coach_games": nc.get("games") if flagged else None,
+            "lock_sides_games": int(nc["lock_sides"]) if flagged and nc.get("lock_sides") is not None else lock_sides_games,
+            "lock_totals_games": int(nc["lock_totals"]) if flagged and nc.get("lock_totals") is not None else lock_totals_games,
+            "lock_sides_remaining": nc.get("lock_sides_remaining") if flagged else None,
+            "lock_totals_remaining": nc.get("lock_totals_remaining") if flagged else None,
         })
     return rows

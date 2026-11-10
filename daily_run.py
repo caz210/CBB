@@ -194,6 +194,7 @@ LEDGER_COLS = [
     "result", "pnl", "pretip_flag",
     # track record / proof columns (appended so older ledgers still load)
     "tier", "source", "logged_ct", "pnl_units", "pick_hash",
+    "total_at_post",
 ]
 # Fields frozen once a pick is logged (the pick itself). Grading, closing line, CLV and the pre-tip annotation are
 # filled in later; nothing else may ever change. pick_hash = sha256(previous pick_hash + these fields) -> a hash chain.
@@ -251,6 +252,7 @@ def espn_scoreboard(day: date) -> list[dict]:
             "home_score": _num(comp["home"].get("score")), "away_score": _num(comp["away"].get("score")),
             "neutral": bool(c.get("neutralSite")), "completed": bool(st.get("completed")),
             "state": st.get("state"),  # pre / in / post
+            "status_name": st.get("name"),  # STATUS_FINAL / STATUS_POSTPONED / ...
         })
     return rows
 
@@ -763,6 +765,7 @@ def flag_plays(games, bankroll, board, now, include_track: bool = True, source: 
             "kalshi_ref": kalshi_ref(board, g, pl["market"], pl["side"], pl["line"]),
             "model_version": g.get("model_version", "czarp-v2") if pl["market"] == "spread" else V1_VERSION,
             "status": "open", "source": source,
+            "total_at_post": g.get("current_total"),
         })
     return rows
 
@@ -772,7 +775,62 @@ class LedgerImmutableError(RuntimeError):
     """A write would change or remove an already-logged pick."""
 
 
-_NUM_FIELDS = {"line", "price", "open_line", "model_value", "edge_pct", "edge_pct_vs_open", "stake", "bankroll_at_pick"}
+def skip_codes(c, kelly_ok: bool = True) -> list[str]:
+    """Machine-readable 'why not an official play' codes from a candidates() row."""
+    codes = []
+    if c.get("started"):
+        codes.append("game_started")
+    if c.get("edge_pct") is None:
+        codes.append("no_current_line")
+    if c.get("edge_pct_vs_open") is None:
+        codes.append("no_opening_line")
+    eo, ec, thr = c.get("edge_pct_vs_open"), c.get("edge_pct"), c.get("thr")
+    if c.get("market") == "total":
+        if eo is not None and thr is not None and eo < thr:
+            codes.append("below_open_threshold")
+    else:
+        if eo is not None and thr is not None and eo < thr:
+            codes.append("below_open_threshold")
+        if eo is not None and ec is not None and thr is not None and eo >= thr and (ec < thr or not c.get("same_side", True)):
+            codes.append("below_current_threshold")
+        elif ec is not None and thr is not None and ec < thr and "below_open_threshold" not in codes:
+            codes.append("below_current_threshold")
+    ma = c.get("move_against")
+    if c.get("market") == "total" and ma is not None and ma >= TOTAL_MOVE_SKIP_PTS:
+        codes.append("line_moved_against")
+    if c.get("market") == "spread" and ma is not None and ma >= SIDE_MOVE_AGAINST_PTS and SIDE_MOVE_SKIP:
+        codes.append("line_moved_against")
+    if c.get("market") == "spread" and c.get("flagged") and LINE_MOVE_EXCLUDE:
+        codes.append("line_moved_against")
+    if any(x.get("locked") for x in coach_locks(c["g"], market=c.get("market"))):
+        codes.append("new_coach_lock")
+    if not kelly_ok:
+        codes.append("kelly_too_small")
+    return codes
+
+
+def attach_skip_reasons(games, now, bankroll: float) -> None:
+    """Stamp skip_reasons_{spread,total} (codes) and skip_reason_{spread,total} (human text) on each game."""
+    for g in games:
+        g.setdefault("skip_reasons_spread", [])
+        g.setdefault("skip_reasons_total", [])
+        g.setdefault("skip_reason_spread", None)
+        g.setdefault("skip_reason_total", None)
+    for c in candidates(games, now):
+        kelly_ok = True
+        if c.get("rule_ok"):
+            stake = kelly_stake(c["p_est"], c["price"], bankroll)
+            kelly_ok = stake >= MIN_STAKE
+        codes = skip_codes(c, kelly_ok=kelly_ok)
+        human = list(c.get("reasons") or [])
+        if not kelly_ok and "price too juiced" not in " ".join(human):
+            human.append("price too juiced for the assumed hit rate (Kelly stake < $1)")
+        key = "spread" if c["market"] == "spread" else "total"
+        c["g"][f"skip_reasons_{key}"] = codes
+        c["g"][f"skip_reason_{key}"] = "; ".join(human) if human else None
+
+
+_NUM_FIELDS = {"line", "price", "open_line", "model_value", "edge_pct", "edge_pct_vs_open", "stake", "bankroll_at_pick", "total_at_post"}
 
 
 def _canon(field, v) -> str:
@@ -1375,6 +1433,7 @@ def main(argv=None) -> int:
             log(f"  totals moved >= {TOTAL_MOVE_SKIP_PTS:g} pts against our side: {nt} skipped")
             for ln in top_edges_md(top):
                 log("  " + ln if ln else "")
+            attach_skip_reasons(games, now, bankroll(ledger))
     else:
         notes.append("No games on the slate today.")
 
@@ -1398,6 +1457,15 @@ def main(argv=None) -> int:
         except Exception as e:
             log(f"  Supabase sync failed ({type(e).__name__}: {e}) — CSV ledger unaffected")
             notes.append("Supabase sync failed this run (CSV ledger is unaffected).")
+        # finals for yesterday + any older non-final games in the lookback window (and today, for a late run)
+        try:
+            from czarp.sync_finals import DEFAULT_LOOKBACK, sync_finals
+            s = sync_finals(lookback=DEFAULT_LOOKBACK, now=now, log=log)
+            log(f"  finals: {s['updated']} updated, {s['matched']} matched, "
+                f"{s['unmatched_espn']} ESPN games not in db")
+        except Exception as e:
+            log(f"  finals sync failed ({type(e).__name__}: {e}) — will retry next run")
+            notes.append("Finals sync failed this run; scores will retry next run.")
     # (g) summary
     path = write_summary(today, now, games, new_rows, ledger, gi, notes, top,
                          path=os.path.join(OUT_DIR, f"{today}.dryrun.md") if a.dry_run else None)
