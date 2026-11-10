@@ -2,7 +2,7 @@
  *  Do not reconstruct missing fair/open — hide those pieces instead.
  *  edge_at_post_pct / edge_vs_open_pct are fractions (0.0173 = 1.73%).
  */
-import { fmtPostedVsNow, type Market } from "./labels";
+import { fmtLine, fmtPostedVsNow, type Market } from "./labels";
 import type { SlateGame, ValueBet } from "./types";
 
 function mentionsTeam(side: string, team: string) {
@@ -50,4 +50,17 @@ export function betCoverProb(g: SlateGame, b: ValueBet | null, market: Market | 
     return fair > g.market_total ? over : 1 - over;
   }
   return null;
+}
+
+/** Compact card line: "🔒 Posted 142.0 → Now 144.5". Hides any missing piece. */
+export function postedNowCompact(b: ValueBet, g: SlateGame | null | undefined): string | null {
+  if (!g) return null;
+  const fmt = (n: number) => (b.market === "total" ? n.toFixed(1) : fmtLine(n));
+  const fair = b.fair_at_post;
+  const now = currentLineForBet(g, b.market, b.side);
+  const parts: string[] = [];
+  if (typeof fair === "number" && Number.isFinite(fair)) parts.push(`Posted ${fmt(fair)}`);
+  if (typeof now === "number" && Number.isFinite(now)) parts.push(`Now ${fmt(now)}`);
+  if (!parts.length) return null;
+  return `🔒 ${parts.join(" → ")}`;
 }

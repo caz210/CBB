@@ -66,3 +66,34 @@ export function newCoachUnlocked(lock: NewCoachLock): string {
 export function isCoachLocked(lock: NewCoachLock): boolean {
   return lock.sidesLocked || lock.totalsLocked;
 }
+
+/** Played count from lock length minus remaining; fall back to gamesPlayed. */
+export function sidesPlayed(lock: NewCoachLock): number {
+  if (lock.sidesRemaining != null) return Math.max(0, lock.lockSides - lock.sidesRemaining);
+  return lock.gamesPlayed;
+}
+
+export function totalsPlayed(lock: NewCoachLock): number {
+  if (lock.totalsRemaining != null) return Math.max(0, lock.lockTotals - lock.totalsRemaining);
+  return lock.gamesPlayed;
+}
+
+/** Teams that still have at least one market locked. Fully unlocked new-coach teams stay off the slate chip. */
+export function lockedCoachLocks(locks?: NewCoachLock[] | null): NewCoachLock[] {
+  return (locks ?? []).filter(isCoachLocked);
+}
+
+/** Bottom-sheet copy. Omits a market once that market is already unlocked. */
+export function newCoachSheetCopy(lock: NewCoachLock): { title: string; body: string } {
+  const parts: string[] = [`${lock.team} has a new coach.`];
+  if (lock.sidesLocked) {
+    const played = sidesPlayed(lock);
+    parts.push(`No official sides until game ${lock.lockSides} (${played} of ${lock.lockSides} played).`);
+  }
+  if (lock.totalsLocked) {
+    const played = totalsPlayed(lock);
+    parts.push(`Totals unlock after game ${lock.lockTotals} (${played} of ${lock.lockTotals} played).`);
+  }
+  parts.push("The model needs a few games to trust a new system.");
+  return { title: "New coach", body: parts.join(" ") };
+}
