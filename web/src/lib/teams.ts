@@ -76,6 +76,8 @@ export type ModelGrade = {
   home_score: number | null;
   away_score: number | null;
   status: string | null;
+  final_at: string | null;
+  final_at_estimated: boolean;
   model_spread: number | null;
   model_total: number | null;
   vegas_spread: number | null;

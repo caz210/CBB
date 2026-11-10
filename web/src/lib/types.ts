@@ -40,6 +40,11 @@ export type SlateGame = {
   upset_reason?: string | null;
   /** game is final, or a pick on it has been graded */
   completed?: boolean;
+  status?: string | null;
+  /** When the game went final (timestamptz). */
+  final_at?: string | null;
+  /** True when final_at was inferred rather than reported. */
+  final_at_estimated?: boolean;
   /** extra detail for the game sheet; fields are null when not published */
   insight?: GameInsight;
   /** Raw |fair − price| ÷ Vegas total (not official-pick sort). */
