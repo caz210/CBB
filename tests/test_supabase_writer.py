@@ -122,7 +122,9 @@ def test_projections_merge_upsert_on_unique_key():
     g = dict(event_id="5", game_date="2026-11-10", kp_home="H", kp_away="A", neutral=False, state="pre",
              tip_utc=datetime(2026, 11, 11, 0, 0, tzinfo=timezone.utc), v2_home_margin=3.0, v2_total=140.0,
              v1_total=141.0, current_home_spread=-2.5, current_total=145.5, reason="why", proj_possessions=70.04,
-             skip_reasons_total=["line_moved_against"], skip_reason_total="total moved 6 pts against our side")
+             skip_reasons_total=["line_moved_against"], skip_reason_total="total moved 6 pts against our side",
+             edge_now_pct_spread=0.045012, edge_vs_open_pct_spread=0.025, edge_now_pct_total=0.01,
+             edge_vs_open_pct_total=0.02)
     seen = []
 
     class C(FakeClient):
@@ -142,6 +144,10 @@ def test_projections_merge_upsert_on_unique_key():
     v2 = next(p for p in c.calls["projections"] if p["model_version"] == "czarp-v2")
     assert v2["reason"] == "why" and v2["proj_possessions"] == 70.0
     assert v2["skip_reasons_total"] == ["line_moved_against"]
+    assert v2["edge_now_pct_spread"] == 0.045 and v2["edge_vs_open_pct_spread"] == 0.025
+    assert v2["edge_now_pct_total"] == 0.01 and v2["edge_vs_open_pct_total"] == 0.02
+    v1 = next(p for p in c.calls["projections"] if p["model_version"] == sw.V1_VERSION)
+    assert v1["edge_now_pct_spread"] == 0.045 and v1["edge_vs_open_pct_total"] == 0.02
 
 
 def test_fill_pick_locks_only_null_columns():
@@ -176,3 +182,21 @@ def test_fill_pick_locks_only_null_columns():
     assert ("eq.a", "edge_vs_open", 0.0373) in patches and ("eq.a", "fair_at_post", 142.0) in patches
     assert [p for p in patches if p[0] == "eq.b"] == [("eq.b", "open_line", 153.5)]   # stored values never overwritten
     assert not [p for p in patches if p[0] == "eq.c"]
+
+
+def test_stored_edges_sql_columns_and_view_logic():
+    from pathlib import Path
+    sql = (Path(__file__).parents[1] / "db" / "migrations" / "2026-11-10_stored_edges.sql").read_text()
+    for col in ("edge_now_pct_spread", "edge_vs_open_pct_spread",
+                "edge_now_pct_total", "edge_vs_open_pct_total"):
+        assert f"add column if not exists {col} numeric(6,4)" in sql
+        assert f"p.{col}" in sql
+    assert "verdict_spread" in sql and "verdict_total" in sql
+    assert "lean_spread" in sql and "lean_total" in sql
+    assert "'official'" in sql and "'low_value'" in sql
+    assert "pk.tier = 'official'" in sql
+    assert "edge_now_pct_spread >= 0.04" in sql and "edge_vs_open_pct_spread < 0.04" in sql
+    assert "edge_now_pct_total >= 0.03" in sql and "edge_vs_open_pct_total < 0.03" in sql
+    assert "numeric(6,4)" in sql
+    # must not rewrite picks / the ledger
+    assert "alter table picks" not in sql.lower()

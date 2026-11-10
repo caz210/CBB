@@ -39,6 +39,18 @@ def _str(v):
     return v if isinstance(v, str) and v else None
 
 
+def _edge_frac(v):
+    """Edge fraction rounded to 4 decimals (0.045 = 4.5%), or None."""
+    v = _clean(v)
+    return None if v is None else round(float(v), 4)
+
+
+def _edge_fields(g: dict) -> dict:
+    return {k: _edge_frac(g.get(k)) for k in (
+        "edge_now_pct_spread", "edge_vs_open_pct_spread",
+        "edge_now_pct_total", "edge_vs_open_pct_total")}
+
+
 def _row(d: dict) -> dict:
     return {k: _clean(v) for k, v in d.items()}
 
@@ -307,6 +319,7 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
                      "skip_reasons_total": g.get("skip_reasons_total") or [],
                      "skip_reason_spread": g.get("skip_reason_spread"),
                      "skip_reason_total": g.get("skip_reason_total"),
+                     **_edge_fields(g),
                      "created_at": ts})
         if g.get("v1_total") is not None:
             t1, m1 = g["v1_total"], g.get("v1_home_margin")
@@ -316,9 +329,10 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
                          "over_prob": round(1 - _ncdf((MT - t1) / tsd), 4) if MT is not None else None,
                          "skip_reasons_total": g.get("skip_reasons_total") or [],
                          "skip_reason_total": g.get("skip_reason_total"),
+                         **_edge_fields(g),
                          "created_at": ts})
     # Merge on the table's unique key so a re-run with the same stamp fills fields
-    # (reason, pace, upset, skip reasons) instead of silently keeping the old row.
+    # (reason, pace, upset, skip reasons, stored edges) instead of silently keeping the old row.
     c.upsert("projections", proj, on_conflict=PROJ_KEY, returning=False)
 
     # market lines: DK open + current; Kalshi board snapshot
