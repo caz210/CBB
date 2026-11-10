@@ -1,9 +1,10 @@
 """Optional Supabase mirror for daily_run.py (outputs only; CSV ledger is the source of truth).
 
 Runs only when SUPABASE_URL and SUPABASE_SERVICE_KEY are set. Talks to the PostgREST API
-(/rest/v1) with plain `requests` — no extra dependency. Writes: model_configs, teams, games,
-projections (v2 + v1 totals; spreads/totals/scores rounded to 0.1, the site rounds to 0.5 for display), market_lines (DK open/current, Kalshi board), picks (full ledger
-upsert, so grading updates flow through). Schema: db/schema.sql. The key is never logged.
+(/rest/v1) with plain `requests` — no extra dependency. Writes: model_configs, teams, games, team_profiles (daily Four Factors stamp),
+projections (v2 + v1 totals; reason / proj_possessions / upset_alert; spreads/totals rounded to 0.1),
+market_lines (DK open/current, Kalshi board), picks (full ledger upsert).
+Schema: db/schema.sql + db/migrations/. The key is never logged.
 """
 from __future__ import annotations
 
@@ -73,6 +74,18 @@ class Client:
                     out.extend(r.json())
         return out
 
+    def patch(self, table: str, row: dict, **params) -> None:
+        """Update rows matching `params` (PostgREST filters, e.g. external_id='eq.123').
+
+        Use this instead of a partial upsert: ON CONFLICT still validates NOT NULL
+        columns on the would-be INSERT, so a scores-only upsert fails on sport_id.
+        """
+        if not row:
+            return
+        r = self.s.patch(f"{self.base}/{table}", params=params, json=_row(row),
+                         headers={"Prefer": "return=minimal"}, timeout=30)
+        self._check(r, table)
+
     def delete(self, table: str, **params) -> None:
         r = self.s.delete(f"{self.base}/{table}", params=params, timeout=30)
         self._check(r, table)
@@ -138,7 +151,8 @@ def _ncdf(x: float) -> float:
     return 0.5 * (1 + math.erf(x / math.sqrt(2)))
 
 
-def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print, client: Client | None = None) -> str:
+def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print, client: Client | None = None,
+         data: dict | None = None, new_coach: dict | None = None) -> str:
     c = client or Client()
     sport = c.get("sports", code=f"eq.{SPORT}", select="id")
     if not sport:
@@ -165,6 +179,77 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
     names = sorted({g["kp_home"] for g in gl} | {g["kp_away"] for g in gl})
     teams = c.upsert("teams", [{**base, "season": season, "name": n} for n in names], on_conflict="league,name")
     tid = {t["name"]: t["id"] for t in teams}
+
+    # team_profiles: stamp every D-I team for today (as_of = America/Chicago date of `now`)
+    n_profiles = 0
+    if data is not None and season is not None:
+        try:
+            import model as M
+            from czarp import teamstats as TS
+            ctx = M._context(data, cfg)
+            as_of = now.astimezone(_CT).date().isoformat()
+            # Ensure ALL D-I teams exist so profiles can FK
+            all_names = sorted(ctx["tt"].index.astype(str))
+            missing = [n for n in all_names if n not in tid]
+            if missing:
+                extra = c.upsert("teams", [{**base, "season": season, "name": n} for n in missing],
+                                 on_conflict="league,name")
+                tid.update({t["name"]: t["id"] for t in extra})
+            # Same source daily_run uses for the NEW COACH lock. If the caller passed an
+            # empty map (the Nov 8 stamp bug), detect it here so profiles stay in sync.
+            from czarp.coach import detect_new_coaches, enrich_coach_profile, games_played
+            nc_map = dict(new_coach or {})
+            if not nc_map:
+                try:
+                    nc_map = detect_new_coaches(season)
+                except Exception as e:
+                    log(f"  new-coach detection for profiles failed ({type(e).__name__}: {e})")
+                    nc_map = {}
+            played = {}
+            try:
+                played = games_played(data["ratings"]) if data.get("ratings") is not None else {}
+            except Exception:
+                played = {}
+            nc_map = enrich_coach_profile(nc_map, played)
+            profiles = TS.build_team_profiles(
+                ctx["tt"], ctx["tags"], as_of=as_of, season=season,
+                hca_df=data.get("hca"), new_coach=nc_map)
+            prows = []
+            for pr in profiles:
+                teid = tid.get(pr["name"])
+                if teid is None:
+                    continue
+                f = pr["factors"]
+                prows.append({
+                    "team_id": teid, **base, "season": pr["season"], "as_of": pr["as_of"],
+                    "games_played": pr["games_played"], "tentative": pr["tentative"],
+                    "efg": f.get("efg"), "efg_pctile": f.get("efg_pctile"),
+                    "d_efg": f.get("d_efg"), "d_efg_pctile": f.get("d_efg_pctile"),
+                    "to_pct": f.get("to_pct"), "to_pct_pctile": f.get("to_pct_pctile"),
+                    "d_to_pct": f.get("d_to_pct"), "d_to_pct_pctile": f.get("d_to_pct_pctile"),
+                    "or_pct": f.get("or_pct"), "or_pct_pctile": f.get("or_pct_pctile"),
+                    "opp_or_pct": f.get("opp_or_pct"), "opp_or_pct_pctile": f.get("opp_or_pct_pctile"),
+                    "ftr": f.get("ftr"), "ftr_pctile": f.get("ftr_pctile"),
+                    "d_ftr": f.get("d_ftr"), "d_ftr_pctile": f.get("d_ftr_pctile"),
+                    "tempo": f.get("tempo"), "tempo_pctile": f.get("tempo_pctile"),
+                    "fg3a_rate": f.get("fg3a_rate"), "fg3a_rate_pctile": f.get("fg3a_rate_pctile"),
+                    "fg3_pct": f.get("fg3_pct"), "fg3_pct_pctile": f.get("fg3_pct_pctile"),
+                    "opp_fg3_pct": f.get("opp_fg3_pct"), "opp_fg3_pct_pctile": f.get("opp_fg3_pct_pctile"),
+                    "ft_pct": f.get("ft_pct"), "ft_pct_pctile": f.get("ft_pct_pctile"),
+                    "adj_oe": pr.get("adj_oe"), "adj_de": pr.get("adj_de"), "hca": pr.get("hca"),
+                    "tags": pr.get("tags") or [], "tags_all": pr.get("tags_all") or [],
+                    "new_coach": bool(pr.get("new_coach")),
+                    "new_coach_games": pr.get("new_coach_games"),
+                    "lock_sides_games": pr.get("lock_sides_games"),
+                    "lock_totals_games": pr.get("lock_totals_games"),
+                    "lock_sides_remaining": pr.get("lock_sides_remaining"),
+                    "lock_totals_remaining": pr.get("lock_totals_remaining"),
+                    "created_at": ts,
+                })
+            c.upsert("team_profiles", prows, on_conflict="team_id,as_of", returning=False)
+            n_profiles = len(prows)
+        except Exception as e:
+            log(f"  team_profiles stamp skipped ({type(e).__name__}: {e})")
 
     def status(g):
         if g.get("completed"):
@@ -209,13 +294,24 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
                      "home_win_prob": round(g.get("v2_home_win_prob", _ncdf(hm / msd)), 4),
                      "home_cover_prob": round(_ncdf((hm + L) / msd), 4) if L is not None else None,
                      "over_prob": round(1 - _ncdf((MT - T) / tsd), 4) if MT is not None else None,
-                     "archetype_tags": g.get("archetype_tags", {}), "created_at": ts})
+                     "archetype_tags": g.get("archetype_tags", {}),
+                     "reason": g.get("reason"),
+                     "proj_possessions": round(g["proj_possessions"], 1) if g.get("proj_possessions") is not None else None,
+                     "upset_alert": bool(g.get("upset_alert")),
+                     "upset_reason": g.get("upset_reason"),
+                     "skip_reasons_spread": g.get("skip_reasons_spread") or [],
+                     "skip_reasons_total": g.get("skip_reasons_total") or [],
+                     "skip_reason_spread": g.get("skip_reason_spread"),
+                     "skip_reason_total": g.get("skip_reason_total"),
+                     "created_at": ts})
         if g.get("v1_total") is not None:
             t1, m1 = g["v1_total"], g.get("v1_home_margin")
             proj.append({**base, "season": _season(g["game_date"]), "game_id": gid[str(g["event_id"])],
                          "model_version": V1_VERSION, "total": round(t1, 1),
                          "spread": round(-m1, 1) if m1 is not None else None,
                          "over_prob": round(1 - _ncdf((MT - t1) / tsd), 4) if MT is not None else None,
+                         "skip_reasons_total": g.get("skip_reasons_total") or [],
+                         "skip_reason_total": g.get("skip_reason_total"),
                          "created_at": ts})
     c.insert("projections", proj)
 
@@ -248,7 +344,9 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
                        "fetched_at": ts})
     c.insert("market_lines", ml)
 
-    # picks: full ledger upsert
+    # picks: full ledger upsert. Locked post-time fields (model_line, open_line, edge_vs_open)
+    # are attached only on INSERT of new pick_keys so existing immutable rows are not updated.
+    existing_keys = {x["pick_key"] for x in c.get("picks", select="pick_key", league=f"eq.{LEAGUE}")}
     pk = []
     for _, r in ledger.iterrows():
         k = gid.get(str(r.event_id))
@@ -256,7 +354,7 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
             continue
         line = float(r.line)
         bet = f"{r.side} {line:+g}" if r.market == "spread" else f"{r.side} {line:g}"
-        pk.append({**base, "season": _season(r.game_date), "pick_key": str(r.pick_id), "game_id": k,
+        row = {**base, "season": _season(r.game_date), "pick_key": str(r.pick_id), "game_id": k,
                    "market": r.market, "bet": bet, "line_or_price": line, "price": _clean(r.price),
                    "edge": round(float(r.edge_pct), 4), "kelly_stake": _clean(r.stake),
                    "model_version": r.model_version if isinstance(r.model_version, str) and r.model_version
@@ -273,7 +371,23 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
                    "tier": _str(r.get("tier")) or "official", "source": _str(r.get("source")) or "live",
                    "logged_at": _str(r.get("logged_ct")),
                    "units_pnl": _clean(pd.to_numeric(r.get("pnl_units"), errors="coerce")),
-                   "pick_hash": _str(r.get("pick_hash"))})
+                   "pick_hash": _str(r.get("pick_hash"))}
+        if str(r.pick_id) not in existing_keys:
+            # Locked post-time numbers. Same convention as line_or_price:
+            # totals = model total; spreads = picked-side line. Never written on existing rows.
+            mv = _clean(pd.to_numeric(r.get("model_value"), errors="coerce"))
+            if r.market == "spread" and mv is not None:
+                mv = -float(mv)
+            evs = _clean(pd.to_numeric(r.get("edge_pct_vs_open"), errors="coerce"))
+            tot = _clean(pd.to_numeric(r.get("total_at_post"), errors="coerce"))
+            if tot is None and r.market == "total":
+                tot = line
+            row["fair_at_post"] = round(float(mv), 2) if mv is not None else None
+            row["line_at_post"] = line
+            row["total_at_post"] = tot
+            row["open_line"] = _clean(pd.to_numeric(r.get("open_line"), errors="coerce"))
+            row["edge_vs_open"] = round(float(evs), 4) if evs is not None else None
+        pk.append(row)
     c.upsert("picks", pk, on_conflict="pick_key", returning=False)
     # Picks are immutable once published (db trigger picks_immutable blocks updates to pick fields and deletes), so
     # mirrored picks missing from the ledger are reported, never deleted.
@@ -284,4 +398,5 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
         log(f"  Supabase: {len(stale)} published picks are not in the local ledger (kept; picks are immutable): "
             + ", ".join(stale[:5]))
     return (f"{len(grows)} games, {len(proj)} projections, {len(ml)} market lines, {len(pk)} picks"
+            + (f", {n_profiles} team_profiles" if n_profiles else "")
             + (f", {len(stale)} published picks not in ledger" if stale else ""))

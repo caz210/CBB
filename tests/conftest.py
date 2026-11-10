@@ -26,7 +26,8 @@ def make_league(n=40, seed=7):
     height = pd.DataFrame({"TeamName": names, "AvgHgt": rng.normal(77.5, 1, n),
                            "Exp": rng.normal(1.8, 0.4, n), "Bench": rng.normal(31, 5, n)})
     misc = pd.DataFrame({"TeamName": names, "FTPct": rng.normal(71, 4, n),
-                         "F3GRate": rng.normal(38, 5, n), "OppF3GRate": rng.normal(38, 5, n)})
+                         "F3GRate": rng.normal(38, 5, n), "OppF3GRate": rng.normal(38, 5, n),
+                         "FG3Pct": rng.normal(34, 3, n), "OppFG3Pct": rng.normal(34, 3, n)})
     return {"ratings": ratings, "four_factors": ff, "height": height, "misc": misc,
             "net": pd.DataFrame(columns=["TeamName", "Rank"]),
             "hca": pd.DataFrame({"TeamName": ["Team00", "Team01"], "HCA": [5.0, 2.0]})}

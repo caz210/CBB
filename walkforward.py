@@ -37,8 +37,8 @@ from czarp.probability import american_to_prob, devig_two_way, norm_cdf
 
 H = "data/history"
 SEASONS = {2025: ("2024-11-04", "2025-04-07"), 2026: ("2025-11-03", "2026-04-06")}
-PAIRS = ["Addicted to 3s|Arc Wall", "Board Crashers|No Rebounds for You",
-         "Don't Blink|Lock Down", "Free Throw Merchants|Lock Down"]
+PAIRS = ["Volume 3s|Crowd 3s", "Crash|Control Glass",
+         "Fast|Wall", "At the Line|Wall"]
 WEAK = T.WEAKNESS_OF
 
 
@@ -208,8 +208,8 @@ def build(S):
                 exp_ = float(gh[o] and ga[WEAK[dd]]) - float(ga[o] and gh[WEAK[dd]])
                 row["ctr:" + key] = -cnt
                 row["exp:" + key] = exp_
-            row["ctr:TM|Careless"] = -(float(ga["Turnover Machine"] and gh["Careless"])
-                                       - float(gh["Turnover Machine"] and ga["Careless"]))
+            row["ctr:Disrupt|Careless"] = -(float(ga["Disrupt"] and gh["Careless"])
+                                       - float(gh["Disrupt"] and ga["Careless"]))
             kp = fmk.get((h, a))
             row["kp_margin"], row["kp_total"] = (kp if kp else (np.nan, np.nan))
             for k in ("open_home_spread", "close_home_spread", "open_total", "close_total",

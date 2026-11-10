@@ -25,6 +25,10 @@ import pandas as pd
 OVERRIDES = os.path.join("data", "coach_changes.csv")
 LOCKS_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "coach_locks.csv")
 LOCK_COLUMNS = ["season", "team", "new_coach", "coach", "prev_coach", "lock_sides", "lock_totals", "note", "source"]
+# Site-wide lock lengths (games). team_profiles stores these so the UI does not hardcode them.
+# Per-team overrides in config/coach_locks.csv still win when set.
+LOCK_SIDES_GAMES = 8
+LOCK_TOTALS_GAMES = 4
 _YES = {"y", "yes", "1", "true", "t", "on"}
 _NO = {"n", "no", "0", "false", "f", "off"}
 
@@ -152,3 +156,31 @@ def lock_status(team: str, new_coaches: dict, played: dict, lock_games: int) -> 
     g = int(played.get(team, 0) or 0)
     rem = max(0, int(lock_games) - g)
     return {"games": g, "remaining": rem, "locked": rem > 0, **new_coaches[team]}
+
+
+def enrich_coach_profile(new_coach: dict | None, played: dict | None = None,
+                         lock_sides_games: int = LOCK_SIDES_GAMES,
+                         lock_totals_games: int = LOCK_TOTALS_GAMES) -> dict[str, dict]:
+    """Attach games played and per-market lock lengths / remaining to a detect_new_coaches map.
+
+    Same source daily_run uses: config/coach_locks.csv overrides KenPom auto-detection, then
+    KenPom W+L (games_played) for the countdown. Per-team lock_sides / lock_totals (including 0 = off)
+    override the site-wide defaults. The new_coach on/off flag is just membership in the returned map.
+    """
+    played = played or {}
+    out: dict[str, dict] = {}
+    for team, info in (new_coach or {}).items():
+        info = dict(info or {})
+        games = int(info.get("games") if info.get("games") is not None else (played.get(team, 0) or 0))
+        ls = lock_sides_games if info.get("lock_sides") is None else int(info["lock_sides"])
+        lt = lock_totals_games if info.get("lock_totals") is None else int(info["lock_totals"])
+        info.update({
+            "games": games,
+            "lock_sides": ls,
+            "lock_totals": lt,
+            "lock_sides_remaining": max(0, ls - games),
+            "lock_totals_remaining": max(0, lt - games),
+        })
+        out[str(team)] = info
+    return out
+
