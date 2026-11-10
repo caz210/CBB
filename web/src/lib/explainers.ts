@@ -24,6 +24,10 @@ export const EXPLAINERS = {
     title: "Percentile",
     body: "Where this team ranks among D1 teams this season, from 0 (worst) to 100 (best). We show percentiles — not KenPom ranks — so you can compare style without obsessing over a leaderboard.",
   },
+  totalsModel: {
+    title: "Totals models",
+    body: "Official totals use czarp-v1-totals. The default model, czarp-v2, is used for sides and as a second look at the total. A small “v1” tag on a card means the fair value shown is from the official totals model, not the default.",
+  },
 } as const;
 
 export type ExplainerKey = keyof typeof EXPLAINERS;

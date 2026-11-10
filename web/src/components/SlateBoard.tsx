@@ -2,17 +2,17 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { SlateGame, ValueBet } from "@/lib/types";
-import { LOCKED_NOTE, MARKET_LABEL, SOURCE_LABEL, TIER_BADGE, edgeTier, finalLabel, fmtLine, fmtPostedProof, fmtWinProb, fmtTipoff, pct, signedPct } from "@/lib/labels";
+import { LOCKED_NOTE, MARKET_LABEL, TIER_BADGE, edgeTier, finalLabel, fmtLine, fmtPostedProof, fmtWinProb, fmtTipoff, pct, signedPct } from "@/lib/labels";
 import { computedLineEdge } from "@/lib/portfolio";
 import { useWatchlist } from "@/lib/watchlist";
 import { weaknessesOnly } from "@/lib/archetypes";
 import { teamHref } from "@/lib/teams";
 import Link from "next/link";
 import { ArchetypeChip, ArchetypeLegend } from "./ArchetypeChip";
-import { TermLabel } from "./InfoTip";
-import { NewCoachBadges, whyNotPlayCopy } from "./NewCoachBadge";
+import { InfoTip, TermLabel } from "./InfoTip";
+import { NewCoachChips, whyNotPlayCopy } from "./NewCoachBadge";
 import { evPer100, fmtEv100 } from "@/lib/stats";
-import { betCoverProb, postedVsNow } from "@/lib/posted";
+import { betCoverProb, postedNowCompact, postedVsNow } from "@/lib/posted";
 
 type Sel = { game: SlateGame; bet: ValueBet } | null;
 
@@ -97,32 +97,19 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
 
       {officialShown.length > 0 && (
         <section className="mb-4 rounded-2xl border border-edge-400/30 bg-edge-400/[0.04] p-3 md:p-4" aria-label="Official plays">
-          <div className="mb-2 flex flex-wrap items-baseline gap-x-2">
-            <h2 className="text-sm font-semibold text-edge-400">Official plays · {officialShown.length}</h2>
-            <span className="text-[11px] text-zinc-500">Posted and locked. ¼-Kelly. Official is a badge — the list below is sorted by raw edge, not this tag.</span>
-          </div>
+          <h2 className="mb-2 text-sm font-semibold text-edge-400">Official plays · {officialShown.length}</h2>
           <ul className="divide-y divide-ink-700/50">
             {officialShown.map((b) => {
               const g = games.find((x) => x.game_id === b.game_id);
               const tier = edgeTier(b.line_edge_pct, b.market);
-              const proof = fmtPostedProof(b.logged_at, g?.tipoff);
-              const model = b.market === "total" ? (b.model_version ?? "czarp-v1-totals") : null;
               return (
                 <li key={`${b.game_id}-${b.market}-${b.side}`}>
                   <button type="button" onClick={() => g && setSel({ game: g, bet: b })}
                     className="flex min-h-12 w-full items-center gap-3 py-2 text-left text-sm">
                     {tier ? <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${TIER_BADGE[tier]}`}>{tier}</span> : <span className="rounded-md bg-edge-400/15 px-1.5 py-0.5 text-[10px] font-bold text-edge-400">Official</span>}
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate font-semibold text-white">{b.side}</span>
-                      <span className="block truncate text-[11px] text-zinc-500">
-                        {g?.game ?? `Game #${b.game_id}`} · {MARKET_LABEL[b.market]}{model ? ` · ${model}` : ""}
-                        {proof ? ` · 🔒 ${proof}` : ""}
-                      </span>
-                      {g && postedVsNow(b, g) && (
-                        <span className="block font-mono text-[11px] text-zinc-400">
-                          {postedVsNow(b, g)}
-                        </span>
-                      )}
+                      <span className="block truncate font-semibold text-white">{b.side} · {MARKET_LABEL[b.market]}</span>
+                      <span className="block truncate text-[11px] text-zinc-500">{g?.game ?? `Game #${b.game_id}`}</span>
                     </span>
                     <span className="font-mono text-lg font-black text-edge-400">{pct(b.line_edge_pct, 1)}</span>
                     <span className="font-mono text-xs text-zinc-500">{b.kelly_quarter_units == null ? "—" : `${b.kelly_quarter_units.toFixed(2)}u`}</span>
@@ -229,42 +216,58 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
   ];
   const edge = headlineEdge(g, bets);
   const hasEdge = edge.fromBet != null || edge.market != null;
+  const official = bets.length > 0;
+  const single = bets.length === 1 ? bets[0] : null;
+  const whyNot = whyNotPlayCopy(g, bets.map((b) => b.market));
+  const timeLabel = g.completed
+    ? finalLabel(g.final_at, g.final_at_estimated, g.game_date)
+    : (g.tipoff ? fmtTipoff(g.tipoff) : "Tip-off TBD");
+  const headline = edge.fromBet
+    ? `${edge.fromBet.side} · ${MARKET_LABEL[edge.fromBet.market]}`
+    : edge.market
+      ? `${MARKET_LABEL[edge.market]} · fair vs price`
+      : g.game;
+  const statusChip = edge.tier
+    ? <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${TIER_BADGE[edge.tier]}`}>{edge.tier}</span>
+    : official
+      ? <span className="rounded-md bg-edge-400/15 px-1.5 py-0.5 text-[10px] font-bold text-edge-400">Official</span>
+      : null;
+  const openSingle = (e: { stopPropagation: () => void }) => { e.stopPropagation(); onOpen(single!); };
+  const fair = totalFair(g);
   return (
     <article
       role="button" tabIndex={0} aria-label={`Insights for ${g.game}`}
       onClick={onGame} onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onGame())}
       className={`card cursor-pointer overflow-hidden transition hover:border-ink-500 active:scale-[0.995] ${g.completed ? "opacity-70" : ""}`}>
-      <header className="flex items-center gap-2 border-b border-ink-700/60 px-4 py-2.5 text-xs">
-        <span className="font-semibold text-zinc-300">{g.tipoff ? fmtTipoff(g.tipoff) : "Tip-off TBD"}</span>
-        {g.completed && <span className="font-semibold uppercase text-zinc-500">{finalLabel(g.final_at, g.final_at_estimated, g.game_date)}</span>}
-        {bets.length > 0 && <span className="rounded-md bg-edge-400/15 px-1.5 py-0.5 text-[10px] font-bold text-edge-400">Official</span>}
+      <header className="flex items-start gap-2 border-b border-ink-700/60 px-4 py-2.5 text-xs">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+          <span className="font-semibold text-zinc-300">{timeLabel}</span>
+          {statusChip}
+          <NewCoachChips locks={g.coachLocks} />
+        </div>
         <button
           type="button"
           aria-label={watched ? "Remove from watchlist" : "Add to watchlist"}
           aria-pressed={watched}
           onClick={(e) => { e.stopPropagation(); onWatch(); }}
-          className={`ml-auto grid h-9 w-9 place-items-center rounded-lg transition ${watched ? "text-amber-300" : "text-zinc-600 hover:text-zinc-300"}`}
+          className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg transition ${watched ? "text-amber-300" : "text-zinc-600 hover:text-zinc-300"}`}
         >
           <Star filled={watched} className="h-5 w-5" />
         </button>
-        <span className="font-mono text-zinc-600"><span className="mr-1 font-sans text-court-400">Insights ›</span>#{g.game_id}</span>
+        <span aria-hidden="true" className="mt-2 shrink-0 font-sans text-court-400">›</span>
       </header>
 
-      {/* Edge headline */}
-      <div className="flex items-end justify-between gap-3 border-b border-ink-700/40 px-4 py-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-            <TermLabel term="edge">Edge</TermLabel>
-            {edge.tier && <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold normal-case tracking-normal ${TIER_BADGE[edge.tier]}`}>{edge.tier}</span>}
-          </div>
-          <div className="mt-0.5 truncate text-sm font-semibold text-zinc-300">
-            {edge.fromBet ? edge.fromBet.side : edge.market ? `${edge.market === "spread" ? "Spread" : edge.market === "total" ? "Total" : "ML"} · fair vs price` : g.game}
-          </div>
+      {/* Edge headline. With one official bet, tapping this opens the value sheet. */}
+      {single ? (
+        <button type="button" onClick={openSingle} aria-label={`Open ${single.side} details`}
+          className="flex w-full items-end justify-between gap-3 border-b border-ink-700/40 px-4 py-3 text-left hover:bg-ink-850/60">
+          <HeadlineBody headline={headline} compact={postedNowCompact(single, g)} hasEdge={hasEdge} muted={edge.muted} edgePct={edge.pct} />
+        </button>
+      ) : (
+        <div className="flex items-end justify-between gap-3 border-b border-ink-700/40 px-4 py-3">
+          <HeadlineBody headline={headline} hasEdge={hasEdge} muted={edge.muted} edgePct={edge.pct} />
         </div>
-        <div className={`shrink-0 font-mono text-4xl font-black leading-none ${!hasEdge ? "text-zinc-700" : edge.muted ? "text-zinc-500" : "text-edge-400"}`}>
-          {hasEdge ? pct(edge.pct, 1) : "—"}
-        </div>
-      </div>
+      )}
 
       <div className="divide-y divide-ink-700/40 px-4">
         {rows.map((r) => (
@@ -284,14 +287,13 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
         ))}
       </div>
 
-      {((g.coachLocks && g.coachLocks.length > 0) || whyNotPlayCopy(g, bets.map((b) => b.market)).length > 0) && (
-        <div className="space-y-1.5 border-t border-ink-700/40 px-4 py-2" onClick={(e) => e.stopPropagation()}>
-          <NewCoachBadges locks={g.coachLocks} />
-          <WhyNot lines={whyNotPlayCopy(g, bets.map((b) => b.market))} />
+      {whyNot.length > 0 && (
+        <div className="border-t border-ink-700/40 px-4 py-2" onClick={(e) => e.stopPropagation()}>
+          <WhyNot lines={whyNot} />
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-px border-t border-ink-700/60 bg-ink-700/40 text-center">
+      <div className="grid grid-cols-2 gap-px border-t border-ink-700/60 bg-ink-700/40 text-center">
         <MarketStat
           label="Spread"
           fair={g.proj_spread == null ? "—" : fmtLine(g.proj_spread)}
@@ -299,15 +301,10 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
         />
         <MarketStat
           label="Total"
-          fair={totalFair(g)}
+          fair={fair.value}
           price={g.market_total?.toFixed(1) ?? "—"}
-          note={totalModelNote(g)}
+          tag={fair.v1 ? "v1" : undefined}
         />
-        <div className="bg-ink-900 px-2 py-2.5">
-          <div className="text-[10px] uppercase tracking-wider text-zinc-500">Home cover</div>
-          <div className="font-mono text-sm font-semibold">{g.home_cover_prob == null ? "—" : pct(g.home_cover_prob)}</div>
-          <div className="font-mono text-[11px] text-zinc-500">{g.market_source ? SOURCE_LABEL[g.market_source] : ""}</div>
-        </div>
       </div>
 
       {(g.archetypes.notes.length > 0 || g.reason) && (
@@ -324,7 +321,7 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
         </div>
       )}
 
-      {bets.length > 0 && (
+      {bets.length > 1 && (
         <div className="space-y-2 border-t border-ink-700/60 bg-edge-400/[0.03] p-3">
           {bets.map((b) => {
             const tier = edgeTier(b.line_edge_pct, b.market);
@@ -333,21 +330,12 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
               <button
                 key={`${b.market}-${b.side}`}
                 onClick={(e) => { e.stopPropagation(); onOpen(b); }}
-                className={`flex min-h-14 w-full items-center gap-3 rounded-xl border bg-ink-900 px-3 py-2.5 text-left transition active:scale-[0.99] ${muted ? "border-ink-600 hover:border-ink-500" : "border-edge-400/30 hover:border-edge-400/60"}`}
+                className={`flex min-h-12 w-full items-center gap-3 rounded-xl border bg-ink-900 px-3 py-2 text-left transition active:scale-[0.99] ${muted ? "border-ink-600 hover:border-ink-500" : "border-edge-400/30 hover:border-edge-400/60"}`}
               >
-                {tier ? <span className={`rounded-md px-1.5 py-1 text-[10px] font-bold ${TIER_BADGE[tier]}`}>{tier}</span> : <span className="rounded-md bg-ink-800 px-1.5 py-1 text-[10px] font-bold text-zinc-500">—</span>}
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-semibold">{b.side}</span>
-                  <span className="block text-[11px] text-zinc-500">{MARKET_LABEL[b.market]} · edge {pct(b.line_edge_pct, 1)} <span className="text-zinc-600">· prob {signedPct(b.prob_edge)}</span></span>
-                  {postedVsNow(b, g) && (
-                    <span className="block font-mono text-[11px] text-zinc-400">{postedVsNow(b, g)}</span>
-                  )}
-                  {b.logged_at && <span className="block text-[10px] text-zinc-600">🔒 {fmtPostedProof(b.logged_at, g.tipoff)}</span>}
-                </span>
-                <span className="text-right">
-                  <span className={`block font-mono text-2xl font-black leading-none ${muted ? "text-zinc-500" : "text-edge-400"}`}>{pct(b.line_edge_pct, 1)}</span>
-                  <span className="block text-[10px] text-zinc-500">{b.kelly_quarter_units == null ? "—" : `${b.kelly_quarter_units.toFixed(1)}u`} ¼-K</span>
-                </span>
+                {tier ? <span className={`rounded-md px-1.5 py-1 text-[10px] font-bold ${TIER_BADGE[tier]}`}>{tier}</span> : <span className="rounded-md bg-ink-800 px-1.5 py-1 text-[10px] font-bold text-zinc-500">Official</span>}
+                <span className="min-w-0 flex-1 truncate text-sm font-semibold">{b.side}</span>
+                <span className={`font-mono text-lg font-black leading-none ${muted ? "text-zinc-500" : "text-edge-400"}`}>{pct(b.line_edge_pct, 1)}</span>
+                <span className="font-mono text-[11px] text-zinc-500">{b.kelly_quarter_units == null ? "—" : `${b.kelly_quarter_units.toFixed(2)}u`}</span>
                 <span className="text-zinc-600">›</span>
               </button>
             );
@@ -358,30 +346,53 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
   );
 }
 
-function totalFair(g: SlateGame) {
-  // Prefer the model that owns the raw total edge; fall back to whichever total we have.
-  if (g.rawEdgeMarket === "total" && g.rawEdgeModel === "czarp-v1-totals" && g.proj_total_v1 != null) return g.proj_total_v1.toFixed(1);
-  if (g.proj_total_v2 != null) return g.proj_total_v2.toFixed(1);
-  if (g.proj_total != null) return g.proj_total.toFixed(1);
-  if (g.proj_total_v1 != null) return g.proj_total_v1.toFixed(1);
-  return "—";
-}
-function totalModelNote(g: SlateGame) {
-  const parts: string[] = [];
-  if (g.proj_total_v1 != null) parts.push(`czarp-v1-totals ${g.proj_total_v1.toFixed(1)}`);
-  if (g.proj_total_v2 != null && g.proj_total_v1 != null) parts.push(`czarp-v2 ${g.proj_total_v2.toFixed(1)}`);
-  else if (g.proj_total_v2 != null) parts.push("czarp-v2");
-  return parts.join(" · ") || undefined;
+function totalFair(g: SlateGame): { value: string; v1: boolean } {
+  // Prefer the model that owns the raw total edge; fall back to the default (v2).
+  if (g.rawEdgeMarket === "total" && g.rawEdgeModel === "czarp-v1-totals" && g.proj_total_v1 != null) {
+    return { value: g.proj_total_v1.toFixed(1), v1: true };
+  }
+  if (g.proj_total_v2 != null) return { value: g.proj_total_v2.toFixed(1), v1: false };
+  if (g.proj_total != null) return { value: g.proj_total.toFixed(1), v1: false };
+  if (g.proj_total_v1 != null) return { value: g.proj_total_v1.toFixed(1), v1: true };
+  return { value: "—", v1: false };
 }
 
-function MarketStat({ label, fair, price, note }: { label: string; fair: string; price: string; note?: string }) {
+function totalModelDetail(g: SlateGame): string | null {
+  const parts: string[] = [];
+  if (g.proj_total_v1 != null) parts.push(`czarp-v1-totals ${g.proj_total_v1.toFixed(1)}`);
+  if (g.proj_total_v2 != null) parts.push(`czarp-v2 ${g.proj_total_v2.toFixed(1)}`);
+  return parts.length ? parts.join(" · ") : null;
+}
+
+function MarketStat({ label, fair, price, tag }: { label: string; fair: string; price: string; tag?: string }) {
   return (
     <div className="bg-ink-900 px-2 py-2.5">
       <div className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</div>
-      <div className="font-mono text-sm font-semibold"><span className="text-[10px] font-sans font-normal text-zinc-600">FV </span>{fair}</div>
+      <div className="font-mono text-sm font-semibold">
+        <span className="text-[10px] font-sans font-normal text-zinc-600">FV </span>{fair}
+        {tag && <span className="ml-1 align-middle rounded px-1 py-px font-sans text-[9px] font-bold normal-case tracking-normal text-zinc-400 ring-1 ring-ink-600">{tag}</span>}
+      </div>
       <div className="font-mono text-[11px] text-zinc-500"><span className="font-sans">Price </span>{price}</div>
-      {note && <div className="text-[10px] leading-tight text-zinc-600">{note}</div>}
     </div>
+  );
+}
+
+function HeadlineBody({ headline, compact, hasEdge, muted, edgePct }: {
+  headline: string; compact?: string | null; hasEdge: boolean; muted: boolean; edgePct: number;
+}) {
+  return (
+    <>
+      <div className="min-w-0">
+        <div className="flex items-center gap-1 text-sm font-semibold text-zinc-300">
+          <span className="truncate">{headline}</span>
+          <InfoTip term="edge" />
+        </div>
+        {compact && <div className="mt-0.5 truncate font-mono text-[11px] text-zinc-500">{compact}</div>}
+      </div>
+      <div className={`shrink-0 font-mono text-4xl font-black leading-none ${!hasEdge ? "text-zinc-700" : muted ? "text-zinc-500" : "text-edge-400"}`}>
+        {hasEdge ? pct(edgePct, 1) : "—"}
+      </div>
+    </>
   );
 }
 
@@ -456,7 +467,7 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
   const openS = i?.open_spread ?? null, curS = i?.cur_spread ?? g.market_spread;
   const openT = i?.open_total ?? null, curT = i?.cur_total ?? g.market_total;
   const move = (o: number | null, c: number | null) => (o == null || c == null ? "—" : c === o ? "No move" : `${c > o ? "+" : "−"}${Math.abs(c - o).toFixed(1)}`);
-  const hw = i?.home_win_prob ?? g.home_win_prob, hc = i?.home_cover_prob ?? g.home_cover_prob, ov = i?.over_prob ?? null;
+  const hw = i?.home_win_prob ?? g.home_win_prob, ov = i?.over_prob ?? null;
   const edge = headlineEdge(g, bets);
   const hasEdge = edge.fromBet != null || edge.market != null;
   return (
@@ -479,19 +490,23 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
         {i?.neutral && <div className="mt-2 inline-block rounded-md border border-ink-600 px-2 py-0.5 text-[11px] text-zinc-400">Neutral site: no home-court edge applied</div>}
 
         <div className="mt-4 flex items-end justify-between rounded-2xl border border-ink-700 bg-ink-850 px-4 py-3">
-          <div>
-            <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-              <TermLabel term="edge">Edge</TermLabel>
-              {edge.tier && <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold normal-case tracking-normal ${TIER_BADGE[edge.tier]}`}>{edge.tier}</span>}
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {edge.tier && <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${TIER_BADGE[edge.tier]}`}>{edge.tier}</span>}
+              <NewCoachChips locks={g.coachLocks} />
             </div>
-            <div className="mt-0.5 text-sm text-zinc-400">{edge.fromBet ? edge.fromBet.side : edge.market ? `${edge.market === "spread" ? "Spread" : edge.market === "total" ? "Total" : "ML"} · fair vs price` : "Fair value vs price"}</div>
+            <div className="mt-1 truncate text-sm text-zinc-300">
+              {edge.fromBet ? `${edge.fromBet.side} · ${MARKET_LABEL[edge.fromBet.market]}` : edge.market ? `${MARKET_LABEL[edge.market]} · fair vs price` : "Fair value vs price"}
+            </div>
+            {bets.length === 1 && postedNowCompact(bets[0], g) && (
+              <div className="mt-0.5 font-mono text-[11px] text-zinc-500">{postedNowCompact(bets[0], g)}</div>
+            )}
           </div>
-          <div className={`font-mono text-4xl font-black ${!hasEdge ? "text-zinc-700" : edge.muted ? "text-zinc-500" : "text-edge-400"}`}>
+          <div className={`shrink-0 font-mono text-4xl font-black ${!hasEdge ? "text-zinc-700" : edge.muted ? "text-zinc-500" : "text-edge-400"}`}>
             {hasEdge ? pct(edge.pct, 1) : "—"}
           </div>
         </div>
         <SheetSecondary g={g} bets={bets} />
-        {g.coachLocks && g.coachLocks.length > 0 && <div className="mt-3"><NewCoachBadges locks={g.coachLocks} /></div>}
         <WhyNot className="mt-2" lines={whyNotPlayCopy(g, bets.map((b) => b.market))} />
 
         <div className="mt-4 grid grid-cols-2 gap-2">
@@ -509,7 +524,7 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
           </div>
           {[
             { k: "Spread", cz: czLine == null ? "—" : fmtLine(czLine), o: openS == null ? "—" : fmtLine(openS), c: curS == null ? "—" : fmtLine(curS), m: move(openS, curS) },
-            { k: g.proj_total_v1 != null || g.proj_total_v2 != null ? `Total${g.rawEdgeMarket === "total" && g.rawEdgeModel ? ` · ${g.rawEdgeModel}` : ""}` : "Total", cz: czTotal == null ? "—" : czTotal.toFixed(1), o: openT?.toFixed(1) ?? "—", c: curT?.toFixed(1) ?? "—", m: move(openT, curT) },
+            { k: "Total", cz: czTotal == null ? "—" : czTotal.toFixed(1), o: openT?.toFixed(1) ?? "—", c: curT?.toFixed(1) ?? "—", m: move(openT, curT) },
           ].map((r) => (
             <div key={r.k} className="grid grid-cols-5 border-t border-ink-700/60 px-3 py-2.5 font-mono">
               <span className="font-sans text-xs font-semibold text-zinc-400">{r.k}</span>
@@ -521,10 +536,15 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
           ))}
         </div>
         <p className="mt-1 text-[10px] text-zinc-600">Home-line notation (−5.5 = {g.home} favored). Price = Vegas consensus. Fair value = our model.</p>
+        {totalModelDetail(g) && (
+          <p className="mt-1 text-[11px] text-zinc-400">
+            <TermLabel term="totalsModel">Totals models</TermLabel>
+            {": "}{totalModelDetail(g)}
+          </p>
+        )}
 
-        <div className="mt-3 grid grid-cols-3 gap-2">
+        <div className="mt-3 grid grid-cols-2 gap-2">
           <Big label="Home win" v={hw == null ? "—" : fmtWinProb(hw)} />
-          <Big label="Home cover" v={hc == null ? "—" : pct(hc)} />
           <Big label="Over" v={ov == null ? "—" : pct(ov)} />
         </div>
         {(i?.proj_possessions ?? g.proj_possessions) != null && <p className="mt-2 text-xs text-zinc-400">Projected pace: <b className="font-mono text-white">{(i?.proj_possessions ?? g.proj_possessions)!.toFixed(1)}</b> possessions</p>}
@@ -546,14 +566,13 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
           <div className="mt-4 space-y-1.5">
             {bets.map((b) => {
               const tier = edgeTier(b.line_edge_pct, b.market);
+              const compact = bets.length > 1 ? postedNowCompact(b, g) : null;
               return (
                 <div key={`${b.market}-${b.side}`} className="flex items-center gap-2 rounded-xl border border-edge-400/30 px-3 py-2 text-sm">
                   {tier && <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${TIER_BADGE[tier]}`}>{tier}</span>}
                   <span className="min-w-0 flex-1 truncate">
                     <span className="block font-semibold">{b.side}</span>
-                    {postedVsNow(b, g) && (
-                      <span className="block font-mono text-[11px] font-normal text-zinc-400">{postedVsNow(b, g)}</span>
-                    )}
+                    {compact && <span className="block font-mono text-[11px] font-normal text-zinc-500">{compact}</span>}
                   </span>
                   <span className={`font-mono text-base font-black ${tier ? "text-edge-400" : "text-zinc-500"}`}>{pct(b.line_edge_pct, 1)}</span>
                   <span className="font-mono text-xs text-zinc-400">{b.kelly_quarter_units == null ? "—" : `${b.kelly_quarter_units.toFixed(2)}u`}</span>
