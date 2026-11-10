@@ -1,8 +1,11 @@
-/** New-coach lock copy from team_profiles / team_profile_latest.
+/** New-coach hold copy from team_profiles / team_profile_latest.
  *  Lengths and remaining come from the DB (lock_sides_games, lock_totals_games,
  *  lock_sides_remaining, lock_totals_remaining). Remaining is null when the
  *  team is not a new-coach team. 8 / 4 are last-resort defaults only if a
- *  length column is missing. */
+ *  length column is missing.
+ *
+ *  User-facing wording is "paused" / "back on" — never lock, unlock, or locked.
+ */
 export const COACH_LOCK_SIDES = 8;
 export const COACH_LOCK_TOTALS = 4;
 
@@ -46,21 +49,23 @@ export function newCoachLock(team: string, p: CoachProfileFields): NewCoachLock 
   };
 }
 
-/** Countdown lines, e.g. "New coach: no official sides until game 8 (2 of 8 played)". */
+/** Countdown lines for the team-page badge. */
 export function newCoachLines(lock: NewCoachLock, name = false): string[] {
-  const who = name && lock.team ? ` (${lock.team})` : "";
+  const who = name && lock.team ? `${lock.team}: ` : "";
   const lines: string[] = [];
   if (lock.sidesLocked) {
-    lines.push(`New coach${who}: no official sides until game ${lock.lockSides} (${lock.gamesPlayed} of ${lock.lockSides} played)`);
+    const played = sidesPlayed(lock);
+    lines.push(`${who}Sides are paused until game ${lock.lockSides} (${played} of ${lock.lockSides} played).`);
   }
   if (lock.totalsLocked) {
-    lines.push(`New coach${who}: no official totals until game ${lock.lockTotals} (${lock.gamesPlayed} of ${lock.lockTotals} played)`);
+    const played = totalsPlayed(lock);
+    lines.push(`${who}Totals are paused until game ${lock.lockTotals} (${played} of ${lock.lockTotals} played).`);
   }
   return lines;
 }
 
 export function newCoachUnlocked(lock: NewCoachLock): string {
-  return `New coach · official sides and totals unlocked (${lock.gamesPlayed} games played)`;
+  return `New coach · official sides and totals are back on (${lock.gamesPlayed} games played)`;
 }
 
 export function isCoachLocked(lock: NewCoachLock): boolean {
@@ -78,22 +83,27 @@ export function totalsPlayed(lock: NewCoachLock): number {
   return lock.gamesPlayed;
 }
 
-/** Teams that still have at least one market locked. Fully unlocked new-coach teams stay off the slate chip. */
+/** Teams that still have at least one market paused. Fully clear new-coach teams stay off the slate chip. */
 export function lockedCoachLocks(locks?: NewCoachLock[] | null): NewCoachLock[] {
   return (locks ?? []).filter(isCoachLocked);
 }
 
-/** Bottom-sheet copy. Omits a market once that market is already unlocked. */
+/** Bottom-sheet copy. A market that is already clear says e.g. "Totals are back on." */
 export function newCoachSheetCopy(lock: NewCoachLock): { title: string; body: string } {
-  const parts: string[] = [`${lock.team} has a new coach.`];
+  const parts: string[] = [
+    `${lock.team} has a new coach, so we've paused plays while the model learns the new system.`,
+  ];
   if (lock.sidesLocked) {
     const played = sidesPlayed(lock);
-    parts.push(`No official sides until game ${lock.lockSides} (${played} of ${lock.lockSides} played).`);
+    parts.push(`Sides are paused until game ${lock.lockSides} (${played} of ${lock.lockSides} played).`);
+  } else {
+    parts.push("Sides are back on.");
   }
   if (lock.totalsLocked) {
     const played = totalsPlayed(lock);
-    parts.push(`Totals unlock after game ${lock.lockTotals} (${played} of ${lock.lockTotals} played).`);
+    parts.push(`Totals are paused until game ${lock.lockTotals} (${played} of ${lock.lockTotals} played).`);
+  } else {
+    parts.push("Totals are back on.");
   }
-  parts.push("The model needs a few games to trust a new system.");
   return { title: "New coach", body: parts.join(" ") };
 }

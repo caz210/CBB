@@ -75,7 +75,7 @@ export function ModelsWorkspace() {
 
           <button onClick={newModel}
             className={`mt-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border border-dashed text-sm font-semibold ${atLimit ? "border-ink-600 text-zinc-500" : "border-court-500/60 text-court-400 hover:bg-court-500/10"}`}>
-            {atLimit ? "🔒 New model (Pro)" : "+ New model"}
+            {atLimit ? "New model (Pro)" : "+ New model"}
           </button>
 
           {notice === "limit" ? (

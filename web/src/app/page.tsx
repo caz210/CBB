@@ -5,7 +5,7 @@ import { EXAMPLE_SLATE, EXAMPLE_VALUE_BETS } from "@/lib/example-data";
 import { MARKET_LABEL, edgeTier, fmtLine, fmtTipoff, pct, signedPct, fmtUnits } from "@/lib/labels";
 import { SPORTS, getSport } from "@/lib/sports";
 import { loadHero, loadResults, type Hero } from "@/lib/data";
-import { RESULT_LABEL, fmtGameDate, fmtPostedProof } from "@/lib/labels";
+import { RESULT_LABEL, fmtGameDate, fmtPostedStamp } from "@/lib/labels";
 import { postedVsNow } from "@/lib/posted";
 
 // Hero shows today's top official play, so render per request.
@@ -185,7 +185,7 @@ function LiveHero({ hero }: { hero: Hero }) {
             {postedVsNow(v, g) && (
               <div className="font-mono text-[11px] text-zinc-400">{postedVsNow(v, g)}</div>
             )}
-            {v.logged_at && <div className="text-[10px] text-zinc-500">🔒 {fmtPostedProof(v.logged_at, g.tipoff)}</div>}
+            {v.logged_at && <div className="text-[10px] text-zinc-500">{fmtPostedStamp(v.logged_at)}</div>}
             <div className="mt-0.5 text-[11px] text-zinc-500">¼-Kelly {v.kelly_quarter_units == null ? "—" : `${v.kelly_quarter_units.toFixed(2)}u`}</div>
           </div>
           <div className={`shrink-0 font-mono text-4xl font-black leading-none ${tier ? "text-edge-400" : "text-zinc-400"}`}>{pct(v.line_edge_pct, 1)}</div>
@@ -209,7 +209,7 @@ function LiveHero({ hero }: { hero: Hero }) {
         <Mini label="P/L" value={r.profit_units == null ? "—" : fmtUnits(r.profit_units)} />
       </div>
       {r.result && <div className={`mt-3 text-center text-sm font-semibold ${tone}`}>{RESULT_LABEL[r.result]}</div>}
-      {r.logged_at && <div className="mt-2 text-[11px] text-zinc-500">🔒 {fmtPostedProof(r.logged_at, null)}</div>}
+      {r.logged_at && <div className="mt-2 text-[11px] text-zinc-500">{fmtPostedStamp(r.logged_at)}</div>}
     </Link>
   );
 }

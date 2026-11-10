@@ -2,17 +2,17 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { SlateGame, ValueBet } from "@/lib/types";
-import { LOCKED_NOTE, MARKET_LABEL, TIER_BADGE, edgeTier, finalLabel, fmtLine, fmtPostedProof, fmtWinProb, fmtTipoff, pct, signedPct } from "@/lib/labels";
-import { computedLineEdge } from "@/lib/portfolio";
+import { LOCKED_NOTE, MARKET_LABEL, TIER_BADGE, edgeTier, finalLabel, fmtLine, fmtPostedStamp, fmtPlayPct, fmtWinProb, fmtTipoff, pct, signedPct } from "@/lib/labels";
 import { useWatchlist } from "@/lib/watchlist";
 import { weaknessesOnly } from "@/lib/archetypes";
 import { teamHref } from "@/lib/teams";
 import Link from "next/link";
 import { ArchetypeChip, ArchetypeLegend } from "./ArchetypeChip";
 import { InfoTip, TermLabel } from "./InfoTip";
-import { NewCoachChips, whyNotPlayCopy } from "./NewCoachBadge";
+import { NewCoachChips } from "./NewCoachBadge";
+import { cardHeadline, notAPlayLine } from "@/lib/verdict";
 import { evPer100, fmtEv100 } from "@/lib/stats";
-import { betCoverProb, postedNowCompact, postedVsNow } from "@/lib/posted";
+import { betCoverProb, postedVsNow } from "@/lib/posted";
 
 type Sel = { game: SlateGame; bet: ValueBet } | null;
 
@@ -145,13 +145,13 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
           <ul className="divide-y divide-ink-700/50">
             {tracked.map((b) => {
               const g = games.find((x) => x.game_id === b.game_id);
-              const proof = fmtPostedProof(b.logged_at, g?.tipoff);
+              const proof = fmtPostedStamp(b.logged_at);
               return (
                 <li key={`${b.game_id}-${b.market}-${b.side}`} className="flex items-center gap-3 py-2 text-sm text-zinc-400">
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-medium text-zinc-300">{b.side}</span>
                     <span className="block truncate text-[11px] text-zinc-500">{g?.game ?? `Game #${b.game_id}`} · {MARKET_LABEL[b.market]} · edge {pct(b.line_edge_pct, 1)}</span>
-                    {proof && <span className="block text-[11px] text-zinc-600">🔒 {proof}</span>}
+                    {proof && <span className="block text-[11px] text-zinc-600">{proof}</span>}
                   </span>
                   <span className="font-mono text-xs text-zinc-500">1u</span>
                 </li>
@@ -180,29 +180,19 @@ function Star({ filled, className = "h-4 w-4" }: { filled: boolean; className?: 
   );
 }
 
-/**
- * Headline edge: posted value_bet.line_edge_pct wins; else CZarp formula
- * |fair − price| ÷ Vegas total (same denom for sides and totals). Below threshold → muted.
- */
-function headlineEdge(g: SlateGame, bets: ValueBet[]): {
-  pct: number; muted: boolean; tier: ReturnType<typeof edgeTier>; fromBet: ValueBet | null; market: "spread" | "total" | "moneyline" | null;
-} {
-  if (bets.length) {
-    const best = bets.reduce((a, b) => (b.line_edge_pct > a.line_edge_pct ? b : a));
-    const tier = edgeTier(best.line_edge_pct, best.market);
-    return { pct: best.line_edge_pct, muted: tier == null, tier, fromBet: best, market: best.market };
-  }
-  // Denom is always Vegas total (never the spread line — that explodes near pick'em).
-  const total = g.market_total ?? g.proj_total;
-  const candidates: { pct: number; market: "spread" | "total" }[] = [];
-  const s = computedLineEdge(g.proj_spread, g.market_spread, total);
-  if (s != null) candidates.push({ pct: s, market: "spread" });
-  const tot = computedLineEdge(g.proj_total, g.market_total, g.market_total ?? total);
-  if (tot != null) candidates.push({ pct: tot, market: "total" });
-  if (!candidates.length) return { pct: 0, muted: true, tier: null, fromBet: null, market: null };
-  const best = candidates.reduce((a, b) => (b.pct > a.pct ? b : a));
-  const tier = edgeTier(best.pct, best.market);
-  return { pct: best.pct, muted: tier == null, tier, fromBet: null, market: best.market };
+function VerdictChips({ g, bets }: { g: SlateGame; bets: ValueBet[] }) {
+  const h = cardHeadline(g, bets);
+  const official = h.verdict === "official";
+  const tier = official && h.officialBet ? edgeTier(h.officialBet.line_edge_pct, h.officialBet.market) : null;
+  return (
+    <>
+      {official
+        ? <span className="rounded-md bg-edge-400/15 px-1.5 py-0.5 text-[10px] font-semibold text-edge-400">Official play</span>
+        : <span className="rounded-md bg-ink-800 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-400">Low value</span>}
+      {tier && <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${TIER_BADGE[tier]}`}>{tier}</span>}
+      {!official && h.lean && <span className="rounded-md bg-ink-800 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-400">Lean</span>}
+    </>
+  );
 }
 
 function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
@@ -214,24 +204,19 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
     { side: "Away", name: g.away, proj: g.proj_away, win: awayWin, cover: awayCover, tags: g.archetypes.away, tent: g.archetypes.away_tentative },
     { side: "Home", name: g.home, proj: g.proj_home, win: g.home_win_prob, cover: g.home_cover_prob, tags: g.archetypes.home, tent: g.archetypes.home_tentative },
   ];
-  const edge = headlineEdge(g, bets);
-  const hasEdge = edge.fromBet != null || edge.market != null;
-  const official = bets.length > 0;
-  const single = bets.length === 1 ? bets[0] : null;
-  const whyNot = whyNotPlayCopy(g, bets.map((b) => b.market));
+  const edge = cardHeadline(g, bets);
+  const hasEdge = edge.edgePct != null;
+  const official = edge.verdict === "official";
+  const single = official && bets.length === 1 ? bets[0] : null;
+  const whyNot = official ? null : notAPlayLine(g, bets);
   const timeLabel = g.completed
     ? finalLabel(g.final_at, g.final_at_estimated, g.game_date)
     : (g.tipoff ? fmtTipoff(g.tipoff) : "Tip-off TBD");
-  const headline = edge.fromBet
-    ? `${edge.fromBet.side} · ${MARKET_LABEL[edge.fromBet.market]}`
+  const headline = edge.officialBet
+    ? `${edge.officialBet.side} · ${MARKET_LABEL[edge.officialBet.market]}`
     : edge.market
       ? `${MARKET_LABEL[edge.market]} · fair vs price`
       : g.game;
-  const statusChip = edge.tier
-    ? <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${TIER_BADGE[edge.tier]}`}>{edge.tier}</span>
-    : official
-      ? <span className="rounded-md bg-edge-400/15 px-1.5 py-0.5 text-[10px] font-bold text-edge-400">Official</span>
-      : null;
   const openSingle = (e: { stopPropagation: () => void }) => { e.stopPropagation(); onOpen(single!); };
   const fair = totalFair(g);
   return (
@@ -242,7 +227,7 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
       <header className="flex items-start gap-2 border-b border-ink-700/60 px-4 py-2.5 text-xs">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
           <span className="font-semibold text-zinc-300">{timeLabel}</span>
-          {statusChip}
+          <VerdictChips g={g} bets={bets} />
           <NewCoachChips locks={g.coachLocks} />
         </div>
         <button
@@ -261,11 +246,11 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
       {single ? (
         <button type="button" onClick={openSingle} aria-label={`Open ${single.side} details`}
           className="flex w-full items-end justify-between gap-3 border-b border-ink-700/40 px-4 py-3 text-left hover:bg-ink-850/60">
-          <HeadlineBody headline={headline} compact={postedNowCompact(single, g)} hasEdge={hasEdge} muted={edge.muted} edgePct={edge.pct} />
+          <HeadlineBody headline={headline} subtitle={edge.subtitle} hasEdge={hasEdge} official={official} edgePct={edge.edgePct} />
         </button>
       ) : (
         <div className="flex items-end justify-between gap-3 border-b border-ink-700/40 px-4 py-3">
-          <HeadlineBody headline={headline} hasEdge={hasEdge} muted={edge.muted} edgePct={edge.pct} />
+          <HeadlineBody headline={headline} subtitle={edge.subtitle} hasEdge={hasEdge} official={official} edgePct={edge.edgePct} />
         </div>
       )}
 
@@ -287,9 +272,9 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
         ))}
       </div>
 
-      {whyNot.length > 0 && (
+      {whyNot && (
         <div className="border-t border-ink-700/40 px-4 py-2" onClick={(e) => e.stopPropagation()}>
-          <WhyNot lines={whyNot} />
+          <NotAPlay line={whyNot} showTip={!edge.subtitle} />
         </div>
       )}
 
@@ -377,8 +362,8 @@ function MarketStat({ label, fair, price, tag }: { label: string; fair: string; 
   );
 }
 
-function HeadlineBody({ headline, compact, hasEdge, muted, edgePct }: {
-  headline: string; compact?: string | null; hasEdge: boolean; muted: boolean; edgePct: number;
+function HeadlineBody({ headline, subtitle, hasEdge, official, edgePct }: {
+  headline: string; subtitle?: string | null; hasEdge: boolean; official: boolean; edgePct: number | null;
 }) {
   return (
     <>
@@ -387,10 +372,15 @@ function HeadlineBody({ headline, compact, hasEdge, muted, edgePct }: {
           <span className="truncate">{headline}</span>
           <InfoTip term="edge" />
         </div>
-        {compact && <div className="mt-0.5 truncate font-mono text-[11px] text-zinc-500">{compact}</div>}
+        {subtitle && (
+          <div className="mt-0.5 flex items-start gap-1 font-mono text-[11px] leading-snug text-zinc-500">
+            <span className="min-w-0">{subtitle}</span>
+            <InfoTip term="openLineRule" />
+          </div>
+        )}
       </div>
-      <div className={`shrink-0 font-mono text-4xl font-black leading-none ${!hasEdge ? "text-zinc-700" : muted ? "text-zinc-500" : "text-edge-400"}`}>
-        {hasEdge ? pct(edgePct, 1) : "—"}
+      <div className={`shrink-0 font-mono text-4xl font-black leading-none ${!hasEdge ? "text-zinc-700" : official ? "text-edge-400" : "text-zinc-500"}`}>
+        {hasEdge && edgePct != null ? fmtPlayPct(edgePct) : "—"}
       </div>
     </>
   );
@@ -415,7 +405,10 @@ function ValueSheet({ sel, onClose }: { sel: Sel; onClose: () => void }) {
         <div className="text-xs text-zinc-500">{g.game}{g.tipoff ? ` · ${fmtTipoff(g.tipoff)}` : ""}</div>
         <div className="mt-1 flex items-center justify-between gap-3">
           <h3 className="text-xl font-bold">{b.side}</h3>
-          {tier && <span className={`rounded-md px-2 py-1 text-xs font-bold ${TIER_BADGE[tier]}`}>{tier}</span>}
+          <span className="flex flex-wrap items-center justify-end gap-1.5">
+            <span className="rounded-md bg-edge-400/15 px-2 py-1 text-[10px] font-semibold text-edge-400">Official play</span>
+            {tier && <span className={`rounded-md px-2 py-1 text-xs font-bold ${TIER_BADGE[tier]}`}>{tier}</span>}
+          </span>
         </div>
         <div className="mt-1 text-sm text-zinc-400">{MARKET_LABEL[b.market]}</div>
 
@@ -445,7 +438,7 @@ function ValueSheet({ sel, onClose }: { sel: Sel; onClose: () => void }) {
           </div>
           <div className="font-mono text-3xl font-black">{b.kelly_quarter_units == null ? "—" : `${b.kelly_quarter_units.toFixed(2)}u`}</div>
         </div>
-        {b.logged_at && <p className="mt-3 text-[11px] text-zinc-400">🔒 {fmtPostedProof(b.logged_at, g.tipoff)} · locked, can&apos;t be edited</p>}
+        {b.logged_at && <p className="mt-3 text-[11px] text-zinc-400">{fmtPostedStamp(b.logged_at)}</p>}
         <p className="mt-3 text-[11px] text-zinc-500">Paper-trading season: logged to the public ledger, no real money.</p>
         <button onClick={onClose} className="mt-4 min-h-12 w-full rounded-xl border border-ink-600 font-semibold hover:bg-ink-800">Done</button>
       </div>
@@ -468,8 +461,8 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
   const openT = i?.open_total ?? null, curT = i?.cur_total ?? g.market_total;
   const move = (o: number | null, c: number | null) => (o == null || c == null ? "—" : c === o ? "No move" : `${c > o ? "+" : "−"}${Math.abs(c - o).toFixed(1)}`);
   const hw = i?.home_win_prob ?? g.home_win_prob, ov = i?.over_prob ?? null;
-  const edge = headlineEdge(g, bets);
-  const hasEdge = edge.fromBet != null || edge.market != null;
+  const edge = cardHeadline(g, bets);
+  const hasEdge = edge.edgePct != null;
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center" role="dialog" aria-modal="true" aria-label={`${g.game} insights`}>
       <button aria-label="Close" onClick={onClose} className="absolute inset-0 bg-black/70" />
@@ -492,22 +485,25 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
         <div className="mt-4 flex items-end justify-between rounded-2xl border border-ink-700 bg-ink-850 px-4 py-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-1.5">
-              {edge.tier && <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${TIER_BADGE[edge.tier]}`}>{edge.tier}</span>}
+              <VerdictChips g={g} bets={bets} />
               <NewCoachChips locks={g.coachLocks} />
             </div>
             <div className="mt-1 truncate text-sm text-zinc-300">
-              {edge.fromBet ? `${edge.fromBet.side} · ${MARKET_LABEL[edge.fromBet.market]}` : edge.market ? `${MARKET_LABEL[edge.market]} · fair vs price` : "Fair value vs price"}
+              {edge.officialBet ? `${edge.officialBet.side} · ${MARKET_LABEL[edge.officialBet.market]}` : edge.market ? `${MARKET_LABEL[edge.market]} · fair vs price` : "Fair value vs price"}
             </div>
-            {bets.length === 1 && postedNowCompact(bets[0], g) && (
-              <div className="mt-0.5 font-mono text-[11px] text-zinc-500">{postedNowCompact(bets[0], g)}</div>
+            {edge.subtitle && (
+              <div className="mt-0.5 flex items-start gap-1 font-mono text-[11px] leading-snug text-zinc-500">
+                <span className="min-w-0">{edge.subtitle}</span>
+                <InfoTip term="openLineRule" />
+              </div>
             )}
           </div>
-          <div className={`shrink-0 font-mono text-4xl font-black ${!hasEdge ? "text-zinc-700" : edge.muted ? "text-zinc-500" : "text-edge-400"}`}>
-            {hasEdge ? pct(edge.pct, 1) : "—"}
+          <div className={`shrink-0 font-mono text-4xl font-black ${!hasEdge ? "text-zinc-700" : edge.verdict === "official" ? "text-edge-400" : "text-zinc-500"}`}>
+            {hasEdge && edge.edgePct != null ? fmtPlayPct(edge.edgePct) : "—"}
           </div>
         </div>
         <SheetSecondary g={g} bets={bets} />
-        <WhyNot className="mt-2" lines={whyNotPlayCopy(g, bets.map((b) => b.market))} />
+        <NotAPlay className="mt-2" line={edge.verdict === "official" ? null : notAPlayLine(g, bets)} showTip={!edge.subtitle} />
 
         <div className="mt-4 grid grid-cols-2 gap-2">
           <Big label={`${g.away} proj`} v={pa == null ? "—" : pa.toFixed(1)} />
@@ -566,7 +562,7 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
           <div className="mt-4 space-y-1.5">
             {bets.map((b) => {
               const tier = edgeTier(b.line_edge_pct, b.market);
-              const compact = bets.length > 1 ? postedNowCompact(b, g) : null;
+              const compact = bets.length > 1 ? cardHeadline(g, [b]).subtitle : null;
               return (
                 <div key={`${b.market}-${b.side}`} className="flex items-center gap-2 rounded-xl border border-edge-400/30 px-3 py-2 text-sm">
                   {tier && <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${TIER_BADGE[tier]}`}>{tier}</span>}
@@ -587,25 +583,25 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
   );
 }
 
-function WhyNot({ lines, className = "" }: { lines: string[]; className?: string }) {
-  if (!lines.length) return null;
+function NotAPlay({ line, className = "", showTip = true }: { line: string | null; className?: string; showTip?: boolean }) {
+  if (!line) return null;
   return (
-    <div className={`text-[11px] leading-snug text-zinc-400 ${className}`}>
-      <span className="font-semibold text-zinc-500">Why not a play: </span>
-      {lines.join(" ")}
+    <div className={`flex items-start gap-1 text-[11px] leading-snug text-zinc-400 ${className}`}>
+      <span>{line}</span>
+      {showTip && <InfoTip term="openLineRule" />}
     </div>
   );
 }
 
 function SheetSecondary({ g, bets }: { g: import("@/lib/types").SlateGame; bets: import("@/lib/types").ValueBet[] }) {
-  const edge = headlineEdge(g, bets);
-  const cover = betCoverProb(g, edge.fromBet, edge.market ?? edge.fromBet?.market ?? null);
-  const odds = edge.fromBet?.posted_odds;
+  const edge = cardHeadline(g, bets);
+  const cover = betCoverProb(g, edge.officialBet, edge.market ?? edge.officialBet?.market ?? null);
+  const odds = edge.officialBet?.posted_odds;
   const ev = evPer100(cover, odds);
   const usedDefault = odds == null || !Number.isFinite(odds) || odds === 0;
   return (
     <div className="mt-2 grid grid-cols-2 gap-2">
-      <Big label="Cover probability" v={cover == null ? "—" : pct(cover)} sub={edge.fromBet ? edge.fromBet.side : edge.market ? MARKET_LABEL[edge.market] : undefined} />
+      <Big label="Cover probability" v={cover == null ? "—" : pct(cover)} sub={edge.officialBet ? edge.officialBet.side : edge.market ? MARKET_LABEL[edge.market] : undefined} />
       <Big label="EV / $100" v={ev == null ? "—" : fmtEv100(ev)} sub={usedDefault ? "at −110" : `at ${odds! > 0 ? "+" : ""}${odds}`} />
     </div>
   );

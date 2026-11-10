@@ -52,7 +52,7 @@ export function betCoverProb(g: SlateGame, b: ValueBet | null, market: Market | 
   return null;
 }
 
-/** Compact card line: "🔒 Posted 142.0 → Now 144.5". Hides any missing piece. */
+/** Compact card line: "Posted 142.0 → Now 144.5". Hides any missing piece. */
 export function postedNowCompact(b: ValueBet, g: SlateGame | null | undefined): string | null {
   if (!g) return null;
   const fmt = (n: number) => (b.market === "total" ? n.toFixed(1) : fmtLine(n));
@@ -62,5 +62,5 @@ export function postedNowCompact(b: ValueBet, g: SlateGame | null | undefined): 
   if (typeof fair === "number" && Number.isFinite(fair)) parts.push(`Posted ${fmt(fair)}`);
   if (typeof now === "number" && Number.isFinite(now)) parts.push(`Now ${fmt(now)}`);
   if (!parts.length) return null;
-  return `🔒 ${parts.join(" → ")}`;
+  return parts.join(" → ");
 }

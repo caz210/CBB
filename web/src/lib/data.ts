@@ -11,6 +11,7 @@ import { teamSlug, type ModelGrade, type TeamModelRecord, type TeamProfile } fro
 import { isPickTier, type Market, type MarketSource, type PickTier } from "./labels";
 import { wilsonCi, SMALL_SAMPLE_N } from "./stats";
 import { newCoachLock, type NewCoachLock } from "./coach";
+import { parseVerdict } from "./verdict";
 
 export type Loaded<T> =
   | { state: "live"; data: T }
@@ -80,6 +81,15 @@ function toSlateGame(r: Row): SlateGame {
     skip_reasons_total: strArr(r.skip_reasons_total),
     skip_reason_spread: textOrNull(r.skip_reason_spread),
     skip_reason_total: textOrNull(r.skip_reason_total),
+    // Stored verdict/edge/lean columns: present once live, null on older rows. Never computed here.
+    edge_now_pct_spread: num(r.edge_now_pct_spread),
+    edge_vs_open_pct_spread: num(r.edge_vs_open_pct_spread),
+    edge_now_pct_total: num(r.edge_now_pct_total),
+    edge_vs_open_pct_total: num(r.edge_vs_open_pct_total),
+    verdict_spread: parseVerdict(r.verdict_spread),
+    verdict_total: parseVerdict(r.verdict_total),
+    lean_spread: r.lean_spread == null ? null : r.lean_spread === true,
+    lean_total: r.lean_total == null ? null : r.lean_total === true,
   };
 }
 
@@ -589,7 +599,7 @@ export type TeamPageData = {
   profile: TeamProfile | null;
   record: TeamModelRecord | null;
   grades: ModelGrade[];
-  next: (SlateGame & { edgePct: number | null; edgeMarket: "spread" | "total" | null }) | null;
+  next: (SlateGame & { officialBets: ValueBet[] }) | null;
   tags: ArchetypeTag[];
 };
 
@@ -730,16 +740,15 @@ export async function loadTeam(sport: Sport, slug: string): Promise<Loaded<TeamP
   const nextRow = (nx.data ?? []).find((r) => str(r.home) === teamName || str(r.away) === teamName);
   if (nextRow) {
     const g = toSlateGame(nextRow as Row);
-    const total = g.market_total ?? g.proj_total;
-    const spreadE = computedLineEdge(g.proj_spread, g.market_spread, total);
-    const totalE = computedLineEdge(g.proj_total, g.market_total, g.market_total ?? total);
-    let edgePct: number | null = null;
-    let edgeMarket: "spread" | "total" | null = null;
-    if (spreadE != null || totalE != null) {
-      if ((spreadE ?? -1) >= (totalE ?? -1)) { edgePct = spreadE; edgeMarket = "spread"; }
-      else { edgePct = totalE; edgeMarket = "total"; }
-    }
-    next = { ...g, edgePct, edgeMarket };
+    let officialBets: ValueBet[] = [];
+    try {
+      const b = await sb.from("value_bets").select("*").eq("sport", sport.key).eq("game_id", g.game_id);
+      if (!b.error) {
+        officialBets = (await mergeOfficialLocked(sb, sport, [g.game_id], (b.data ?? []).map((r) => toValueBet(r as Row))))
+          .filter((x) => x.pick_tier === "official");
+      }
+    } catch { /* team page still renders without official rows */ }
+    next = { ...g, officialBets };
   }
 
   return { state: "live", data: { profile, record, grades, next, tags } };

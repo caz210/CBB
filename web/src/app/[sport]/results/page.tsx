@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { getSport } from "@/lib/sports";
 import { RANGES, loadResults, rowUnits, type RangeKey } from "@/lib/data";
 import type { LedgerRow } from "@/lib/types";
-import { LOCKED_NOTE, MARKET_LABEL, PICK_TIER_LABEL, RESULT_LABEL, fmtClv, fmtGameDate, fmtOdds, fmtPostedProof, fmtUnits, pct, shortHash, signedPct, type PickTier } from "@/lib/labels";
+import { LOCKED_NOTE, MARKET_LABEL, PICK_TIER_LABEL, RESULT_LABEL, fmtClv, fmtGameDate, fmtOdds, fmtPostedStamp, fmtUnits, pct, shortHash, signedPct, type PickTier } from "@/lib/labels";
 import { SMALL_SAMPLE_N } from "@/lib/stats";
 import { ComingSoon } from "@/components/ComingSoon";
 import { EmptyState } from "@/components/EmptyState";
@@ -293,13 +293,13 @@ function stakeLabel(r: LedgerRow) {
   if (r.pick_tier === "track") return "1u flat";
   return r.stake_units == null ? "—" : `${r.stake_units.toFixed(2)}u`;
 }
-function Proof({ r, tipoff, inline }: { r: LedgerRow; tipoff?: string; inline?: boolean }) {
-  const posted = fmtPostedProof(r.logged_at ?? r.created_at, tipoff);
+function Proof({ r, inline }: { r: LedgerRow; tipoff?: string; inline?: boolean }) {
+  const posted = fmtPostedStamp(r.logged_at ?? r.created_at);
   const h = shortHash(r.pick_hash);
   if (!posted && !h) return null;
   return (
     <div className={`${inline ? "mt-0.5" : "mt-2 border-t border-ink-700/50 pt-2"} flex flex-wrap items-center gap-x-2 text-[11px] text-zinc-500`}>
-      {posted && <span>🔒 {posted}</span>}
+      {posted && <span>{posted}</span>}
       {h && <span className="font-mono text-zinc-600" title={r.pick_hash ?? undefined}>#{h}</span>}
     </div>
   );
