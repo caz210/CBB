@@ -59,7 +59,13 @@ export function AuthForm({ mode }: { mode: Mode }) {
         {isSignup ? (
           <label className="flex items-start gap-2 text-xs text-zinc-400">
             <input type="checkbox" required className="mt-0.5 accent-orange-500" />
-            I&apos;m 21+ and agree to the Terms. Projections are informational, not betting advice.
+            <span>
+              I&apos;m 21+ and agree to the{" "}
+              <Link href="/terms" className="font-semibold text-court-400 hover:underline">Terms</Link>
+              {" "}and{" "}
+              <Link href="/privacy" className="font-semibold text-court-400 hover:underline">Privacy Policy</Link>.
+              Projections are informational, not betting advice.
+            </span>
           </label>
         ) : (
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
