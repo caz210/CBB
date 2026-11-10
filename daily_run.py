@@ -610,6 +610,18 @@ def coach_hold_reason(x: dict) -> str:
     return f"Paused until game {x['lock_n']} (new coach, {played} played)"
 
 
+def coach_hold_reasons(locks: list[dict]) -> list[str]:
+    """One skip reason for the still-held new-coach teams in a game (never duplicated)."""
+    held = [x for x in locks if x.get("locked")]
+    if not held:
+        return []
+    if len(held) == 1:
+        return [coach_hold_reason(held[0])]
+    # Both teams paused: show once. If hold lengths differ, use the later 'until game' value.
+    n = max(int(x["lock_n"]) for x in held)
+    return [f"Paused until game {n} (new coach, both teams)"]
+
+
 def is_coach_hold_reason(r: str) -> bool:
     return isinstance(r, str) and r.startswith("Paused until game") and "new coach" in r
 
@@ -721,9 +733,7 @@ def candidates(games, now) -> list[dict]:
             why.append(f"spread moved {ma:g} pts against our side since open (market disagrees)")
         locks = coach_locks(c["g"], market=c["market"])
         c["coach_tag"] = coach_tag(c["g"], c["market"])
-        for x in locks:
-            if x["locked"]:
-                why.append(coach_hold_reason(x))
+        why.extend(coach_hold_reasons(locks))
         c["reasons"] = why
         c["rule_ok"] = not why
         # SHADOW 'track' tier: sides whose ONLY failing rule is the vs-current bar, with >= TRACK_SIDE_CUR_THR left
