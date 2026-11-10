@@ -263,6 +263,11 @@ def sync_finals(lookback: int = DEFAULT_LOOKBACK, day: date | None = None, *,
 
 
 def main(argv: list[str] | None = None) -> int:
+    try:                       # same .env daily_run uses (the CLI failed with KeyError: SUPABASE_URL without it)
+        from dotenv import load_dotenv
+        load_dotenv()
+    except Exception:
+        pass
     ap = argparse.ArgumentParser(description="Sync ESPN final scores into Supabase games.status / scores")
     ap.add_argument("--date", metavar="YYYY-MM-DD",
                     help="End date in America/Chicago (default: today). Alone, syncs only this date.")

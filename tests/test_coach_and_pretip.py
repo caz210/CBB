@@ -103,6 +103,7 @@ def test_pretip_main_annotates_only_open_unstarted(monkeypatch, tmp_path, capsys
     monkeypatch.setattr(dr, "LEDGER_DIR", str(tmp_path))
     monkeypatch.setattr(dr, "now_ct", _now)
     monkeypatch.setattr(dr, "espn_dk_lines", lambda e: {"current_total": 166.0})
+    monkeypatch.setattr(dr, "espn_scoreboard", lambda d: [])          # no other games tipping soon
     pc.main(["--dry-run"])
     out = capsys.readouterr().out
     assert "1 of 1 open plays flagged" in out and "A @ H: Under 162.5" in out and "3.5 against" in out

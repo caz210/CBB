@@ -5,6 +5,8 @@ for, and only within the daily_run budget in data/ledger/odds_api_usage.json) fo
 that has not tipped yet, and reports a play when
   * its line moved >= --move pts AGAINST us since the pick (negative CLV so far), or
   * its edge% vs the current line dropped below the rule threshold (or flipped sides).
+It also reports BIG MOVES (DK total moved >= 4 pts or spread >= 3 pts open -> now, either direction)
+on ANY game tipping within --big-within minutes (default 90), not only our plays — info only.
 Prints a short text summary; prints NOTHING when there is nothing to flag (exit 0 either way).
 It never changes prices, stakes or graded results: the only ledger write is the 'pretip_flag' column
 of open, not-yet-started plays (skipped with --dry-run).
@@ -13,6 +15,7 @@ of open, not-yet-started plays (skipped with --dry-run).
     python pretip_check.py --dry-run       # report only, no ledger write, no Odds API call
     options: --date YYYY-MM-DD  --within MIN (only games tipping in the next MIN minutes)
              --move PTS (default 2)  --no-odds-api  -v (progress to stderr)
+             --big-within MIN (default 90; 0 = no big-move section)
 """
 from __future__ import annotations
 
@@ -25,6 +28,57 @@ import pandas as pd
 import daily_run as dr
 
 MOVE_PTS = 2.0
+BIG_WITHIN_MIN = 90
+
+
+def _snapshot(today: str) -> dict:
+    """event_id -> latest daily_run snapshot row (CZarp numbers + KenPom names) for today."""
+    import glob
+    import os
+    files = sorted(glob.glob(os.path.join(dr.SNAP_DIR, f"{today}_*.csv")))
+    if not files:
+        return {}
+    try:
+        df = pd.read_csv(files[-1], dtype={"event_id": str})
+    except Exception:
+        return {}
+    out = {}
+    for r in df.to_dict("records"):
+        out[str(r["event_id"])] = {k: (None if (not isinstance(v, str) and pd.isna(v)) else v) for k, v in r.items()}
+    return out
+
+
+def big_moves_soon(today: str, now, within: float, led: pd.DataFrame, log=lambda m: None,
+                   scoreboard=None, lines=None) -> list[dict]:
+    """BIG MOVES on any not-started game tipping within `within` minutes (fresh DK lines)."""
+    from czarp import big_moves as BM
+    from datetime import date
+    scoreboard = scoreboard or dr.espn_scoreboard
+    lines = lines or dr.espn_dk_lines
+    utc_now = now.astimezone(dr.timezone.utc)
+    games = [g for g in scoreboard(date.fromisoformat(today))
+             if g.get("state") == "pre" and utc_now < g["tip_utc"] <= utc_now + timedelta(minutes=within)]
+    if not games:
+        return []
+    snap, ctx = _snapshot(today), BM.load_context(today)
+    reasons = ctx.get("reasons", {})
+    off = led[(led.tier != "track") & (led.status != "void")] if len(led) else led
+    played = set(off.pick_id.astype(str)) if len(off) else set()
+    out = []
+    for g in games:
+        s = snap.get(str(g["event_id"]), {})
+        g = {**g, **{k: s.get(k) for k in ("kp_home", "kp_away", "v1_total", "v2_total", "v2_home_margin") if s.get(k) is not None}}
+        g.update({k: v for k, v in (lines(str(g["event_id"])) or {}).items() if v is not None})
+        for m in ("total", "spread"):
+            pid = f"{g['event_id']}-{m}"
+            r = BM.build_row(g, m, None, official=pid in played)
+            if r is None:
+                continue
+            if not r["official_pick"] and reasons.get(pid):
+                r["skip_reason"] = reasons[pid]
+            out.append(r)
+    log(f"  big moves tipping within {within:g} min: {len(out)}")
+    return out
 
 
 def side_line(row, ln: dict):
@@ -88,6 +142,8 @@ def main(argv=None) -> int:
     ap.add_argument("--within", type=float, default=None, help="only games tipping within this many minutes")
     ap.add_argument("--move", type=float, default=MOVE_PTS, help=f"flag a move >= this many pts against us (default {MOVE_PTS:g})")
     ap.add_argument("--no-odds-api", action="store_true")
+    ap.add_argument("--big-within", type=float, default=BIG_WITHIN_MIN,
+                    help=f"report big moves on any game tipping within this many minutes (default {BIG_WITHIN_MIN}; 0 = off)")
     ap.add_argument("-v", "--verbose", action="store_true")
     a = ap.parse_args(argv)
     log = (lambda m: print(m, file=sys.stderr, flush=True)) if a.verbose else (lambda m: None)
@@ -102,6 +158,17 @@ def main(argv=None) -> int:
         m &= tips <= naive_now + timedelta(minutes=a.within)
     todo = led[m]
     log(f"pretip_check {today} {now:%H:%M} CT: {len(todo)} open plays not started")
+    big = []
+    if a.big_within and a.big_within > 0:
+        try:
+            big = big_moves_soon(today, now, a.big_within, led, log=log)
+        except Exception as e:
+            log(f"  big-move check failed ({type(e).__name__}: {e})")
+    if big:
+        from czarp import big_moves as BM
+        print(f"Big moves {today} {now:%H:%M} CT — games tipping within {a.big_within:g} min (info only, not plays):")
+        for ln in BM.pretip_lines(big):
+            print(ln)
     if todo.empty:
         return 0
     lines, missing = {}, []
