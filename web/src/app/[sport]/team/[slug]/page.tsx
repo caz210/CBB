@@ -10,6 +10,8 @@ import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
 import { ArchetypeChip } from "@/components/ArchetypeChip";
 import { TermLabel } from "@/components/InfoTip";
+import { NewCoachBadge, whyNotPlayCopy } from "@/components/NewCoachBadge";
+import { newCoachLock } from "@/lib/coach";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +32,7 @@ export default async function TeamPage({ params }: { params: Promise<{ sport: st
         title={res.state === "live" && res.data ? (res.data.profile?.team_name ?? res.data.record?.team_name ?? decodeSlug(slug)) : decodeSlug(slug)}
         sub={
           res.state === "live" && res.data?.profile
-            ? `${res.data.profile.season - 1}–${String(res.data.profile.season).slice(2)} · ${res.data.profile.games_played ?? "—"} GP${res.data.profile.tentative ? " · tentative" : ""}${res.data.profile.new_coach ? " · new coach" : ""}`
+            ? `${res.data.profile.season - 1}–${String(res.data.profile.season).slice(2)} · ${res.data.profile.games_played ?? "—"} GP${res.data.profile.tentative ? " · tentative" : ""}`
             : "Profile, CZarp record, and game log."
         }
         right={
@@ -59,9 +61,13 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
   const p = data.profile;
   const r = data.record;
   const next = data.next;
+  const coach = p ? newCoachLock(p.team_name, p) : null;
+  const nextWhy = whyNotPlayCopy(next ? { ...next, coachLocks: coach ? [coach] : next.coachLocks } : { coachLocks: coach ? [coach] : [] }, []);
 
   return (
     <div className="mt-4 space-y-4 md:mt-6 md:space-y-6">
+      {coach && <NewCoachBadge lock={coach} />}
+
       {/* Tags */}
       {data.tags.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
@@ -91,6 +97,9 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
                 <div className="mt-2 inline-block rounded-md border border-amber-400/40 bg-amber-400/10 px-2 py-1 text-[11px] text-amber-200">
                   Upset alert{next.upset_reason ? `: ${next.upset_reason}` : ""}
                 </div>
+              )}
+              {nextWhy.length > 0 && (
+                <p className="mt-2 text-[11px] text-zinc-400"><span className="font-semibold text-zinc-500">Why not a play: </span>{nextWhy.join(" ")}</p>
               )}
             </div>
             <div className="text-right">

@@ -10,6 +10,7 @@ import { parseTagList, type ArchetypeTag } from "./archetypes";
 import { teamSlug, type ModelGrade, type TeamModelRecord, type TeamProfile } from "./teams";
 import { isPickTier, type Market, type MarketSource, type PickTier } from "./labels";
 import { wilsonCi, SMALL_SAMPLE_N } from "./stats";
+import { newCoachLock, type NewCoachLock } from "./coach";
 
 export type Loaded<T> =
   | { state: "live"; data: T }
@@ -21,6 +22,8 @@ type Row = Record<string, unknown>;
 const num = (v: unknown): number | null => (v == null || v === "" ? null : Number.isFinite(Number(v)) ? Number(v) : null);
 const str = (v: unknown): string => (v == null ? "" : String(v));
 const strs = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x) => typeof x === "string") : []);
+const strArr = (v: unknown): string[] | null => (v == null ? null : Array.isArray(v) ? v.map((x) => String(x)).filter(Boolean) : null);
+const textOrNull = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
 
 /** YYYY-MM-DD in America/Chicago (game dates are stored as CT local dates). */
 export function todayCT(now = new Date()) {
@@ -70,27 +73,83 @@ function toSlateGame(r: Row): SlateGame {
     proj_possessions: num(r.proj_possessions),
     upset_alert: r.upset_alert === true,
     upset_reason: typeof r.upset_reason === "string" && r.upset_reason.trim() ? r.upset_reason.trim() : null,
+    skip_reasons_spread: strArr(r.skip_reasons_spread),
+    skip_reasons_total: strArr(r.skip_reasons_total),
+    skip_reason_spread: textOrNull(r.skip_reason_spread),
+    skip_reason_total: textOrNull(r.skip_reason_total),
   };
 }
 
 function toValueBet(r: Row): ValueBet {
+  const fair = num(r.fair_at_post);
+  const line = num(r.line_at_post) ?? num(r.line_or_price) ?? num(r.posted_line);
+  const edge = num(r.edge_at_post_pct) ?? num(r.edge) ?? num(r.line_edge_pct);
+  const postedAt = r.posted_at ? str(r.posted_at) : r.logged_at ? str(r.logged_at) : null;
   return {
     sport: str(r.sport) as ValueBet["sport"],
     game_id: Number(r.game_id),
     market: str(r.market) as Market,
-    side: str(r.side),
+    side: str(r.side || r.bet),
     model_prob: num(r.model_prob),
     market_prob: num(r.market_prob) ?? 0,
     prob_edge: num(r.prob_edge) ?? 0,
-    line_edge_pct: num(r.line_edge_pct) ?? 0,
+    line_edge_pct: edge ?? 0,
     kelly_quarter_units: num(r.kelly_quarter_units),
     pick_tier: isPickTier(r.tier) ? r.tier : "official",
-    logged_at: r.logged_at ? str(r.logged_at) : null,
-    model_version: r.model_version ? str(r.model_version) : null,
-    posted_line: num(r.line_or_price) ?? num(r.posted_line),
+    logged_at: postedAt,
+    model_version: r.model_name ? str(r.model_name) : r.model_version ? str(r.model_version) : null,
+    posted_line: line,
     posted_odds: num(r.price) ?? num(r.posted_odds),
     pick_hash: r.pick_hash ? str(r.pick_hash) : null,
+    pick_id: r.pick_id ? str(r.pick_id) : null,
+    fair_at_post: fair,
+    line_at_post: line,
+    total_at_post: num(r.total_at_post),
+    open_line: num(r.open_line),
+    edge_at_post_pct: edge,
+    edge_vs_open_pct: num(r.edge_vs_open_pct),
+    posted_at: postedAt,
   };
+}
+
+function applyLocked(v: ValueBet, r: Row) {
+  if (r.pick_id) v.pick_id = str(r.pick_id);
+  if (r.model_name) v.model_version = str(r.model_name);
+  v.fair_at_post = num(r.fair_at_post);
+  v.line_at_post = num(r.line_at_post) ?? v.line_at_post;
+  v.total_at_post = num(r.total_at_post);
+  v.open_line = num(r.open_line);
+  v.edge_at_post_pct = num(r.edge_at_post_pct) ?? v.edge_at_post_pct;
+  v.edge_vs_open_pct = num(r.edge_vs_open_pct);
+  if (num(r.line_at_post) != null) v.posted_line = num(r.line_at_post);
+  if (num(r.price) != null) v.posted_odds = num(r.price);
+  if (r.posted_at) {
+    v.posted_at = str(r.posted_at);
+    if (!v.logged_at) v.logged_at = str(r.posted_at);
+  }
+  if (isPickTier(r.tier)) v.pick_tier = r.tier;
+  if (num(r.edge_at_post_pct) != null) v.line_edge_pct = num(r.edge_at_post_pct)!;
+}
+
+function lockedMatches(r: Row, v: ValueBet) {
+  if (r.pick_id && v.pick_id && str(r.pick_id) === v.pick_id) return true;
+  if (v.game_id !== Number(r.game_id) || v.market !== str(r.market)) return false;
+  const bet = str(r.bet), side = str(r.side);
+  return v.side === bet || v.side === side || (side && v.side.startsWith(side + " "));
+}
+
+async function mergeOfficialLocked(sb: SB, sport: Sport, ids: number[], all: ValueBet[]) {
+  const lk = await sb.from("official_picks_locked").select("*").in("game_id", ids);
+  if (lk.error) {
+    console.error(`[supabase] official_picks_locked: ${lk.error.code ?? ""} ${lk.error.message}`);
+    return all;
+  }
+  for (const r of (lk.data ?? []) as Row[]) {
+    const hit = all.find((v) => lockedMatches(r, v));
+    if (hit) applyLocked(hit, r);
+    else all.push(toValueBet({ ...r, sport: sport.key, side: r.bet || r.side }));
+  }
+  return all;
 }
 
 function toLedgerRow(r: Row): LedgerRow {
@@ -151,26 +210,12 @@ export async function loadSlate(sport: Sport, date: string): Promise<Loaded<Slat
   if (games.length) {
     const b = await sb.from("value_bets").select("*").eq("sport", sport.key).in("game_id", games.map((x) => x.game_id));
     if (b.error) return fail("value_bets", b.error);
-    const all = (b.data ?? []).map(toValueBet);
     const ids = games.map((x) => x.game_id);
-    const pk = await sb.from("picks").select("game_id,market,bet,model_version,line_or_price,price,edge,pick_hash,tier").in("game_id", ids);
-    if (!pk.error) {
-      const key = (gid: number, mkt: string, side: string) => `${gid}|${mkt}|${side}`;
-      const extra = new Map<string, Row>();
-      for (const r of (pk.data ?? []) as Row[]) extra.set(key(Number(r.game_id), str(r.market), str(r.bet)), r);
-      for (const v of all) {
-        const r = extra.get(key(v.game_id, v.market, v.side));
-        if (!r) continue;
-        v.model_version = r.model_version ? str(r.model_version) : v.model_version;
-        v.posted_line = num(r.line_or_price);
-        v.posted_odds = num(r.price);
-        v.pick_hash = r.pick_hash ? str(r.pick_hash) : v.pick_hash;
-      }
-    }
+    const all = await mergeOfficialLocked(sb, sport, ids, (b.data ?? []).map(toValueBet));
     all.sort((a, z) => z.line_edge_pct - a.line_edge_pct);
     bets = all.filter((x) => x.pick_tier === "official");
     const [st, gr, pr, ml] = await Promise.all([
-      sb.from("games").select("id,status,updated_at").in("id", ids),
+      sb.from("games").select("id,status,updated_at,home,away,home_team_id,away_team_id").in("id", ids),
       sb.from("ledger").select("game_id,result").in("game_id", ids).not("result", "is", null),
       sb.from("projections").select("game_id,model_version,spread,total,created_at").in("game_id", ids).order("created_at", { ascending: false }),
       sb.from("market_lines").select("game_id,fetched_at").in("game_id", ids).eq("source", "vegas"),
@@ -187,6 +232,7 @@ export async function loadSlate(sport: Sport, date: string): Promise<Loaded<Slat
     for (const r of ml.data ?? []) bump(r.fetched_at);
     if (stamps.length) updatedAt = new Date(Math.max(...stamps)).toISOString();
     attachRawEdges(games, (pr.data ?? []) as Row[]);
+    await attachNewCoaches(sb, games, st.data ?? []);
     const ins = await loadInsights(sb, ids);
     for (const x of games) x.insight = ins.get(x.game_id);
     tracked = all.filter((x) => x.pick_tier === "track");
@@ -244,6 +290,58 @@ function attachRawEdges(games: SlateGame[], projRows: Row[]) {
     g.rawEdge = best?.pct ?? null;
     g.rawEdgeMarket = best?.market ?? null;
     g.rawEdgeModel = best ? modelLabel(best.model) : null;
+  }
+}
+
+
+async function attachNewCoaches(sb: SB, games: SlateGame[], gameRows: Row[]) {
+  const idByGame = new Map<number, { home?: number | null; away?: number | null; homeName?: string; awayName?: string }>();
+  for (const r of gameRows) {
+    idByGame.set(Number(r.id), { home: num(r.home_team_id), away: num(r.away_team_id), homeName: str(r.home), awayName: str(r.away) });
+  }
+  const tids = new Set<number>();
+  const names = new Set<string>();
+  for (const g of games) {
+    const ids = idByGame.get(g.game_id);
+    if (ids?.home) tids.add(ids.home);
+    else names.add(g.home);
+    if (ids?.away) tids.add(ids.away);
+    else names.add(g.away);
+  }
+  const profiles: Row[] = [];
+  try {
+    if (tids.size) {
+      const q = await sb.from("team_profile_latest").select("team_id,team_name,new_coach,new_coach_games,games_played,lock_sides_games,lock_totals_games,lock_sides_remaining,lock_totals_remaining").in("team_id", [...tids]);
+      if (!q.error) profiles.push(...((q.data ?? []) as Row[]));
+    }
+    if (names.size) {
+      const q = await sb.from("team_profile_latest").select("team_id,team_name,new_coach,new_coach_games,games_played,lock_sides_games,lock_totals_games,lock_sides_remaining,lock_totals_remaining").in("team_name", [...names]);
+      if (!q.error) profiles.push(...((q.data ?? []) as Row[]));
+    }
+  } catch { /* badges just stay hidden */ }
+  const byId = new Map<number, Row>();
+  const byName = new Map<string, Row>();
+  for (const r of profiles) {
+    byId.set(Number(r.team_id), r);
+    byName.set(str(r.team_name).toLowerCase(), r);
+  }
+  const lockFor = (name: string, tid?: number | null): NewCoachLock | null => {
+    const r = (tid != null ? byId.get(tid) : null) ?? byName.get(name.toLowerCase());
+    if (!r) return null;
+    return newCoachLock(str(r.team_name) || name, {
+      new_coach: r.new_coach === true,
+      new_coach_games: num(r.new_coach_games),
+      games_played: num(r.games_played),
+      lock_sides_games: num(r.lock_sides_games),
+      lock_totals_games: num(r.lock_totals_games),
+      lock_sides_remaining: num(r.lock_sides_remaining),
+      lock_totals_remaining: num(r.lock_totals_remaining),
+    });
+  };
+  for (const g of games) {
+    const ids = idByGame.get(g.game_id);
+    const locks = [lockFor(g.away, ids?.away), lockFor(g.home, ids?.home)].filter((x): x is NewCoachLock => x != null);
+    g.coachLocks = locks;
   }
 }
 
@@ -478,6 +576,10 @@ function toProfile(r: Row): TeamProfile {
     tentative: r.tentative === true,
     new_coach: r.new_coach === true,
     new_coach_games: num(r.new_coach_games),
+    lock_sides_games: num(r.lock_sides_games),
+    lock_totals_games: num(r.lock_totals_games),
+    lock_sides_remaining: num(r.lock_sides_remaining),
+    lock_totals_remaining: num(r.lock_totals_remaining),
     efg_pctile: num(r.efg_pctile),
     d_efg_pctile: num(r.d_efg_pctile),
     to_pct_pctile: num(r.to_pct_pctile),

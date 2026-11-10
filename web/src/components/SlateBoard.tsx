@@ -10,6 +10,9 @@ import { teamHref } from "@/lib/teams";
 import Link from "next/link";
 import { ArchetypeChip, ArchetypeLegend } from "./ArchetypeChip";
 import { TermLabel } from "./InfoTip";
+import { NewCoachBadges, whyNotPlayCopy } from "./NewCoachBadge";
+import { evPer100, fmtEv100 } from "@/lib/stats";
+import { betCoverProb, postedVsNow } from "@/lib/posted";
 
 type Sel = { game: SlateGame; bet: ValueBet } | null;
 
@@ -115,6 +118,11 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
                         {g?.game ?? `Game #${b.game_id}`} · {MARKET_LABEL[b.market]}{model ? ` · ${model}` : ""}
                         {proof ? ` · 🔒 ${proof}` : ""}
                       </span>
+                      {g && postedVsNow(b, g) && (
+                        <span className="block font-mono text-[11px] text-zinc-400">
+                          {postedVsNow(b, g)}
+                        </span>
+                      )}
                     </span>
                     <span className="font-mono text-lg font-black text-edge-400">{pct(b.line_edge_pct, 1)}</span>
                     <span className="font-mono text-xs text-zinc-500">{b.kelly_quarter_units == null ? "—" : `${b.kelly_quarter_units.toFixed(2)}u`}</span>
@@ -276,6 +284,13 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
         ))}
       </div>
 
+      {((g.coachLocks && g.coachLocks.length > 0) || whyNotPlayCopy(g, bets.map((b) => b.market)).length > 0) && (
+        <div className="space-y-1.5 border-t border-ink-700/40 px-4 py-2" onClick={(e) => e.stopPropagation()}>
+          <NewCoachBadges locks={g.coachLocks} />
+          <WhyNot lines={whyNotPlayCopy(g, bets.map((b) => b.market))} />
+        </div>
+      )}
+
       <div className="grid grid-cols-3 gap-px border-t border-ink-700/60 bg-ink-700/40 text-center">
         <MarketStat
           label="Spread"
@@ -324,6 +339,9 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-semibold">{b.side}</span>
                   <span className="block text-[11px] text-zinc-500">{MARKET_LABEL[b.market]} · edge {pct(b.line_edge_pct, 1)} <span className="text-zinc-600">· prob {signedPct(b.prob_edge)}</span></span>
+                  {postedVsNow(b, g) && (
+                    <span className="block font-mono text-[11px] text-zinc-400">{postedVsNow(b, g)}</span>
+                  )}
                   {b.logged_at && <span className="block text-[10px] text-zinc-600">🔒 {fmtPostedProof(b.logged_at, g.tipoff)}</span>}
                 </span>
                 <span className="text-right">
@@ -376,6 +394,8 @@ function ValueSheet({ sel, onClose }: { sel: Sel; onClose: () => void }) {
   if (!sel) return null;
   const { game: g, bet: b } = sel;
   const tier = edgeTier(b.line_edge_pct, b.market);
+  const ev = evPer100(b.model_prob, b.posted_odds);
+  const evOdds = b.posted_odds == null || !Number.isFinite(b.posted_odds) || b.posted_odds === 0 ? null : b.posted_odds;
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center" role="dialog" aria-modal="true">
       <button aria-label="Close" onClick={onClose} className="absolute inset-0 bg-black/70" />
@@ -393,6 +413,9 @@ function ValueSheet({ sel, onClose }: { sel: Sel; onClose: () => void }) {
             <TermLabel term="edge">Edge</TermLabel>
           </div>
           <div className={`font-mono text-5xl font-black ${tier ? "text-edge-400" : "text-zinc-500"}`}>{pct(b.line_edge_pct, 1)}</div>
+          {postedVsNow(b, g) && (
+            <p className="mt-1 font-mono text-xs text-zinc-400">{postedVsNow(b, g)}</p>
+          )}
           <p className="mt-1 text-[11px] text-zinc-500">Buy at value. Judge over hundreds of bets — not tonight.</p>
         </div>
 
@@ -401,6 +424,7 @@ function ValueSheet({ sel, onClose }: { sel: Sel; onClose: () => void }) {
           <Big label="Market prob" v={pct(b.market_prob, 1)} sub="implied, incl. vig" />
           <Big label={<TermLabel term="edge">Edge</TermLabel>} v={pct(b.line_edge_pct, 1)} sub="vs price" accent />
           <Big label="Prob edge" v={signedPct(b.prob_edge)} sub="secondary" />
+          <Big label="EV / $100" v={ev == null ? "—" : fmtEv100(ev)} sub={evOdds == null ? "at −110" : `at ${evOdds > 0 ? "+" : ""}${evOdds}`} />
         </div>
 
         <div className="mt-3 flex items-center justify-between rounded-2xl border border-edge-400/30 bg-edge-400/10 p-4">
@@ -466,6 +490,9 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
             {hasEdge ? pct(edge.pct, 1) : "—"}
           </div>
         </div>
+        <SheetSecondary g={g} bets={bets} />
+        {g.coachLocks && g.coachLocks.length > 0 && <div className="mt-3"><NewCoachBadges locks={g.coachLocks} /></div>}
+        <WhyNot className="mt-2" lines={whyNotPlayCopy(g, bets.map((b) => b.market))} />
 
         <div className="mt-4 grid grid-cols-2 gap-2">
           <Big label={`${g.away} proj`} v={pa == null ? "—" : pa.toFixed(1)} />
@@ -522,7 +549,12 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
               return (
                 <div key={`${b.market}-${b.side}`} className="flex items-center gap-2 rounded-xl border border-edge-400/30 px-3 py-2 text-sm">
                   {tier && <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${TIER_BADGE[tier]}`}>{tier}</span>}
-                  <span className="min-w-0 flex-1 truncate font-semibold">{b.side}</span>
+                  <span className="min-w-0 flex-1 truncate">
+                    <span className="block font-semibold">{b.side}</span>
+                    {postedVsNow(b, g) && (
+                      <span className="block font-mono text-[11px] font-normal text-zinc-400">{postedVsNow(b, g)}</span>
+                    )}
+                  </span>
                   <span className={`font-mono text-base font-black ${tier ? "text-edge-400" : "text-zinc-500"}`}>{pct(b.line_edge_pct, 1)}</span>
                   <span className="font-mono text-xs text-zinc-400">{b.kelly_quarter_units == null ? "—" : `${b.kelly_quarter_units.toFixed(2)}u`}</span>
                 </div>
@@ -532,6 +564,30 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
         )}
         <button onClick={onClose} className="mt-4 min-h-12 w-full rounded-xl border border-ink-600 font-semibold hover:bg-ink-800">Done</button>
       </div>
+    </div>
+  );
+}
+
+function WhyNot({ lines, className = "" }: { lines: string[]; className?: string }) {
+  if (!lines.length) return null;
+  return (
+    <div className={`text-[11px] leading-snug text-zinc-400 ${className}`}>
+      <span className="font-semibold text-zinc-500">Why not a play: </span>
+      {lines.join(" ")}
+    </div>
+  );
+}
+
+function SheetSecondary({ g, bets }: { g: import("@/lib/types").SlateGame; bets: import("@/lib/types").ValueBet[] }) {
+  const edge = headlineEdge(g, bets);
+  const cover = betCoverProb(g, edge.fromBet, edge.market ?? edge.fromBet?.market ?? null);
+  const odds = edge.fromBet?.posted_odds;
+  const ev = evPer100(cover, odds);
+  const usedDefault = odds == null || !Number.isFinite(odds) || odds === 0;
+  return (
+    <div className="mt-2 grid grid-cols-2 gap-2">
+      <Big label="Cover probability" v={cover == null ? "—" : pct(cover)} sub={edge.fromBet ? edge.fromBet.side : edge.market ? MARKET_LABEL[edge.market] : undefined} />
+      <Big label="EV / $100" v={ev == null ? "—" : fmtEv100(ev)} sub={usedDefault ? "at −110" : `at ${odds! > 0 ? "+" : ""}${odds}`} />
     </div>
   );
 }

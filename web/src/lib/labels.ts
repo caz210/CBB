@@ -91,3 +91,33 @@ export function fmtPostedProof(loggedAt: string | null | undefined, tipoff: stri
 export const shortHash = (h: string | null | undefined) => (h ? h.slice(0, 8) : null);
 export const fmtClv = (c: number) => `${c > 0 ? "+" : c < 0 ? "−" : ""}${Math.abs(c).toFixed(1)} pts`;
 export const LOCKED_NOTE = "Picks are locked once posted: they can't be edited or deleted.";
+
+const isFiniteNum = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
+/** Fractions → percent with up to 2 decimals (0.0173 → "1.73%", 0.08 → "8%"). */
+function fmtEdgePct(x: number) {
+  return `${(x * 100).toFixed(2).replace(/\.?0+$/, "")}%`;
+}
+
+/** "Posted 142.0 · 1.73% (line 144.5) → Now 144.5 · 3.73% vs open".
+ *  Hides any missing piece (never "NaN" or a placeholder dash in the chain).
+ *  edge_at_post_pct / edge_vs_open_pct are fractions (0.0173 = 1.73%). */
+export function fmtPostedVsNow(opts: {
+  fair?: number | null;
+  edge?: number | null;
+  line?: number | null;
+  now?: number | null;
+  vsOpen?: number | null;
+  market: Market;
+}): string | null {
+  const fmt = (n: number) => (opts.market === "total" ? n.toFixed(1) : fmtLine(n));
+  const parts: string[] = [];
+  if (isFiniteNum(opts.fair)) parts.push(`Posted ${fmt(opts.fair)}`);
+  if (isFiniteNum(opts.edge)) {
+    const e = fmtEdgePct(opts.edge);
+    parts.push(parts.length ? `· ${e}` : e);
+  }
+  if (isFiniteNum(opts.line)) parts.push(`(line ${fmt(opts.line)})`);
+  if (isFiniteNum(opts.now)) parts.push(`→ Now ${fmt(opts.now)}`);
+  if (isFiniteNum(opts.vsOpen)) parts.push(`· ${fmtEdgePct(opts.vsOpen)} vs open`);
+  return parts.length ? parts.join(" ") : null;
+}
