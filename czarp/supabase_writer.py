@@ -19,6 +19,10 @@ import requests
 SPORT, LEAGUE = "cbb", "ncaam"
 V1_VERSION = "czarp-v1-totals"
 DEFAULT_VERSION = "czarp-v2"      # model shown on the public slate (model_configs.is_default)
+PROJ_KEY = "game_id,model_version,created_at"   # projections unique key (db/schema.sql)
+LOCK_FIELDS = (("fair_at_post", "fair_at_post"), ("line_at_post", "line_at_post"),
+               ("total_at_post", "total_at_post"), ("open_line", "open_line"),
+               ("edge_vs_open", "edge_vs_open_pct"))   # picks column <- official_picks_locked column
 
 
 def _clean(v):
@@ -313,7 +317,9 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
                          "skip_reasons_total": g.get("skip_reasons_total") or [],
                          "skip_reason_total": g.get("skip_reason_total"),
                          "created_at": ts})
-    c.insert("projections", proj)
+    # Merge on the table's unique key so a re-run with the same stamp fills fields
+    # (reason, pace, upset, skip reasons) instead of silently keeping the old row.
+    c.upsert("projections", proj, on_conflict=PROJ_KEY, returning=False)
 
     # market lines: DK open + current; Kalshi board snapshot
     ml = []
@@ -397,6 +403,41 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
     if stale:
         log(f"  Supabase: {len(stale)} published picks are not in the local ledger (kept; picks are immutable): "
             + ", ".join(stale[:5]))
+    n_locks = 0
+    try:
+        n_locks = fill_pick_locks(c, log=log)
+    except Exception as e:
+        log(f"  pick lock fill skipped ({type(e).__name__}: {e})")
     return (f"{len(grows)} games, {len(proj)} projections, {len(ml)} market lines, {len(pk)} picks"
             + (f", {n_profiles} team_profiles" if n_profiles else "")
-            + (f", {len(stale)} published picks not in ledger" if stale else ""))
+            + (f", {len(stale)} published picks not in ledger" if stale else "")
+            + (f", {n_locks} picks lock-filled" if n_locks else ""))
+
+
+def fill_pick_locks(c: Client, log=print) -> int:
+    """Fill NULL post-time lock columns on published picks from the official_picks_locked view.
+
+    Only NULL columns are written (each PATCH is filtered on `col=is.null`), which is exactly what the
+    picks_immutable trigger allows; no hashed or pick fields are touched. The view reads the projection and
+    DK lines as of the pick's logged_at, so values reflect post time, not the latest run.
+    """
+    cols = ",".join(["pick_key"] + [col for col, _ in LOCK_FIELDS])
+    picks = c.get("picks", select=cols, league=f"eq.{LEAGUE}")
+    todo = {p["pick_key"]: p for p in picks if any(p.get(col) is None for col, _ in LOCK_FIELDS)}
+    if not todo:
+        return 0
+    vcols = ",".join(["pick_id"] + [v for _, v in LOCK_FIELDS])
+    locked = {r["pick_id"]: r for r in c.get("official_picks_locked", select=vcols)}
+    n = 0
+    for key, p in todo.items():
+        v = locked.get(key)
+        if not v:
+            continue
+        row = {col: v[vcol] for col, vcol in LOCK_FIELDS if p.get(col) is None and v.get(vcol) is not None}
+        for col, val in row.items():
+            # one column per PATCH, guarded by col IS NULL: never overwrites a stored lock
+            c.patch("picks", {col: val}, pick_key=f"eq.{key}", **{col: "is.null"})
+        n += bool(row)
+    if n:
+        log(f"  picks: filled post-time lock columns on {n} picks (NULL columns only)")
+    return n

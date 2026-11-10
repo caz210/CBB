@@ -160,3 +160,39 @@ def test_skip_codes_and_attach_reasons():
                coach_home={"team": "H", "games": 0, "lock_sides": None, "lock_totals": 4})
     dr.attach_skip_reasons([g3], now, 1000.0)
     assert "new_coach_lock" in g3["skip_reasons_total"]
+
+
+def test_resync_never_grades_logs_picks_or_writes_ledger(monkeypatch, tmp_path):
+    import daily_run as dr
+    import czarp.supabase_writer as sw
+    import czarp.sync_finals as sf
+    synced = {}
+
+    def boom(*a, **k):
+        raise AssertionError("must not run under --resync")
+
+    monkeypatch.setenv("SUPABASE_URL", "http://example.invalid")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "x")
+    monkeypatch.setattr(dr, "OUT_DIR", str(tmp_path))
+    monkeypatch.setattr(dr, "SNAP_DIR", str(tmp_path / "snap"))
+    monkeypatch.setattr(dr, "read_ledger", lambda: pd.DataFrame(columns=dr.LEDGER_COLS))
+    monkeypatch.setattr(dr, "grade", boom)
+    monkeypatch.setattr(dr, "flag_plays", boom)
+    monkeypatch.setattr(dr, "append_picks", boom)
+    monkeypatch.setattr(dr, "write_ledger", boom)
+    monkeypatch.setattr(dr, "espn_scoreboard", lambda d: [dict(event_id="1", game_date="2026-11-10", state="pre")])
+    monkeypatch.setattr(dr, "espn_dk_lines", lambda e: {})
+    monkeypatch.setattr(dr, "load_kenpom", lambda today, refresh: {"config": None})
+    monkeypatch.setattr(dr, "fanmatch_preds", lambda d: {})
+    monkeypatch.setattr(dr, "project_all", lambda games, data: None)
+    monkeypatch.setattr(dr, "tag_new_coaches", lambda games, today: {})
+    monkeypatch.setattr(dr, "odds_api_fallback", lambda *a, **k: 0)
+    monkeypatch.setattr(dr, "candidates", lambda games, now: [])
+    monkeypatch.setattr(dr, "attach_skip_reasons", lambda games, now, b: synced.setdefault("skips", True))
+    monkeypatch.setattr(dr, "PACE_FIX", False)
+    monkeypatch.setattr(sw, "sync", lambda games, ledger, cfg, now, **k: synced.setdefault("n", len(ledger)) and "ok")
+    monkeypatch.setattr(sf, "sync_finals", lambda **k: {"updated": 0, "matched": 0, "unmatched_espn": 0})
+    assert dr.main(["--resync", "--date", "2026-11-10", "--no-kalshi", "--no-refresh"]) == 0
+    assert synced.get("skips") and "n" in synced
+    assert (tmp_path / "2026-11-10.resync.md").exists()
+    assert not (tmp_path / "snap").exists() or not any((tmp_path / "snap").iterdir())

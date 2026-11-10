@@ -114,3 +114,65 @@ def test_official_picks_locked_sql_uses_pick_model_not_default():
     assert "lk.fair_at_post" in vb and "lk.total_at_post" in vb and "lk.model_name" in vb
     assert "lock_sides_games" in sql and "lock_totals_games" in sql
     assert "skip_reasons_spread" in sql and "skip_reason_total" in sql
+
+
+def test_projections_merge_upsert_on_unique_key():
+    """A re-run must fill reason/pace/upset/skip fields, not ignore the existing row."""
+    now = datetime(2026, 11, 10, 7, 15, tzinfo=dr.CENTRAL)
+    g = dict(event_id="5", game_date="2026-11-10", kp_home="H", kp_away="A", neutral=False, state="pre",
+             tip_utc=datetime(2026, 11, 11, 0, 0, tzinfo=timezone.utc), v2_home_margin=3.0, v2_total=140.0,
+             v1_total=141.0, current_home_spread=-2.5, current_total=145.5, reason="why", proj_possessions=70.04,
+             skip_reasons_total=["line_moved_against"], skip_reason_total="total moved 6 pts against our side")
+    seen = []
+
+    class C(FakeClient):
+        def upsert(self, table, rows, on_conflict=None, returning=True, ignore_duplicates=False):
+            if table == "projections":
+                seen.append((on_conflict, ignore_duplicates))
+            return super().upsert(table, rows, on_conflict, returning, ignore_duplicates)
+
+        def insert(self, table, rows):
+            assert table != "projections", "projections must not use ignore-duplicates insert"
+            super().insert(table, rows)
+
+    c = C()
+    sw.sync([g], pd.DataFrame(columns=dr.LEDGER_COLS), None, now, log=lambda *_: None, client=c)
+    assert seen == [(sw.PROJ_KEY, False)]
+    assert sw.PROJ_KEY == "game_id,model_version,created_at"
+    v2 = next(p for p in c.calls["projections"] if p["model_version"] == "czarp-v2")
+    assert v2["reason"] == "why" and v2["proj_possessions"] == 70.0
+    assert v2["skip_reasons_total"] == ["line_moved_against"]
+
+
+def test_fill_pick_locks_only_null_columns():
+    patches = []
+
+    class C:
+        def get(self, table, **params):
+            if table == "picks":
+                return [{"pick_key": "a", "fair_at_post": None, "line_at_post": None, "total_at_post": None,
+                         "open_line": None, "edge_vs_open": None},
+                        {"pick_key": "b", "fair_at_post": 150.0, "line_at_post": 151.5, "total_at_post": 151.5,
+                         "open_line": None, "edge_vs_open": 0.04},
+                        {"pick_key": "c", "fair_at_post": 1.0, "line_at_post": 2.0, "total_at_post": 3.0,
+                         "open_line": 4.0, "edge_vs_open": 0.05}]
+            if table == "official_picks_locked":
+                return [{"pick_id": "a", "fair_at_post": 142.0, "line_at_post": 144.5, "total_at_post": 144.5,
+                         "open_line": 147.5, "edge_vs_open_pct": 0.0373},
+                        {"pick_id": "b", "fair_at_post": 999.0, "line_at_post": 999.0, "total_at_post": 999.0,
+                         "open_line": 153.5, "edge_vs_open_pct": 0.9},
+                        {"pick_id": "c", "fair_at_post": 9.0, "line_at_post": 9.0, "total_at_post": 9.0,
+                         "open_line": 9.0, "edge_vs_open_pct": 0.9}]
+            return []
+
+        def patch(self, table, row, **params):
+            assert table == "picks"
+            (col,) = row
+            assert params[col] == "is.null"
+            patches.append((params["pick_key"], col, row[col]))
+
+    n = sw.fill_pick_locks(C(), log=lambda *_: None)
+    assert n == 2
+    assert ("eq.a", "edge_vs_open", 0.0373) in patches and ("eq.a", "fair_at_post", 142.0) in patches
+    assert [p for p in patches if p[0] == "eq.b"] == [("eq.b", "open_line", 153.5)]   # stored values never overwritten
+    assert not [p for p in patches if p[0] == "eq.c"]

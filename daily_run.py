@@ -1284,6 +1284,10 @@ def main(argv=None) -> int:
     ap.add_argument("--no-kalshi", action="store_true")
     ap.add_argument("--dry-run", action="store_true",
                     help="don't write ledger/snapshot/Supabase; report goes to outputs/daily/<date>.dryrun.md")
+    ap.add_argument("--resync", action="store_true",
+                    help="re-project today's slate and refresh Supabase (projections, skip reasons, team_profiles, "
+                         "finals, NULL pick locks) WITHOUT grading, logging new picks, or writing the ledger/snapshot; "
+                         "report goes to outputs/daily/<date>.resync.md")
     ap.add_argument("--exclude-line-moves", action="store_true",
                     help=f"exclude sides whose spread moved >= {LINE_MOVE_PTS:g} pts open->current (default: flag only)")
     ap.add_argument("--coach-lock-games", type=int, default=None,
@@ -1309,6 +1313,8 @@ def main(argv=None) -> int:
                     help="TRACK tier also logs NEW COACH-locked sides (default: same lock as official plays)")
     ap.add_argument("--config", help="model config JSON (feature list + weights); default czarp_config.json / built-in v2")
     a = ap.parse_args(argv)
+    if a.resync and a.dry_run:
+        ap.error("--resync and --dry-run are mutually exclusive")
     if a.config:
         os.environ["CZARP_CONFIG"] = a.config
     if a.exclude_line_moves:
@@ -1343,12 +1349,16 @@ def main(argv=None) -> int:
         log(f"  ⚠ LEDGER INTEGRITY: {'; '.join(bad[:5])}")
         notes.append(f"Ledger integrity check FAILED: {'; '.join(bad[:5])}")
     # (f) grade first so the bankroll is current
-    try:
-        gi = grade(ledger, now)
-        log(f"  graded {len(gi)} earlier plays")
-    except Exception as e:
-        log(f"  grading failed ({type(e).__name__}: {e})"); notes.append("Grading failed this run; it will retry next run.")
-        gi = []
+    gi = []
+    if a.resync:
+        log("  resync: no grading, no new picks, ledger untouched")
+    else:
+        try:
+            gi = grade(ledger, now)
+            log(f"  graded {len(gi)} earlier plays")
+        except Exception as e:
+            log(f"  grading failed ({type(e).__name__}: {e})"); notes.append("Grading failed this run; it will retry next run.")
+            gi = []
 
     # schedule
     try:
@@ -1409,11 +1419,11 @@ def main(argv=None) -> int:
         # snapshot of every projection + price (for later analysis)
         snap = pd.DataFrame([{k: v for k, v in g.items() if k not in ("tip_utc", "kalshi")} for g in games])
         snap["snapshot_ct"] = now.isoformat(timespec="seconds")
-        if not a.dry_run:
+        if not (a.dry_run or a.resync):
             snap.to_csv(os.path.join(SNAP_DIR, f"{today}_{now.strftime('%H%M')}.csv"), index=False)
         # (d) plays
         if data is not None:
-            new_rows = flag_plays(games, bankroll(ledger), board, now)
+            new_rows = [] if a.resync else flag_plays(games, bankroll(ledger), board, now)
             have = set(ledger.pick_id.astype(str))
             have_gm = {(str(e), m) for e, m in zip(ledger.event_id, ledger.market)}
             # one pick per game+market (any tier), first price kept
@@ -1440,7 +1450,7 @@ def main(argv=None) -> int:
     # (e) ledger
     if new_rows:
         ledger = append_picks(ledger, new_rows, now)
-    if not a.dry_run:
+    if not (a.dry_run or a.resync):
         write_ledger(ledger)
     # optional Supabase mirror (CSV ledger stays the source of truth)
     if not a.dry_run and os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_SERVICE_KEY"):
@@ -1468,7 +1478,8 @@ def main(argv=None) -> int:
             notes.append("Finals sync failed this run; scores will retry next run.")
     # (g) summary
     path = write_summary(today, now, games, new_rows, ledger, gi, notes, top,
-                         path=os.path.join(OUT_DIR, f"{today}.dryrun.md") if a.dry_run else None)
+                         path=os.path.join(OUT_DIR, f"{today}.dryrun.md") if a.dry_run
+                         else (os.path.join(OUT_DIR, f"{today}.resync.md") if a.resync else None))
     log(f"  summary → {path}; ledger → {LEDGER} ({len(ledger)} rows)")
     return 0
 
