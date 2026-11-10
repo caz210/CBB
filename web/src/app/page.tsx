@@ -5,8 +5,8 @@ import { EXAMPLE_SLATE, EXAMPLE_VALUE_BETS } from "@/lib/example-data";
 import { MARKET_LABEL, edgeTier, fmtLine, fmtTipoff, pct, signedPct, fmtUnits } from "@/lib/labels";
 import { SPORTS, getSport } from "@/lib/sports";
 import { loadHero, loadResults, type Hero } from "@/lib/data";
-import { RESULT_LABEL, fmtGameDate, fmtPostedProof, fmtPostedVsNow } from "@/lib/labels";
-import { currentLineForBet } from "@/lib/posted";
+import { RESULT_LABEL, fmtGameDate, fmtPostedProof } from "@/lib/labels";
+import { postedVsNow } from "@/lib/posted";
 
 // Hero shows today's top official play, so render per request.
 export const dynamic = "force-dynamic";
@@ -182,8 +182,8 @@ function LiveHero({ hero }: { hero: Hero }) {
           <div className="min-w-0">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-edge-400">{tier ?? "Official"} · {MARKET_LABEL[v.market]} · Edge</div>
             <div className="truncate text-sm font-semibold">{v.side}</div>
-            {fmtPostedVsNow(v.posted_fair, v.posted_edge ?? v.line_edge_pct, currentLineForBet(g, v.market), v.market) && (
-              <div className="font-mono text-[11px] text-zinc-400">{fmtPostedVsNow(v.posted_fair, v.posted_edge ?? v.line_edge_pct, currentLineForBet(g, v.market), v.market)}</div>
+            {postedVsNow(v, g) && (
+              <div className="font-mono text-[11px] text-zinc-400">{postedVsNow(v, g)}</div>
             )}
             {v.logged_at && <div className="text-[10px] text-zinc-500">🔒 {fmtPostedProof(v.logged_at, g.tipoff)}</div>}
             <div className="mt-0.5 text-[11px] text-zinc-500">¼-Kelly {v.kelly_quarter_units == null ? "—" : `${v.kelly_quarter_units.toFixed(2)}u`}</div>

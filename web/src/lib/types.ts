@@ -50,6 +50,10 @@ export type SlateGame = {
   proj_total_v1?: number | null;
   proj_total_v2?: number | null;
   coachLocks?: import("./coach").NewCoachLock[];
+  skip_reasons_spread?: string[] | null;
+  skip_reasons_total?: string[] | null;
+  skip_reason_spread?: string | null;
+  skip_reason_total?: string | null;
 };
 export type GameInsight = {
   proj_home: number | null;
@@ -87,13 +91,16 @@ export type ValueBet = {
   /** American odds at post (picks.price). */
   posted_odds?: number | null;
   pick_hash?: string | null;
-  /** picks.edge — same as line_edge_pct when the view is populated. */
-  posted_edge?: number | null;
-  /** Locked fair at post (projection of the pick's model, else reconstructed). */
-  posted_fair?: number | null;
-  posted_fair_source?: "projection" | "reconstructed" | null;
-  /** picks.created_at (line/price timestamp) used to match a projection at post. */
-  pick_created_at?: string | null;
+  pick_id?: string | null;
+  /** official_picks_locked / value_bets locked post-time fields. */
+  fair_at_post?: number | null;
+  line_at_post?: number | null;
+  total_at_post?: number | null;
+  open_line?: number | null;
+  /** Fraction (0.0173 = 1.73%), not a percent integer. */
+  edge_at_post_pct?: number | null;
+  edge_vs_open_pct?: number | null;
+  posted_at?: string | null;
 };
 
 // ---- view: ledger ----------------------------------------------------------
@@ -115,13 +122,6 @@ export type LedgerRow = {
   logged_at?: string | null; // posted at (immutable)
   source?: string;
   pick_hash?: string | null;
-  /** picks.edge — same as line_edge_pct when the view is populated. */
-  posted_edge?: number | null;
-  /** Locked fair at post (projection of the pick's model, else reconstructed). */
-  posted_fair?: number | null;
-  posted_fair_source?: "projection" | "reconstructed" | null;
-  /** picks.created_at (line/price timestamp) used to match a projection at post. */
-  pick_created_at?: string | null;
 };
 
 // ---- view: pick_record (aggregated per market) ------------------------------

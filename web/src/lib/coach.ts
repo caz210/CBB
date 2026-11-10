@@ -1,5 +1,8 @@
-/** New-coach lock copy. Defaults match daily_run.py (COACH_LOCK_SIDES=8, COACH_LOCK_TOTALS=4).
- *  team_profiles has new_coach / new_coach_games only — no per-team lock_sides/lock_totals columns. */
+/** New-coach lock copy from team_profiles / team_profile_latest.
+ *  Lengths and remaining come from the DB (lock_sides_games, lock_totals_games,
+ *  lock_sides_remaining, lock_totals_remaining). Remaining is null when the
+ *  team is not a new-coach team. 8 / 4 are last-resort defaults only if a
+ *  length column is missing. */
 export const COACH_LOCK_SIDES = 8;
 export const COACH_LOCK_TOTALS = 4;
 
@@ -8,24 +11,38 @@ export type NewCoachLock = {
   gamesPlayed: number;
   lockSides: number;
   lockTotals: number;
+  sidesRemaining: number | null;
+  totalsRemaining: number | null;
   sidesLocked: boolean;
   totalsLocked: boolean;
 };
 
-export function newCoachLock(
-  team: string,
-  isNew: boolean,
-  games: number | null | undefined,
-): NewCoachLock | null {
-  if (!isNew) return null;
-  const gamesPlayed = games ?? 0;
+export type CoachProfileFields = {
+  new_coach?: boolean;
+  new_coach_games?: number | null;
+  games_played?: number | null;
+  lock_sides_games?: number | null;
+  lock_totals_games?: number | null;
+  lock_sides_remaining?: number | null;
+  lock_totals_remaining?: number | null;
+};
+
+export function newCoachLock(team: string, p: CoachProfileFields): NewCoachLock | null {
+  if (!p.new_coach) return null;
+  const lockSides = p.lock_sides_games ?? COACH_LOCK_SIDES;
+  const lockTotals = p.lock_totals_games ?? COACH_LOCK_TOTALS;
+  const gamesPlayed = p.new_coach_games ?? p.games_played ?? 0;
+  const sidesRemaining = p.lock_sides_remaining ?? null;
+  const totalsRemaining = p.lock_totals_remaining ?? null;
   return {
     team,
     gamesPlayed,
-    lockSides: COACH_LOCK_SIDES,
-    lockTotals: COACH_LOCK_TOTALS,
-    sidesLocked: gamesPlayed < COACH_LOCK_SIDES,
-    totalsLocked: gamesPlayed < COACH_LOCK_TOTALS,
+    lockSides,
+    lockTotals,
+    sidesRemaining,
+    totalsRemaining,
+    sidesLocked: sidesRemaining != null ? sidesRemaining > 0 : gamesPlayed < lockSides,
+    totalsLocked: totalsRemaining != null ? totalsRemaining > 0 : gamesPlayed < lockTotals,
   };
 }
 

@@ -61,8 +61,8 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
   const p = data.profile;
   const r = data.record;
   const next = data.next;
-  const coach = p && p.new_coach ? newCoachLock(p.team_name, true, p.new_coach_games ?? p.games_played) : null;
-  const nextWhy = coach ? whyNotPlayCopy([coach], []) : [];
+  const coach = p ? newCoachLock(p.team_name, p) : null;
+  const nextWhy = whyNotPlayCopy(next ? { ...next, coachLocks: coach ? [coach] : next.coachLocks } : { coachLocks: coach ? [coach] : [] }, []);
 
   return (
     <div className="mt-4 space-y-4 md:mt-6 md:space-y-6">

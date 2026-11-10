@@ -1,71 +1,46 @@
-/** Locked post-time fair value for an official card.
- *
- * TODO(CZarp): `picks` has no `fair_at_post` (and no `edge_at_post` alias —
- * posted edge already lives in `picks.edge` / value_bets.line_edge_pct).
- * Preferred source: the projection row for the pick's `model_version` at or
- * before `logged_at` (official totals use czarp-v1-totals). Fallback:
- * reconstruct fair from `line_or_price` + `edge` + side. Spreads need a Vegas
- * total as the edge denominator; that post-time total is not on the pick row,
- * so the fallback uses the current market total (approximate).
+/** Locked post-time fields from official_picks_locked / value_bets.
+ *  Do not reconstruct missing fair/open — hide those pieces instead.
+ *  edge_at_post_pct / edge_vs_open_pct are fractions (0.0173 = 1.73%).
  */
-import type { Market } from "./labels";
+import { fmtPostedVsNow, type Market } from "./labels";
 import type { SlateGame, ValueBet } from "./types";
 
-export type PostedFairSource = "projection" | "reconstructed";
-
-/** Reconstruct fair from the posted market line and posted edge.
- *  Totals: denom = posted total. Spreads: denom = Vegas total (caller supplies;
- *  should be post-time, else current). Result is a total, or a home-line spread.
- */
-export function reconstructPostedFair(
-  market: Market,
-  side: string,
-  postedLine: number | null | undefined,
-  edge: number | null | undefined,
-  vegasTotal: number | null | undefined,
-  home: string,
-  away: string,
-): number | null {
-  if (postedLine == null || edge == null || !Number.isFinite(postedLine) || !Number.isFinite(edge)) return null;
+function mentionsTeam(side: string, team: string) {
   const s = side.trim().toLowerCase();
-  if (market === "total") {
-    const denom = Math.abs(postedLine);
-    if (!(denom > 0)) return null;
-    if (s.startsWith("over")) return postedLine + edge * denom;
-    if (s.startsWith("under")) return postedLine - edge * denom;
-    return null;
-  }
-  if (market === "spread") {
-    const denom = vegasTotal;
-    if (denom == null || !(Math.abs(denom) > 0)) return null;
-    const pts = edge * Math.abs(denom);
-    // picks.line_or_price is the side's line (daily_run: sgn * home_spread).
-    // Model likes this side, so fair_side = posted_line − edge×total.
-    const fairSide = postedLine - pts;
-    if (mentionsTeam(s, home)) return fairSide;
-    if (mentionsTeam(s, away)) return -fairSide;
-    return fairSide;
-  }
-  return null;
-}
-
-function mentionsTeam(sideLower: string, team: string) {
   const t = team.trim().toLowerCase();
-  if (!t) return false;
-  return sideLower === t || sideLower.startsWith(t + " ") || sideLower.includes(t);
+  if (!t || !s) return false;
+  return s === t || s.startsWith(t + " ") || s.startsWith(t + "+") || s.startsWith(t + "-");
 }
 
-export function currentLineForBet(g: SlateGame, market: Market): number | null {
+/** Current market line in the same convention as line_at_post / fair_at_post
+ *  (totals: the total; spreads: the picked-side line, not always home-line). */
+export function currentLineForBet(g: SlateGame, market: Market, side?: string | null): number | null {
   if (market === "total") return g.market_total;
-  if (market === "spread") return g.market_spread;
+  if (market === "spread") {
+    if (g.market_spread == null) return null;
+    if (side && mentionsTeam(side, g.away) && !mentionsTeam(side, g.home)) return -g.market_spread;
+    return g.market_spread;
+  }
   return null;
+}
+
+/** "Posted 142.0 · 1.73% (line 144.5) → Now 144.5 · 3.73% vs open". Hides nulls. */
+export function postedVsNow(b: ValueBet, g: SlateGame | null | undefined): string | null {
+  if (!g) return null;
+  return fmtPostedVsNow({
+    fair: b.fair_at_post,
+    edge: b.edge_at_post_pct ?? b.line_edge_pct,
+    line: b.line_at_post ?? b.posted_line,
+    now: currentLineForBet(g, b.market, b.side),
+    vsOpen: b.edge_vs_open_pct,
+    market: b.market,
+  });
 }
 
 export function betCoverProb(g: SlateGame, b: ValueBet | null, market: Market | null): number | null {
   if (b?.model_prob != null) return b.model_prob;
   if (market === "spread") {
     if (g.home_cover_prob == null || g.proj_spread == null || g.market_spread == null) return null;
-    // More negative home-line fair than the market → home is the value side.
     return g.proj_spread < g.market_spread ? g.home_cover_prob : 1 - g.home_cover_prob;
   }
   if (market === "total") {

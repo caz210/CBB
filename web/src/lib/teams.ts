@@ -21,6 +21,10 @@ export type TeamProfile = {
   tentative: boolean;
   new_coach: boolean;
   new_coach_games: number | null;
+  lock_sides_games: number | null;
+  lock_totals_games: number | null;
+  lock_sides_remaining: number | null;
+  lock_totals_remaining: number | null;
   // percentiles only for four factors + style
   efg_pctile: number | null;
   d_efg_pctile: number | null;

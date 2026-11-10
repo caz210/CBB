@@ -11,7 +11,6 @@ import { teamSlug, type ModelGrade, type TeamModelRecord, type TeamProfile } fro
 import { isPickTier, type Market, type MarketSource, type PickTier } from "./labels";
 import { wilsonCi, SMALL_SAMPLE_N } from "./stats";
 import { newCoachLock, type NewCoachLock } from "./coach";
-import { reconstructPostedFair } from "./posted";
 
 export type Loaded<T> =
   | { state: "live"; data: T }
@@ -23,6 +22,8 @@ type Row = Record<string, unknown>;
 const num = (v: unknown): number | null => (v == null || v === "" ? null : Number.isFinite(Number(v)) ? Number(v) : null);
 const str = (v: unknown): string => (v == null ? "" : String(v));
 const strs = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x) => typeof x === "string") : []);
+const strArr = (v: unknown): string[] | null => (v == null ? null : Array.isArray(v) ? v.map((x) => String(x)).filter(Boolean) : null);
+const textOrNull = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
 
 /** YYYY-MM-DD in America/Chicago (game dates are stored as CT local dates). */
 export function todayCT(now = new Date()) {
@@ -72,31 +73,83 @@ function toSlateGame(r: Row): SlateGame {
     proj_possessions: num(r.proj_possessions),
     upset_alert: r.upset_alert === true,
     upset_reason: typeof r.upset_reason === "string" && r.upset_reason.trim() ? r.upset_reason.trim() : null,
+    skip_reasons_spread: strArr(r.skip_reasons_spread),
+    skip_reasons_total: strArr(r.skip_reasons_total),
+    skip_reason_spread: textOrNull(r.skip_reason_spread),
+    skip_reason_total: textOrNull(r.skip_reason_total),
   };
 }
 
 function toValueBet(r: Row): ValueBet {
+  const fair = num(r.fair_at_post);
+  const line = num(r.line_at_post) ?? num(r.line_or_price) ?? num(r.posted_line);
+  const edge = num(r.edge_at_post_pct) ?? num(r.edge) ?? num(r.line_edge_pct);
+  const postedAt = r.posted_at ? str(r.posted_at) : r.logged_at ? str(r.logged_at) : null;
   return {
     sport: str(r.sport) as ValueBet["sport"],
     game_id: Number(r.game_id),
     market: str(r.market) as Market,
-    side: str(r.side),
+    side: str(r.side || r.bet),
     model_prob: num(r.model_prob),
     market_prob: num(r.market_prob) ?? 0,
     prob_edge: num(r.prob_edge) ?? 0,
-    line_edge_pct: num(r.line_edge_pct) ?? 0,
+    line_edge_pct: edge ?? 0,
     kelly_quarter_units: num(r.kelly_quarter_units),
     pick_tier: isPickTier(r.tier) ? r.tier : "official",
-    logged_at: r.logged_at ? str(r.logged_at) : null,
-    model_version: r.model_version ? str(r.model_version) : null,
-    posted_line: num(r.line_or_price) ?? num(r.posted_line),
+    logged_at: postedAt,
+    model_version: r.model_name ? str(r.model_name) : r.model_version ? str(r.model_version) : null,
+    posted_line: line,
     posted_odds: num(r.price) ?? num(r.posted_odds),
     pick_hash: r.pick_hash ? str(r.pick_hash) : null,
-    posted_edge: num(r.edge) ?? num(r.posted_edge) ?? num(r.line_edge_pct),
-    posted_fair: num(r.posted_fair),
-    posted_fair_source: r.posted_fair_source === "projection" || r.posted_fair_source === "reconstructed" ? r.posted_fair_source : null,
-    pick_created_at: r.created_at && !r.pick_created_at ? str(r.created_at) : (r.pick_created_at ? str(r.pick_created_at) : null),
+    pick_id: r.pick_id ? str(r.pick_id) : null,
+    fair_at_post: fair,
+    line_at_post: line,
+    total_at_post: num(r.total_at_post),
+    open_line: num(r.open_line),
+    edge_at_post_pct: edge,
+    edge_vs_open_pct: num(r.edge_vs_open_pct),
+    posted_at: postedAt,
   };
+}
+
+function applyLocked(v: ValueBet, r: Row) {
+  if (r.pick_id) v.pick_id = str(r.pick_id);
+  if (r.model_name) v.model_version = str(r.model_name);
+  v.fair_at_post = num(r.fair_at_post);
+  v.line_at_post = num(r.line_at_post) ?? v.line_at_post;
+  v.total_at_post = num(r.total_at_post);
+  v.open_line = num(r.open_line);
+  v.edge_at_post_pct = num(r.edge_at_post_pct) ?? v.edge_at_post_pct;
+  v.edge_vs_open_pct = num(r.edge_vs_open_pct);
+  if (num(r.line_at_post) != null) v.posted_line = num(r.line_at_post);
+  if (num(r.price) != null) v.posted_odds = num(r.price);
+  if (r.posted_at) {
+    v.posted_at = str(r.posted_at);
+    if (!v.logged_at) v.logged_at = str(r.posted_at);
+  }
+  if (isPickTier(r.tier)) v.pick_tier = r.tier;
+  if (num(r.edge_at_post_pct) != null) v.line_edge_pct = num(r.edge_at_post_pct)!;
+}
+
+function lockedMatches(r: Row, v: ValueBet) {
+  if (r.pick_id && v.pick_id && str(r.pick_id) === v.pick_id) return true;
+  if (v.game_id !== Number(r.game_id) || v.market !== str(r.market)) return false;
+  const bet = str(r.bet), side = str(r.side);
+  return v.side === bet || v.side === side || (side && v.side.startsWith(side + " "));
+}
+
+async function mergeOfficialLocked(sb: SB, sport: Sport, ids: number[], all: ValueBet[]) {
+  const lk = await sb.from("official_picks_locked").select("*").in("game_id", ids);
+  if (lk.error) {
+    console.error(`[supabase] official_picks_locked: ${lk.error.code ?? ""} ${lk.error.message}`);
+    return all;
+  }
+  for (const r of (lk.data ?? []) as Row[]) {
+    const hit = all.find((v) => lockedMatches(r, v));
+    if (hit) applyLocked(hit, r);
+    else all.push(toValueBet({ ...r, sport: sport.key, side: r.bet || r.side }));
+  }
+  return all;
 }
 
 function toLedgerRow(r: Row): LedgerRow {
@@ -157,25 +210,8 @@ export async function loadSlate(sport: Sport, date: string): Promise<Loaded<Slat
   if (games.length) {
     const b = await sb.from("value_bets").select("*").eq("sport", sport.key).in("game_id", games.map((x) => x.game_id));
     if (b.error) return fail("value_bets", b.error);
-    const all = (b.data ?? []).map(toValueBet);
     const ids = games.map((x) => x.game_id);
-    const pk = await sb.from("picks").select("game_id,market,bet,model_version,line_or_price,price,edge,pick_hash,tier,logged_at,created_at").in("game_id", ids);
-    if (!pk.error) {
-      const key = (gid: number, mkt: string, side: string) => `${gid}|${mkt}|${side}`;
-      const extra = new Map<string, Row>();
-      for (const r of (pk.data ?? []) as Row[]) extra.set(key(Number(r.game_id), str(r.market), str(r.bet)), r);
-      for (const v of all) {
-        const r = extra.get(key(v.game_id, v.market, v.side));
-        if (!r) continue;
-        v.model_version = r.model_version ? str(r.model_version) : v.model_version;
-        v.posted_line = num(r.line_or_price);
-        v.posted_odds = num(r.price);
-        v.posted_edge = num(r.edge) ?? v.line_edge_pct;
-        v.pick_hash = r.pick_hash ? str(r.pick_hash) : v.pick_hash;
-        if (r.logged_at && !v.logged_at) v.logged_at = str(r.logged_at);
-        v.pick_created_at = r.created_at ? str(r.created_at) : v.pick_created_at;
-      }
-    }
+    const all = await mergeOfficialLocked(sb, sport, ids, (b.data ?? []).map(toValueBet));
     all.sort((a, z) => z.line_edge_pct - a.line_edge_pct);
     bets = all.filter((x) => x.pick_tier === "official");
     const [st, gr, pr, ml] = await Promise.all([
@@ -196,7 +232,6 @@ export async function loadSlate(sport: Sport, date: string): Promise<Loaded<Slat
     for (const r of ml.data ?? []) bump(r.fetched_at);
     if (stamps.length) updatedAt = new Date(Math.max(...stamps)).toISOString();
     attachRawEdges(games, (pr.data ?? []) as Row[]);
-    attachPostedFair(all, (pr.data ?? []) as Row[], games);
     await attachNewCoaches(sb, games, st.data ?? []);
     const ins = await loadInsights(sb, ids);
     for (const x of games) x.insight = ins.get(x.game_id);
@@ -259,40 +294,6 @@ function attachRawEdges(games: SlateGame[], projRows: Row[]) {
 }
 
 
-/** TODO(CZarp): no fair_at_post on picks — lock fair from the pick's model projection at/before logged_at. */
-function attachPostedFair(bets: ValueBet[], projRows: Row[], games: SlateGame[]) {
-  const byGame = new Map<number, SlateGame>();
-  for (const g of games) byGame.set(g.game_id, g);
-  for (const b of bets) {
-    const model = b.model_version || (b.market === "total" ? V1_TOTALS : V2);
-    const postedMs = Date.parse(b.logged_at || b.pick_created_at || "") || NaN;
-    const mine = projRows.filter((r) => Number(r.game_id) === b.game_id && str(r.model_version) === model);
-    // projRows are newest-first.
-    const atOrBefore = Number.isFinite(postedMs)
-      ? mine.filter((r) => {
-          const t = Date.parse(str(r.created_at));
-          return Number.isFinite(t) && t <= postedMs;
-        })
-      : [];
-    const row = atOrBefore[0];
-    const fromProj = b.market === "total" ? num(row?.total) : b.market === "spread" ? num(row?.spread) : null;
-    if (fromProj != null) {
-      b.posted_fair = fromProj;
-      b.posted_fair_source = "projection";
-      continue;
-    }
-    const g = byGame.get(b.game_id);
-    const fair = reconstructPostedFair(
-      b.market, b.side, b.posted_line, b.posted_edge ?? b.line_edge_pct,
-      g?.market_total, g?.home ?? "", g?.away ?? "",
-    );
-    if (fair != null) {
-      b.posted_fair = Math.round(fair * 10) / 10;
-      b.posted_fair_source = "reconstructed";
-    }
-  }
-}
-
 async function attachNewCoaches(sb: SB, games: SlateGame[], gameRows: Row[]) {
   const idByGame = new Map<number, { home?: number | null; away?: number | null; homeName?: string; awayName?: string }>();
   for (const r of gameRows) {
@@ -310,11 +311,11 @@ async function attachNewCoaches(sb: SB, games: SlateGame[], gameRows: Row[]) {
   const profiles: Row[] = [];
   try {
     if (tids.size) {
-      const q = await sb.from("team_profile_latest").select("team_id,team_name,new_coach,new_coach_games,games_played").in("team_id", [...tids]);
+      const q = await sb.from("team_profile_latest").select("team_id,team_name,new_coach,new_coach_games,games_played,lock_sides_games,lock_totals_games,lock_sides_remaining,lock_totals_remaining").in("team_id", [...tids]);
       if (!q.error) profiles.push(...((q.data ?? []) as Row[]));
     }
     if (names.size) {
-      const q = await sb.from("team_profile_latest").select("team_id,team_name,new_coach,new_coach_games,games_played").in("team_name", [...names]);
+      const q = await sb.from("team_profile_latest").select("team_id,team_name,new_coach,new_coach_games,games_played,lock_sides_games,lock_totals_games,lock_sides_remaining,lock_totals_remaining").in("team_name", [...names]);
       if (!q.error) profiles.push(...((q.data ?? []) as Row[]));
     }
   } catch { /* badges just stay hidden */ }
@@ -327,8 +328,15 @@ async function attachNewCoaches(sb: SB, games: SlateGame[], gameRows: Row[]) {
   const lockFor = (name: string, tid?: number | null): NewCoachLock | null => {
     const r = (tid != null ? byId.get(tid) : null) ?? byName.get(name.toLowerCase());
     if (!r) return null;
-    const played = num(r.new_coach_games) ?? num(r.games_played);
-    return newCoachLock(str(r.team_name) || name, r.new_coach === true, played);
+    return newCoachLock(str(r.team_name) || name, {
+      new_coach: r.new_coach === true,
+      new_coach_games: num(r.new_coach_games),
+      games_played: num(r.games_played),
+      lock_sides_games: num(r.lock_sides_games),
+      lock_totals_games: num(r.lock_totals_games),
+      lock_sides_remaining: num(r.lock_sides_remaining),
+      lock_totals_remaining: num(r.lock_totals_remaining),
+    });
   };
   for (const g of games) {
     const ids = idByGame.get(g.game_id);
@@ -402,23 +410,7 @@ export async function loadHero(sport: Sport): Promise<Loaded<Hero | null>> {
     if (b.error) return fail("value_bets", b.error);
     const bet = b.data?.[0] ? toValueBet(b.data[0]) : null;
     const game = bet && games.find((x) => x.game_id === bet.game_id);
-    if (bet && game) {
-      const [pk, pr] = await Promise.all([
-        sb.from("picks").select("game_id,market,bet,model_version,line_or_price,price,edge,logged_at,created_at").eq("game_id", bet.game_id).eq("market", bet.market).eq("bet", bet.side).limit(1),
-        sb.from("projections").select("game_id,model_version,spread,total,created_at").eq("game_id", bet.game_id).order("created_at", { ascending: false }),
-      ]);
-      const r = pk.data?.[0] as Row | undefined;
-      if (r) {
-        bet.model_version = r.model_version ? str(r.model_version) : bet.model_version;
-        bet.posted_line = num(r.line_or_price);
-        bet.posted_odds = num(r.price);
-        bet.posted_edge = num(r.edge) ?? bet.line_edge_pct;
-        if (r.logged_at && !bet.logged_at) bet.logged_at = str(r.logged_at);
-        bet.pick_created_at = r.created_at ? str(r.created_at) : bet.pick_created_at;
-      }
-      attachPostedFair([bet], (pr.data ?? []) as Row[], [game]);
-      return { state: "live", data: { kind: "today", game, bet } };
-    }
+    if (bet && game) return { state: "live", data: { kind: "today", game, bet } };
   }
   const pick = async (q: PromiseLike<{ data: Row[] | null; error: { message: string } | null }>, when: "yesterday" | "latest") => {
     const r = await q;
@@ -584,6 +576,10 @@ function toProfile(r: Row): TeamProfile {
     tentative: r.tentative === true,
     new_coach: r.new_coach === true,
     new_coach_games: num(r.new_coach_games),
+    lock_sides_games: num(r.lock_sides_games),
+    lock_totals_games: num(r.lock_totals_games),
+    lock_sides_remaining: num(r.lock_sides_remaining),
+    lock_totals_remaining: num(r.lock_totals_remaining),
     efg_pctile: num(r.efg_pctile),
     d_efg_pctile: num(r.d_efg_pctile),
     to_pct_pctile: num(r.to_pct_pctile),

@@ -2,7 +2,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { SlateGame, ValueBet } from "@/lib/types";
-import { LOCKED_NOTE, MARKET_LABEL, SOURCE_LABEL, TIER_BADGE, edgeTier, fmtLine, fmtPostedProof, fmtPostedVsNow, fmtWinProb, fmtTipoff, pct, signedPct } from "@/lib/labels";
+import { LOCKED_NOTE, MARKET_LABEL, SOURCE_LABEL, TIER_BADGE, edgeTier, fmtLine, fmtPostedProof, fmtWinProb, fmtTipoff, pct, signedPct } from "@/lib/labels";
 import { computedLineEdge } from "@/lib/portfolio";
 import { useWatchlist } from "@/lib/watchlist";
 import { weaknessesOnly } from "@/lib/archetypes";
@@ -12,7 +12,7 @@ import { ArchetypeChip, ArchetypeLegend } from "./ArchetypeChip";
 import { TermLabel } from "./InfoTip";
 import { NewCoachBadges, whyNotPlayCopy } from "./NewCoachBadge";
 import { evPer100, fmtEv100 } from "@/lib/stats";
-import { betCoverProb, currentLineForBet } from "@/lib/posted";
+import { betCoverProb, postedVsNow } from "@/lib/posted";
 
 type Sel = { game: SlateGame; bet: ValueBet } | null;
 
@@ -118,9 +118,9 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
                         {g?.game ?? `Game #${b.game_id}`} · {MARKET_LABEL[b.market]}{model ? ` · ${model}` : ""}
                         {proof ? ` · 🔒 ${proof}` : ""}
                       </span>
-                      {g && fmtPostedVsNow(b.posted_fair, b.posted_edge ?? b.line_edge_pct, currentLineForBet(g, b.market), b.market) && (
+                      {g && postedVsNow(b, g) && (
                         <span className="block font-mono text-[11px] text-zinc-400">
-                          {fmtPostedVsNow(b.posted_fair, b.posted_edge ?? b.line_edge_pct, currentLineForBet(g, b.market), b.market)}
+                          {postedVsNow(b, g)}
                         </span>
                       )}
                     </span>
@@ -284,10 +284,10 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
         ))}
       </div>
 
-      {((g.coachLocks && g.coachLocks.length > 0) || whyNotPlayCopy(g.coachLocks, bets.map((b) => b.market)).length > 0) && (
+      {((g.coachLocks && g.coachLocks.length > 0) || whyNotPlayCopy(g, bets.map((b) => b.market)).length > 0) && (
         <div className="space-y-1.5 border-t border-ink-700/40 px-4 py-2" onClick={(e) => e.stopPropagation()}>
           <NewCoachBadges locks={g.coachLocks} />
-          <WhyNot lines={whyNotPlayCopy(g.coachLocks, bets.map((b) => b.market))} />
+          <WhyNot lines={whyNotPlayCopy(g, bets.map((b) => b.market))} />
         </div>
       )}
 
@@ -339,8 +339,8 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-semibold">{b.side}</span>
                   <span className="block text-[11px] text-zinc-500">{MARKET_LABEL[b.market]} · edge {pct(b.line_edge_pct, 1)} <span className="text-zinc-600">· prob {signedPct(b.prob_edge)}</span></span>
-                  {fmtPostedVsNow(b.posted_fair, b.posted_edge ?? b.line_edge_pct, currentLineForBet(g, b.market), b.market) && (
-                    <span className="block font-mono text-[11px] text-zinc-400">{fmtPostedVsNow(b.posted_fair, b.posted_edge ?? b.line_edge_pct, currentLineForBet(g, b.market), b.market)}</span>
+                  {postedVsNow(b, g) && (
+                    <span className="block font-mono text-[11px] text-zinc-400">{postedVsNow(b, g)}</span>
                   )}
                   {b.logged_at && <span className="block text-[10px] text-zinc-600">🔒 {fmtPostedProof(b.logged_at, g.tipoff)}</span>}
                 </span>
@@ -413,8 +413,8 @@ function ValueSheet({ sel, onClose }: { sel: Sel; onClose: () => void }) {
             <TermLabel term="edge">Edge</TermLabel>
           </div>
           <div className={`font-mono text-5xl font-black ${tier ? "text-edge-400" : "text-zinc-500"}`}>{pct(b.line_edge_pct, 1)}</div>
-          {fmtPostedVsNow(b.posted_fair, b.posted_edge ?? b.line_edge_pct, currentLineForBet(g, b.market), b.market) && (
-            <p className="mt-1 font-mono text-xs text-zinc-400">{fmtPostedVsNow(b.posted_fair, b.posted_edge ?? b.line_edge_pct, currentLineForBet(g, b.market), b.market)}</p>
+          {postedVsNow(b, g) && (
+            <p className="mt-1 font-mono text-xs text-zinc-400">{postedVsNow(b, g)}</p>
           )}
           <p className="mt-1 text-[11px] text-zinc-500">Buy at value. Judge over hundreds of bets — not tonight.</p>
         </div>
@@ -492,7 +492,7 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
         </div>
         <SheetSecondary g={g} bets={bets} />
         {g.coachLocks && g.coachLocks.length > 0 && <div className="mt-3"><NewCoachBadges locks={g.coachLocks} /></div>}
-        <WhyNot className="mt-2" lines={whyNotPlayCopy(g.coachLocks, bets.map((b) => b.market))} />
+        <WhyNot className="mt-2" lines={whyNotPlayCopy(g, bets.map((b) => b.market))} />
 
         <div className="mt-4 grid grid-cols-2 gap-2">
           <Big label={`${g.away} proj`} v={pa == null ? "—" : pa.toFixed(1)} />
@@ -551,8 +551,8 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
                   {tier && <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${TIER_BADGE[tier]}`}>{tier}</span>}
                   <span className="min-w-0 flex-1 truncate">
                     <span className="block font-semibold">{b.side}</span>
-                    {fmtPostedVsNow(b.posted_fair, b.posted_edge ?? b.line_edge_pct, currentLineForBet(g, b.market), b.market) && (
-                      <span className="block font-mono text-[11px] font-normal text-zinc-400">{fmtPostedVsNow(b.posted_fair, b.posted_edge ?? b.line_edge_pct, currentLineForBet(g, b.market), b.market)}</span>
+                    {postedVsNow(b, g) && (
+                      <span className="block font-mono text-[11px] font-normal text-zinc-400">{postedVsNow(b, g)}</span>
                     )}
                   </span>
                   <span className={`font-mono text-base font-black ${tier ? "text-edge-400" : "text-zinc-500"}`}>{pct(b.line_edge_pct, 1)}</span>
