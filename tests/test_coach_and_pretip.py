@@ -135,6 +135,34 @@ def test_coach_lock_split_totals_4_sides_8(monkeypatch):
     assert c["total"]["coach_tag"] == "NEW COACH H 4/4" and c["spread"]["coach_tag"] == "NEW COACH H 4/8 (4 left)"
 
 
+def test_both_teams_new_coach_hold_is_one_reason(monkeypatch):
+    monkeypatch.setattr(dr, "COACH_LOCK_GAMES", None)
+    monkeypatch.setattr(dr, "COACH_LOCK_TOTALS", 4)
+    monkeypatch.setattr(dr, "COACH_LOCK_SIDES", 8)
+    # Both paused, same hold length, different games played -> one "both teams" line
+    g = _game(v1_total=150.0,
+              coach_away={"team": "A", "games": 2, "coach": "X", "prev": "Y"},
+              coach_home={"team": "H", "games": 3, "coach": "P", "prev": "Q"})
+    c = {x["market"]: x for x in dr.candidates([g], _now())}
+    assert [r for r in c["spread"]["reasons"] if dr.is_coach_hold_reason(r)] == [
+        "Paused until game 8 (new coach, both teams)"]
+    assert [r for r in c["total"]["reasons"] if dr.is_coach_hold_reason(r)] == [
+        "Paused until game 4 (new coach, both teams)"]
+    # Different per-team hold lengths: use the later 'until game' value
+    g["coach_away"]["lock_sides"] = 6
+    g["coach_home"]["lock_sides"] = 10
+    s = {x["market"]: x for x in dr.candidates([g], _now())}["spread"]
+    assert [r for r in s["reasons"] if dr.is_coach_hold_reason(r)] == [
+        "Paused until game 10 (new coach, both teams)"]
+    # Only one team still paused -> original single-team wording
+    g["coach_away"]["games"] = 8
+    g["coach_away"].pop("lock_sides", None)
+    g["coach_home"].pop("lock_sides", None)
+    s = {x["market"]: x for x in dr.candidates([g], _now())}["spread"]
+    assert [r for r in s["reasons"] if dr.is_coach_hold_reason(r)] == [
+        "Paused until game 8 (new coach, 3 played)"]
+
+
 def test_coach_lock_cli_flags(monkeypatch):
     import argparse
     monkeypatch.setattr(dr, "COACH_LOCK_TOTALS", 4)
