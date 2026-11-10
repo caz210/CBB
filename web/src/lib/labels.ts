@@ -100,7 +100,7 @@ export const TIER_BADGE: Record<EdgeTier, string> = {
   VALUE: "bg-edge-400/10 text-edge-400",
 };
 
-/** "Posted 3:12 PM CT · 4h 18m before tip" from logged_at vs tipoff. */
+/** "Posted 3:12 PM CT · 4h 18m before tip" from logged_at vs tipoff. Kept for callers that still want the tip gap. */
 export function fmtPostedProof(loggedAt: string | null | undefined, tipoff: string | null | undefined) {
   if (!loggedAt) return null;
   const t = new Date(loggedAt);
@@ -118,11 +118,30 @@ export function fmtPostedProof(loggedAt: string | null | undefined, tipoff: stri
   }
   return s;
 }
+
+/** "Posted 7:12 AM CT · time-stamped, can't be edited". Central Time via fmtTipoff. */
+export function fmtPostedStamp(iso: string | null | undefined) {
+  if (!iso) return null;
+  const t = new Date(iso);
+  if (Number.isNaN(t.getTime())) return null;
+  return `Posted ${fmtTipoff(iso)} · time-stamped, can't be edited`;
+}
 export const shortHash = (h: string | null | undefined) => (h ? h.slice(0, 8) : null);
 export const fmtClv = (c: number) => `${c > 0 ? "+" : c < 0 ? "−" : ""}${Math.abs(c).toFixed(1)} pts`;
-export const LOCKED_NOTE = "Picks are locked once posted: they can't be edited or deleted.";
+export const LOCKED_NOTE = "Picks are time-stamped once posted: they can't be edited or deleted.";
 
 const isFiniteNum = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
+
+/** Fraction → display percent with 1 decimal, trailing .0 dropped (0.045 → "4.5%", 0.04 → "4%"). */
+export function fmtPlayPct(x: number) {
+  return `${(x * 100).toFixed(1).replace(/\.0$/, "")}%`;
+}
+
+/** Threshold as a whole percent for copy: 0.04 → "4%". */
+export function fmtThresholdPct(market: Market) {
+  return `${Math.round(PLAY_THRESHOLD[market] * 100)}%`;
+}
+
 /** Fractions → percent with up to 2 decimals (0.0173 → "1.73%", 0.08 → "8%"). */
 function fmtEdgePct(x: number) {
   return `${(x * 100).toFixed(2).replace(/\.?0+$/, "")}%`;

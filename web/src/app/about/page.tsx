@@ -12,7 +12,7 @@ export default function AboutPage() {
       </p>
       <H>What you get</H>
       <p>
-        A daily slate with price, fair value, and edge on every game. Official picks posted and locked before tip. A portfolio with units, ROI, closing-line value, and the losing streaks — not just the wins.
+        A daily slate with price, fair value, and edge on every game. Official picks posted and time-stamped before tip. A portfolio with units, ROI, closing-line value, and the losing streaks — not just the wins.
       </p>
       <H>How to read it</H>
       <p>

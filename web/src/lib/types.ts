@@ -59,6 +59,16 @@ export type SlateGame = {
   skip_reasons_total?: string[] | null;
   skip_reason_spread?: string | null;
   skip_reason_total?: string | null;
+  /** Stored on slate_games (fractions, like edge_at_post_pct). Absent until the columns are live. */
+  edge_now_pct_spread?: number | null;
+  edge_vs_open_pct_spread?: number | null;
+  edge_now_pct_total?: number | null;
+  edge_vs_open_pct_total?: number | null;
+  verdict_spread?: "official" | "low_value" | null;
+  verdict_total?: "official" | "low_value" | null;
+  /** Stored booleans; only true means show the gray Lean chip. Missing/null = don't show, don't compute. */
+  lean_spread?: boolean | null;
+  lean_total?: boolean | null;
 };
 export type GameInsight = {
   proj_home: number | null;

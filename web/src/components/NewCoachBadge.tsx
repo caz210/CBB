@@ -9,8 +9,10 @@ import {
   newCoachUnlocked,
   type NewCoachLock,
 } from "@/lib/coach";
+import { notAPlayLines } from "@/lib/verdict";
+import type { SlateGame } from "@/lib/types";
 
-/** Full-text note for team pages. Unchanged: still shows the unlocked line once both markets open. */
+/** Full-text note for team pages. Shows the "back on" line once both markets are clear. */
 export function NewCoachBadge({ lock, name = false, className = "" }: { lock: NewCoachLock; name?: boolean; className?: string }) {
   const locked = isCoachLocked(lock);
   const lines = locked ? newCoachLines(lock, name) : [newCoachUnlocked(lock)];
@@ -21,13 +23,13 @@ export function NewCoachBadge({ lock, name = false, className = "" }: { lock: Ne
   );
 }
 
-/** Compact amber chip that opens a bottom-sheet explainer. Hidden once the team is fully unlocked. */
+/** Compact amber chip that opens a bottom-sheet explainer. Hidden once the team is fully clear. */
 export function NewCoachChip({ lock, name = false, className = "" }: { lock: NewCoachLock; name?: boolean; className?: string }) {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const id = useId();
   const copy = newCoachSheetCopy(lock);
-  const label = name ? `${lock.team} new coach` : "New coach";
+  const label = name ? `${lock.team} paused · new coach` : "Paused · new coach";
 
   useEffect(() => setMounted(true), []);
   useEffect(() => {
@@ -106,44 +108,20 @@ export function NewCoachChips({ locks, name, className = "" }: { locks?: NewCoac
   );
 }
 
-/** Machine-readable skip codes → short labels when human text is missing. */
+/** @deprecated skip-code labels now live in lib/verdict.ts (no lock wording). */
 export const SKIP_LABELS: Record<string, string> = {
-  below_open_threshold: "below open threshold",
-  below_current_threshold: "below current threshold",
-  line_moved_against: "line moved against",
-  new_coach_lock: "new coach lock",
-  kelly_too_small: "Kelly stake too small",
-  game_started: "game started",
+  below_open_threshold: "edge vs open below threshold",
+  below_current_threshold: "edge now below threshold",
+  line_moved_against: "line moved against us",
+  new_coach_lock: "new coach",
+  kelly_too_small: "stake too small to post",
+  game_started: "game already started",
   no_current_line: "no current line",
-  no_opening_line: "no opening line",
+  no_opening_line: "no opening line yet",
 };
 
-type WhyNotSource = {
-  coachLocks?: unknown; // ignored; the chip covers new-coach locks
-  skip_reason_spread?: string | null;
-  skip_reason_total?: string | null;
-  skip_reasons_spread?: string[] | null;
-  skip_reasons_total?: string[] | null;
-};
-
-function formatSkip(human?: string | null, codes?: string[] | null): string | null {
-  if (human && human.trim()) return human.trim();
-  if (codes && codes.length) return codes.map((c) => SKIP_LABELS[c] ?? c.replace(/_/g, " ")).join("; ");
-  return null;
-}
-
-/** Skip-reason text/codes only, for markets without an official bet. Coach locks are covered by the chip. */
-export function whyNotPlayCopy(g: WhyNotSource | undefined, officialMarkets: Iterable<string>): string[] {
+/** Skip-reason lines for markets without an official bet. Coach holds are covered by the chip. */
+export function whyNotPlayCopy(g: Partial<SlateGame> | undefined, officialMarkets: Iterable<string>): string[] {
   if (!g) return [];
-  const mk = new Set(officialMarkets);
-  const out: string[] = [];
-  if (!mk.has("spread") && !mk.has("moneyline")) {
-    const s = formatSkip(g.skip_reason_spread, g.skip_reasons_spread);
-    if (s) out.push(`Spread: ${s}`);
-  }
-  if (!mk.has("total")) {
-    const s = formatSkip(g.skip_reason_total, g.skip_reasons_total);
-    if (s) out.push(`Total: ${s}`);
-  }
-  return out;
+  return notAPlayLines(g as SlateGame, officialMarkets);
 }

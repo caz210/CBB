@@ -29,9 +29,9 @@ export default function MethodologyPage() {
       <H>Stake sizing</H>
       <Placeholder>Stakes are quarter-Kelly in units (1u = 1% of bankroll, capped at 2.5u). Describe any bankroll or cap rules here.</Placeholder>
       <H>Grading and closing line value</H>
-      <Placeholder>Picks lock once posted. They are graded from final scores. CLV compares the posted line to the close.</Placeholder>
+      <Placeholder>Picks are time-stamped once posted and can&apos;t be edited. They are graded from final scores. CLV compares the posted line to the close.</Placeholder>
       <H>New coaches and early season</H>
-      <Placeholder>No official sides until a new coach has 8 games; no official totals until 4. Early-season tags can be tentative.</Placeholder>
+      <Placeholder>Sides are paused until a new coach has 8 games; totals are paused until 4. Early-season tags can be tentative.</Placeholder>
       <H>Limitations</H>
       <Placeholder>A plus-EV process still has losing nights and drawdowns. Edges are not a promise of winning. Judge the portfolio over hundreds of bets.</Placeholder>
     </LegalPage>
