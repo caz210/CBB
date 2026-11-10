@@ -75,3 +75,15 @@ def test_repo_flag_file_is_valid():
     assert (d.source.str.startswith("http")).all()
     s27 = d[d.season == "2027"].set_index("team")
     assert s27.loc["LSU", "new_coach"] == "Y" and s27.loc["Rutgers", "new_coach"] == "N"
+
+
+def test_enrich_coach_profile_defaults_and_overrides():
+    from czarp.coach import enrich_coach_profile
+    nc = {"Charlotte": {"lock_sides": None, "lock_totals": None},
+          "Custom": {"games": 3, "lock_sides": 6, "lock_totals": 0}}
+    out = enrich_coach_profile(nc, played={"Charlotte": 2})
+    assert out["Charlotte"]["games"] == 2
+    assert out["Charlotte"]["lock_sides"] == 8 and out["Charlotte"]["lock_totals"] == 4
+    assert out["Charlotte"]["lock_sides_remaining"] == 6 and out["Charlotte"]["lock_totals_remaining"] == 2
+    assert out["Custom"]["lock_sides"] == 6 and out["Custom"]["lock_totals"] == 0
+    assert out["Custom"]["lock_sides_remaining"] == 3 and out["Custom"]["lock_totals_remaining"] == 0

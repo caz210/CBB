@@ -135,8 +135,15 @@ def test_build_team_profiles():
     lg["misc"]["OppFG3Pct"] = 31.0
     tt = T.build_team_table(lg)
     tags = T.mark_tentative(T.tag_teams(tt, MatchupConfig()), tt, EarlySeasonConfig())
-    rows = T.build_team_profiles(tt, tags, as_of="2026-11-08", season=2027, hca_df=lg["hca"])
+    rows = T.build_team_profiles(tt, tags, as_of="2026-11-08", season=2027, hca_df=lg["hca"],
+                                 new_coach={"Team00": {"games": 2}})
     assert len(rows) == 20
-    r0 = rows[0]
+    r0 = next(r for r in rows if r["name"] == "Team00")
     assert "efg" in r0["factors"] and "efg_pctile" in r0["factors"]
     assert isinstance(r0["tags"], list)
+    assert r0["new_coach"] is True and r0["new_coach_games"] == 2
+    assert r0["lock_sides_games"] == 8 and r0["lock_totals_games"] == 4
+    assert r0["lock_sides_remaining"] == 6 and r0["lock_totals_remaining"] == 2
+    other = next(r for r in rows if r["name"] == "Team01")
+    assert other["new_coach"] is False and other["lock_sides_remaining"] is None
+    assert other["lock_sides_games"] == 8 and other["lock_totals_games"] == 4

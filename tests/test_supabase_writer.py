@@ -49,3 +49,68 @@ def test_sync_tipoff_central_and_projection_rounding():
     v1 = next(p for p in c.calls["projections"] if p["model_version"] == sw.V1_VERSION)
     assert v2["spread"] == -7.2 and v2["total"] == 143.7 and v2["proj_home"] == 75.5 and v2["proj_away"] == 68.2
     assert v1["total"] == 145.0 and v1["spread"] == -6.7
+
+
+def test_new_picks_get_locked_post_fields_existing_rows_do_not():
+    """New pick_keys get model_line / open_line / edge_vs_open; already-mirrored rows do not."""
+    now = datetime(2026, 11, 9, 7, 15, tzinfo=dr.CENTRAL)
+    g = dict(event_id="5", game_date="2026-11-09", kp_home="Northwestern", kp_away="Boston University",
+             neutral=False, state="pre",
+             tip_utc=datetime(2026, 11, 10, 1, 0, tzinfo=timezone.utc),
+             v2_home_margin=18.1, v2_total=146.2, v1_total=142.0, v1_home_margin=11.0,
+             current_home_spread=-16.5, current_total=144.5)
+    # already-mirrored pick: FakeClient.get will list its pick_key
+    old = dict(pick_id="4-total", created_ct="2026-11-02T07:36:45-06:00", game_date="2026-11-02",
+               event_id="4", tip_ct="2026-11-02 18:00", away="Air Force", home="Wright St.", neutral=False,
+               market="total", side="Under", line=162.5, price=-108, edge_pct=0.08, edge_pct_vs_open=0.06,
+               open_line=165.5, model_value=149.0, stake=8.2, status="graded",
+               home_score=102.0, away_score=71.0, result="loss", pnl=-8.2,
+               model_version="czarp-v1-totals")
+    new = dict(pick_id="5-total", created_ct="2026-11-09T07:15:53-06:00", game_date="2026-11-09",
+               event_id="5", tip_ct="2026-11-09 19:00", away="Boston University", home="Northwestern",
+               neutral=False, market="total", side="Under", line=144.5, price=-112,
+               edge_pct=0.0173, edge_pct_vs_open=0.0373, open_line=147.5, model_value=142.0,
+               stake=3.57, status="open", model_version="czarp-v1-totals")
+    # a new side: model_value is picked-side margin, model_line stores the picked-side line
+    side = dict(pick_id="5-spread", created_ct="2026-11-09T07:15:53-06:00", game_date="2026-11-09",
+                event_id="5", tip_ct="2026-11-09 19:00", away="Boston University", home="Northwestern",
+                neutral=False, market="spread", side="Boston University", line=16.5, price=-110,
+                edge_pct=0.011, edge_pct_vs_open=0.007, open_line=17.5, model_value=-11.0,
+                stake=2.0, status="open", model_version="czarp-v2")
+    led = pd.DataFrame([old, new, side], columns=dr.LEDGER_COLS)
+    c = FakeClient()
+    orig_get = c.get
+
+    def get(table, **params):
+        if table == "picks":
+            return [{"pick_key": "4-total"}]
+        return orig_get(table, **params)
+
+    c.get = get
+    sw.sync([g], led, None, now, log=lambda *_: None, client=c)
+    picks = {r["pick_key"]: r for r in c.calls["picks"]}
+    assert "fair_at_post" not in picks["4-total"]
+    assert "open_line" not in picks["4-total"]
+    assert "edge_vs_open" not in picks["4-total"]
+    bu = picks["5-total"]
+    assert bu["fair_at_post"] == 142.0 and bu["line_at_post"] == 144.5 and bu["total_at_post"] == 144.5
+    assert bu["open_line"] == 147.5 and bu["edge_vs_open"] == 0.0373
+    assert bu["model_version"] == "czarp-v1-totals" and bu["line_or_price"] == 144.5
+    sp = picks["5-spread"]
+    assert sp["fair_at_post"] == 11.0 and sp["line_at_post"] == 16.5 and sp["open_line"] == 17.5
+
+
+def test_official_picks_locked_sql_uses_pick_model_not_default():
+    from pathlib import Path
+    sql = (Path(__file__).parents[1] / "db" / "migrations" / "2026-11-09_fair_locks_skip_reasons.sql").read_text()
+    view = sql[sql.index("create view official_picks_locked"):sql.index("grant select on official_picks_locked")]
+    assert "pr.model_version = pk.model_version" in view
+    assert "is_default" not in view
+    for col in ("pick_id", "game_id", "market", "side", "model_name", "fair_at_post",
+                "line_at_post", "total_at_post", "open_line", "edge_at_post_pct", "edge_vs_open_pct", "posted_at"):
+        assert col in view
+    vb = sql[sql.index("create view value_bets"):sql.index("grant select on value_bets")]
+    assert "pk.logged_at" in vb and "pk.pick_hash" in vb
+    assert "lk.fair_at_post" in vb and "lk.total_at_post" in vb and "lk.model_name" in vb
+    assert "lock_sides_games" in sql and "lock_totals_games" in sql
+    assert "skip_reasons_spread" in sql and "skip_reason_total" in sql
