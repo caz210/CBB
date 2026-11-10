@@ -33,6 +33,36 @@ export function fmtUpdated(iso: string, now = new Date()) {
   return `${time} CT`;
 }
 
+/** "12:58 PM CT" when final_at is the same America/Chicago date as `relativeTo`
+ *  (a YYYY-MM-DD game/slate date, or today if omitted); otherwise "Nov 9, 12:30 AM CT".
+ *  Prefix "~" when the stamp is estimated. Invalid/missing → null. */
+export function fmtFinalAt(
+  iso: string | null | undefined,
+  opts?: { estimated?: boolean | null; relativeTo?: string | null },
+): string | null {
+  if (!iso) return null;
+  const t = new Date(iso);
+  if (Number.isNaN(t.getTime())) return null;
+  const dayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit" });
+  const stampDay = dayFmt.format(t);
+  const rel = opts?.relativeTo;
+  const sameDay = rel && /^\d{4}-\d{2}-\d{2}$/.test(rel) ? stampDay === rel : stampDay === dayFmt.format(new Date());
+  const time = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", hour: "numeric", minute: "2-digit" }).format(t);
+  const date = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric" }).format(t);
+  const label = sameDay ? `${time} CT` : `${date}, ${time} CT`;
+  return opts?.estimated ? `~${label}` : label;
+}
+
+/** "Final · 12:58 PM CT" or just "Final" when final_at is missing. */
+export function finalLabel(
+  iso: string | null | undefined,
+  estimated?: boolean | null,
+  relativeTo?: string | null,
+): string {
+  const when = fmtFinalAt(iso, { estimated, relativeTo });
+  return when ? `Final · ${when}` : "Final";
+}
+
 export const STALE_MS = 2 * 60 * 60 * 1000;
 export function isStale(iso: string | null | undefined, now = new Date()) {
   if (iso == null || iso === "") return false; // no stamp measured — don't hide Live

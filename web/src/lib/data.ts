@@ -73,6 +73,9 @@ function toSlateGame(r: Row): SlateGame {
     proj_possessions: num(r.proj_possessions),
     upset_alert: r.upset_alert === true,
     upset_reason: typeof r.upset_reason === "string" && r.upset_reason.trim() ? r.upset_reason.trim() : null,
+    status: r.status ? str(r.status) : null,
+    final_at: r.final_at ? str(r.final_at) : null,
+    final_at_estimated: r.final_at_estimated === true,
     skip_reasons_spread: strArr(r.skip_reasons_spread),
     skip_reasons_total: strArr(r.skip_reasons_total),
     skip_reason_spread: textOrNull(r.skip_reason_spread),
@@ -186,10 +189,13 @@ export type SlateData = {
   /** nearest dates with games, offered when the requested date is empty */
   prevDate: string | null;
   nextDate: string | null;
-  /** Newest games.updated_at / projection / line timestamp on this slate. */
+  /** Newest games.updated_at / projection / line timestamp — used for live/in-progress freshness only. */
   updatedAt: string | null;
   /** Every game is completed (final or graded). */
   finished: boolean;
+  /** max(final_at) on a finished slate; null if none of the games have a stamp. */
+  finalAt: string | null;
+  finalAtEstimated: boolean;
 };
 
 export async function loadSlate(sport: Sport, date: string): Promise<Loaded<SlateData>> {
@@ -207,6 +213,8 @@ export async function loadSlate(sport: Sport, date: string): Promise<Loaded<Slat
   let nextDate: string | null = null;
   let updatedAt: string | null = null;
   let finished = false;
+  let finalAt: string | null = null;
+  let finalAtEstimated = false;
   if (games.length) {
     const b = await sb.from("value_bets").select("*").eq("sport", sport.key).in("game_id", games.map((x) => x.game_id));
     if (b.error) return fail("value_bets", b.error);
@@ -215,7 +223,7 @@ export async function loadSlate(sport: Sport, date: string): Promise<Loaded<Slat
     all.sort((a, z) => z.line_edge_pct - a.line_edge_pct);
     bets = all.filter((x) => x.pick_tier === "official");
     const [st, gr, pr, ml] = await Promise.all([
-      sb.from("games").select("id,status,updated_at,home,away,home_team_id,away_team_id").in("id", ids),
+      sb.from("games").select("id,status,updated_at,final_at,final_at_estimated,home,away,home_team_id,away_team_id").in("id", ids),
       sb.from("ledger").select("game_id,result").in("game_id", ids).not("result", "is", null),
       sb.from("projections").select("game_id,model_version,spread,total,created_at").in("game_id", ids).order("created_at", { ascending: false }),
       sb.from("market_lines").select("game_id,fetched_at").in("game_id", ids).eq("source", "vegas"),
@@ -223,14 +231,33 @@ export async function loadSlate(sport: Sport, date: string): Promise<Loaded<Slat
     const done = new Set<number>();
     for (const r of st.data ?? []) if (str(r.status) === "final") done.add(Number(r.id));
     for (const r of gr.data ?? []) done.add(Number(r.game_id));
-    for (const x of games) x.completed = done.has(x.game_id);
+    const byId = new Map((st.data ?? []).map((r) => [Number(r.id), r as Row]));
+    for (const x of games) {
+      x.completed = done.has(x.game_id);
+      const row = byId.get(x.game_id);
+      if (!row) continue;
+      if (row.status) x.status = str(row.status);
+      if (row.final_at) x.final_at = str(row.final_at);
+      if (row.final_at_estimated === true) x.final_at_estimated = true;
+    }
     finished = games.every((x) => x.completed);
-    const stamps: number[] = [];
-    const bump = (v: unknown) => { const t = v ? Date.parse(str(v)) : NaN; if (Number.isFinite(t)) stamps.push(t); };
-    for (const r of st.data ?? []) bump(r.updated_at);
-    for (const r of pr.data ?? []) bump(r.created_at);
-    for (const r of ml.data ?? []) bump(r.fetched_at);
-    if (stamps.length) updatedAt = new Date(Math.max(...stamps)).toISOString();
+    if (finished) {
+      let bestMs = -Infinity;
+      for (const x of games) {
+        const ms = x.final_at ? Date.parse(x.final_at) : NaN;
+        if (!Number.isFinite(ms) || ms < bestMs) continue;
+        bestMs = ms;
+        finalAt = x.final_at ?? null;
+        finalAtEstimated = x.final_at_estimated === true;
+      }
+    } else {
+      const stamps: number[] = [];
+      const bump = (v: unknown) => { const t = v ? Date.parse(str(v)) : NaN; if (Number.isFinite(t)) stamps.push(t); };
+      for (const r of st.data ?? []) bump(r.updated_at);
+      for (const r of pr.data ?? []) bump(r.created_at);
+      for (const r of ml.data ?? []) bump(r.fetched_at);
+      if (stamps.length) updatedAt = new Date(Math.max(...stamps)).toISOString();
+    }
     attachRawEdges(games, (pr.data ?? []) as Row[]);
     await attachNewCoaches(sb, games, st.data ?? []);
     const ins = await loadInsights(sb, ids);
@@ -244,7 +271,7 @@ export async function loadSlate(sport: Sport, date: string): Promise<Loaded<Slat
     nextDate = n.data?.[0] ? str(n.data[0].game_date) : null;
     prevDate = p.data?.[0] ? str(p.data[0].game_date) : null;
   }
-  return { state: "live", data: { date, games, bets, tracked, prevDate, nextDate, updatedAt, finished } };
+  return { state: "live", data: { date, games, bets, tracked, prevDate, nextDate, updatedAt, finished, finalAt, finalAtEstimated } };
 }
 
 
@@ -634,6 +661,8 @@ function toGrade(r: Row): ModelGrade {
     home_score: num(r.home_score),
     away_score: num(r.away_score),
     status: r.status ? str(r.status) : null,
+    final_at: r.final_at ? str(r.final_at) : null,
+    final_at_estimated: r.final_at_estimated === true,
     model_spread: num(r.model_spread),
     model_total: num(r.model_total),
     vegas_spread: num(r.vegas_spread),

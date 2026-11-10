@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { fmtUpdated, isStale } from "@/lib/labels";
+import { fmtFinalAt, fmtUpdated, isStale } from "@/lib/labels";
 
 /** Clear, mobile-friendly empty / not-connected state for live data pages. */
 export function EmptyState({
@@ -31,15 +31,30 @@ export function EmptyState({
   );
 }
 
-/** Freshness chip. "Live" only when the slate is current (<2h) and not finished. */
-export function LiveBadge({ updatedAt, finished }: { updatedAt?: string | null; finished?: boolean } = {}) {
+/** Freshness chip. "Live" only when the slate is current (<2h) and not finished.
+ *  Finished slates use max(final_at), not updated_at. Staleness applies only while live. */
+export function LiveBadge({
+  updatedAt, finished, finalAt, finalAtEstimated, slateDate,
+}: {
+  updatedAt?: string | null; finished?: boolean;
+  finalAt?: string | null; finalAtEstimated?: boolean;
+  slateDate?: string | null;
+} = {}) {
+  if (finished) {
+    const when = fmtFinalAt(finalAt, { estimated: finalAtEstimated, relativeTo: slateDate });
+    return (
+      <span className="inline-flex items-center gap-1 rounded-md border border-ink-600 bg-ink-850 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+        Final{when ? ` · ${when}` : ""}
+      </span>
+    );
+  }
   const stale = isStale(updatedAt ?? null);
   const when = updatedAt ? fmtUpdated(updatedAt) : null;
-  if (finished || stale) {
+  if (stale) {
     if (!when) return null;
     return (
       <span className="inline-flex items-center gap-1 rounded-md border border-ink-600 bg-ink-850 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-        {finished ? "Final" : "Updated"} · {when}
+        Updated · {when}
       </span>
     );
   }

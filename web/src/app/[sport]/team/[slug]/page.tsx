@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { getSport } from "@/lib/sports";
 import { loadTeam } from "@/lib/data";
 import { teamHref } from "@/lib/teams";
-import { fmtGameDate, fmtLine, fmtTipoff, pct } from "@/lib/labels";
+import { GAME_STATUS_LABEL, finalLabel, fmtGameDate, fmtLine, fmtTipoff, pct } from "@/lib/labels";
 import { edgeTier, TIER_BADGE } from "@/lib/labels";
 import { ComingSoon } from "@/components/ComingSoon";
 import { EmptyState } from "@/components/EmptyState";
@@ -204,7 +204,7 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
                 <li key={g.game_id} className="card p-3.5">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="text-[11px] text-zinc-500">{fmtGameDate(g.game_date)}{g.status ? ` · ${g.status}` : ""}</div>
+                      <div className="text-[11px] text-zinc-500">{fmtGameDate(g.game_date)}{g.status === "final" || g.final_at ? ` · ${finalLabel(g.final_at, g.final_at_estimated, g.game_date)}` : g.status ? ` · ${GAME_STATUS_LABEL[g.status as keyof typeof GAME_STATUS_LABEL] ?? g.status}` : ""}</div>
                       <div className="truncate font-semibold">
                         {loc}{" "}
                         <Link href={teamHref(sportKey, opp)} className="hover:text-court-400">{opp}</Link>

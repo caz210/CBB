@@ -44,6 +44,9 @@ export default async function SlatePage({
         badge={res.state === "live" ? "live" : "none"}
         updatedAt={res.state === "live" ? res.data.updatedAt : null}
         finished={res.state === "live" ? res.data.finished : false}
+        finalAt={res.state === "live" ? res.data.finalAt : null}
+        finalAtEstimated={res.state === "live" ? res.data.finalAtEstimated : false}
+        slateDate={date}
         eyebrow={`${sport.long} · Slate`}
         title={`${fmtGameDate(date)}${date === today ? " · Today" : ""}`}
         sub="Price vs fair value on every game. Edge % is the headline — star games to watch. Tap a card for insights."

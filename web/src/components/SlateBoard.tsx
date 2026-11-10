@@ -2,7 +2,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { SlateGame, ValueBet } from "@/lib/types";
-import { LOCKED_NOTE, MARKET_LABEL, SOURCE_LABEL, TIER_BADGE, edgeTier, fmtLine, fmtPostedProof, fmtWinProb, fmtTipoff, pct, signedPct } from "@/lib/labels";
+import { LOCKED_NOTE, MARKET_LABEL, SOURCE_LABEL, TIER_BADGE, edgeTier, finalLabel, fmtLine, fmtPostedProof, fmtWinProb, fmtTipoff, pct, signedPct } from "@/lib/labels";
 import { computedLineEdge } from "@/lib/portfolio";
 import { useWatchlist } from "@/lib/watchlist";
 import { weaknessesOnly } from "@/lib/archetypes";
@@ -236,7 +236,7 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
       className={`card cursor-pointer overflow-hidden transition hover:border-ink-500 active:scale-[0.995] ${g.completed ? "opacity-70" : ""}`}>
       <header className="flex items-center gap-2 border-b border-ink-700/60 px-4 py-2.5 text-xs">
         <span className="font-semibold text-zinc-300">{g.tipoff ? fmtTipoff(g.tipoff) : "Tip-off TBD"}</span>
-        {g.completed && <span className="font-semibold uppercase text-zinc-500">Final</span>}
+        {g.completed && <span className="font-semibold uppercase text-zinc-500">{finalLabel(g.final_at, g.final_at_estimated, g.game_date)}</span>}
         {bets.length > 0 && <span className="rounded-md bg-edge-400/15 px-1.5 py-0.5 text-[10px] font-bold text-edge-400">Official</span>}
         <button
           type="button"
@@ -464,7 +464,7 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
       <button aria-label="Close" onClick={onClose} className="absolute inset-0 bg-black/70" />
       <div className="relative max-h-[88dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl border border-ink-700 bg-ink-900 p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl md:rounded-3xl">
         <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-ink-600 md:hidden" />
-        <div className="text-xs text-zinc-500">{g.tipoff ? fmtTipoff(g.tipoff) : "Tip-off TBD"}{g.completed ? " · Final" : ""}</div>
+        <div className="text-xs text-zinc-500">{g.tipoff ? fmtTipoff(g.tipoff) : "Tip-off TBD"}{g.completed ? ` · ${finalLabel(g.final_at, g.final_at_estimated, g.game_date)}` : ""}</div>
         <h3 className="mt-1 text-xl font-bold">
           <Link href={teamHref(sportKey, g.away)} onClick={(e) => e.stopPropagation()} className="hover:text-court-400">{g.away}</Link>
           <span className="text-zinc-500"> @ </span>
