@@ -75,11 +75,11 @@ def test_candidates_reasons_and_line_move_flag(monkeypatch):
     s = c["spread"]                                     # model H by 11 vs H -4.5: gap 6.5 / 140 = 4.6%
     assert s["side"] == "H" and s["line"] == -4.5 and s["open_line"] == -4.0 and s["rule_ok"]
     assert abs(s["edge_pct"] - 6.5 / 140) < 1e-9 and abs(s["edge_pct_vs_open"] - 7 / 140) < 1e-9
-    assert not c["total"]["rule_ok"] and "below 3% threshold" in c["total"]["reasons"][0]
-    # edge vs open but not vs current -> "edge gone vs current"
+    assert not c["total"]["rule_ok"] and c["total"]["reasons"] == ["edge vs open below 3%"]
+    # edge vs open but not vs current -> "edge vs now below 4%"
     g = _game(current_home_spread=-8.0)
     s = {x["market"]: x for x in dr.candidates([g], _now())}["spread"]
-    assert not s["rule_ok"] and s["reasons"][0].startswith("edge gone vs current")
+    assert not s["rule_ok"] and s["reasons"] == ["edge vs now below 4%"]
     assert s["flagged"] and s["line_move"] == 4.0
     # 2+ pt move with edge intact: flag only by default, excluded when turned on
     g = _game(open_home_spread=-2.0, current_home_spread=-4.0)
@@ -100,7 +100,7 @@ def test_flag_plays_matches_candidates_and_top_edges(monkeypatch):
     assert len(top) == 4 and top[0]["pick_id"] == "8-total" and top[0]["qualifies"]
     assert [r["rank_edge"] for r in top] == sorted([r["rank_edge"] for r in top], reverse=True)
     md = "\n".join(dr.top_edges_md(top))
-    assert "| 1 |" in md and "| 4 |" in md and "below 4% threshold" in md
+    assert "| 1 |" in md and "| 4 |" in md and "edge vs open below 4%" in md
 
 
 # ── totals pace fix ──────────────────────────────────────────────────────────
@@ -166,6 +166,30 @@ def test_attach_market_edges_reuses_candidates():
     assert bare["edge_now_pct_total"] is None and bare["edge_vs_open_pct_total"] is None
 
 
+
+def test_reason_text_names_the_bar_without_percentages():
+    # numbers stay off the reason string; the card already shows them
+    g = _game(v2_home_margin=10.2, current_home_spread=-3.0, open_home_spread=-6.2,
+              current_total=160.0, open_total=160.0, v1_total=161.0)
+    c = {x["market"]: x for x in dr.candidates([g], _now())}
+    assert c["spread"]["reasons"] == ["edge vs open below 4%"]
+    assert "2.5" not in c["spread"]["reasons"][0] and "%" not in c["spread"]["reasons"][0].split("below")[0]
+    assert c["total"]["reasons"] == ["edge vs open below 3%"]
+    # both bars fail on a side: two reasons, still no raw edge figures
+    both = _game(v2_home_margin=5.0, current_home_spread=-4.5, open_home_spread=-4.0)
+    s = {x["market"]: x for x in dr.candidates([both], _now())}["spread"]
+    assert s["reasons"] == ["edge vs open below 4%", "edge vs now below 4%"]
+    assert all("(" not in r and r.count("%") == 1 for r in s["reasons"])
+    # flipped past the model with current edge still >= 4%
+    flip = _game(current_home_spread=-17.0)
+    s = {x["market"]: x for x in dr.candidates([flip], _now())}["spread"]
+    assert s["reasons"] == ["edge gone vs current (flipped side)"]
+    # flipped and current edge also below the bar
+    flip_low = _game(current_home_spread=-14.0)
+    s = {x["market"]: x for x in dr.candidates([flip_low], _now())}["spread"]
+    assert s["reasons"] == ["edge vs now below 4% (flipped side)"]
+
+
 def test_skip_codes_and_attach_reasons():
     now = _now()
     # H by 11 vs -4.5 is a qualifying side; total 141 vs 140 is below 3%
@@ -176,7 +200,7 @@ def test_skip_codes_and_attach_reasons():
     assert g["skip_reasons_spread"] == [] and g["skip_reason_spread"] is None
     assert "below_open_threshold" in g["skip_reasons_total"]
     assert abs(g["edge_now_pct_spread"] - 6.5 / 140) < 1e-9
-    assert "below 3% threshold" in g["skip_reason_total"]
+    assert g["skip_reason_total"] == "edge vs open below 3%"
     # juiced official side: edge is large but price makes Kelly < $1
     g2 = _game(event_id="2", current_home_spread_price=-1000, current_away_spread_price=-1000)
     # candidates uses price from current_*_spread_price; force a qualifying side with a huge juice
