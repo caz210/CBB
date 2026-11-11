@@ -10,6 +10,8 @@ daily_run.py — fully automated daily PAPER-trading pipeline (no real bets are 
              --no-coach-lock (lock off for everyone)  --coach-lock TEAM / --coach-unlock TEAM (one run only)
              per-team flags (permanent, git-tracked): config/coach_locks.csv, edit via coach_locks.py
              --skip-side-moves (also skip sides whose spread moved >= 3 pts AGAINST our side; default flag only)
+             --chat-only (rewrite outputs/daily/<date>.chat.md from the latest snapshot + ledger;
+              no grading, no new picks, no ledger/Supabase writes)
 
 Steps
   (a) refresh KenPom ratings / prior / per-team HCA (cached) and scrape FanMatch (KenPom predictions)
@@ -21,7 +23,8 @@ Steps
   (e) append plays to data/ledger/ledger.csv with timestamped prices
   (f) grade earlier open plays from final scores; record closing lines and CLV
   (g) write outputs/daily/YYYY-MM-DD.md, incl. a Top-10 edges table (every game, regardless of threshold)
-      and a 'likely news/injury' flag when a side's spread moved >= 2 pts open -> current
+      and a 'likely news/injury' flag when a side's spread moved >= 2 pts open -> current, plus a
+      paste-ready outputs/daily/YYYY-MM-DD.chat.md with the same Top 10 as per-game line blocks
   Later in the day, pretip_check.py re-pulls lines for today's open plays and flags moves against us.
 
 Rules (from the walk-forward backtest, Jan 2025 – Apr 2026, see outputs/walkforward/):
@@ -46,6 +49,7 @@ Rules (from the walk-forward backtest, Jan 2025 – Apr 2026, see outputs/walkfo
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import math
 import os
@@ -1141,6 +1145,407 @@ def top_edges_md(rows) -> list[str]:
     return L
 
 
+# ── paste-ready chat report (Top 10 as per-game line blocks) ──────────────────
+def _fmt_tip_ct(tip_ct) -> str:
+    """'2026-11-11 19:00' → '7:00 PM CT'."""
+    raw = str(tip_ct or "").strip()
+    try:
+        dt = datetime.strptime(raw[:16], "%Y-%m-%d %H:%M")
+    except ValueError:
+        return raw or "—"
+    h, m = dt.hour, dt.minute
+    ampm = "AM" if h < 12 else "PM"
+    h12 = h % 12 or 12
+    return f"{h12}:{m:02d} {ampm} CT"
+
+
+def _missing(x) -> bool:
+    if x is None:
+        return True
+    try:
+        return bool(pd.isna(x))
+    except (TypeError, ValueError):
+        return False
+
+
+def _fmt_total_line(x) -> str:
+    if _missing(x):
+        return "—"
+    return f"{round(float(x), 1):g}"
+
+
+def _fmt_spread_line(x) -> str:
+    if _missing(x):
+        return "—"
+    v = round(float(x), 1)
+    if abs(v) < 1e-9:
+        return "0"
+    return f"{v:+g}"
+
+
+def _fmt_edge_pct(x) -> str:
+    if _missing(x):
+        return "—"
+    return f"{float(x):.1%}"
+
+
+def _fmt_money(x) -> str:
+    v = float(x)
+    if v < 0:
+        return f"-${abs(v):,.2f}"
+    if v > 0:
+        return f"+${v:,.2f}"
+    return "$0.00"
+
+
+def _line_arrow(open_v, current_v, *, spread=False) -> str:
+    """⬆️ if the number grew (total higher, or the open favorite laid more points)."""
+    if _missing(open_v) or _missing(current_v):
+        return "➡️"
+    o, c = float(open_v), float(current_v)
+    if spread:
+        # more negative from the favorite's perspective = laid more points
+        if c < o - 1e-9:
+            return "⬆️"
+        if c > o + 1e-9:
+            return "⬇️"
+        return "➡️"
+    if c > o + 1e-9:
+        return "⬆️"
+    if c < o - 1e-9:
+        return "⬇️"
+    return "➡️"
+
+
+def _chat_game_title(g) -> str:
+    n = " (N)" if g.get("neutral") else ""
+    away = g.get("kp_away") or g.get("away") or "Away"
+    home = g.get("kp_home") or g.get("home") or "Home"
+    return f"{away} @ {home}{n} · {_fmt_tip_ct(g.get('tip_ct'))}"
+
+
+def open_favorite(g) -> tuple[str | None, float | None, float | None]:
+    """Team favored at the DK open, plus open and current lines from that team's perspective.
+
+    Falls back to the current favorite (then the home team) when the open spread is missing.
+    A pick'em (0) is labeled as the home team at 0.
+    """
+    home = g.get("kp_home") or g.get("home")
+    away = g.get("kp_away") or g.get("away")
+    open_h = g.get("open_home_spread")
+    cur_h = g.get("current_home_spread")
+    ref = open_h if not _missing(open_h) else cur_h
+    if _missing(ref) or home is None or away is None:
+        return None, None if _missing(open_h) else float(open_h), None if _missing(cur_h) else float(cur_h)
+    ref = float(ref)
+    if ref <= 0:
+        fav, sign = home, 1.0
+    else:
+        fav, sign = away, -1.0
+    o = None if _missing(open_h) else round(sign * float(open_h), 4)
+    c = None if _missing(cur_h) else round(sign * float(cur_h), 4)
+    return fav, o, c
+
+
+def czarp_from_favorite(g, favorite: str | None) -> tuple:
+    """(CZarp total, CZarp spread from the open-favorite's perspective)."""
+    total = g.get("v1_total")
+    if _missing(total):
+        total = g.get("v2_total")
+    hm = g.get("v2_home_margin")
+    fav_line = None
+    if not _missing(hm) and favorite:
+        home = g.get("kp_home") or g.get("home")
+        away = g.get("kp_away") or g.get("away")
+        # model home margin > 0 means home is favored; home spread = -margin
+        if favorite == home:
+            fav_line = -float(hm)
+        elif favorite == away:
+            fav_line = float(hm)
+    return (None if _missing(total) else float(total), fav_line)
+
+
+def _is_big_move(market: str, open_v, current_v) -> bool:
+    if market == "spread":
+        # thresholds apply to the raw move size; sign is irrelevant
+        return BM.is_big("spread", open_v, current_v)
+    return BM.is_big("total", open_v, current_v)
+
+
+def _lines_open_now_block(g) -> list[str]:
+    """'Lines (open → now)' with both the total and the open-favorite's spread."""
+    o_tot, c_tot = g.get("open_total"), g.get("current_total")
+    tot = f"Total {_fmt_total_line(o_tot)} {_line_arrow(o_tot, c_tot)} {_fmt_total_line(c_tot)}"
+    if _is_big_move("total", o_tot, c_tot):
+        tot += " · big move"
+    fav, o_sp, c_sp = open_favorite(g)
+    # big-move size is |current_home − open_home|, equivalent to |c_sp − o_sp|
+    sp_open_h, sp_cur_h = g.get("open_home_spread"), g.get("current_home_spread")
+    if fav:
+        sp = f"{fav} {_fmt_spread_line(o_sp)} {_line_arrow(o_sp, c_sp, spread=True)} {_fmt_spread_line(c_sp)}"
+    else:
+        sp = f"Spread {_fmt_spread_line(sp_open_h)} {_line_arrow(sp_open_h, sp_cur_h, spread=True)} {_fmt_spread_line(sp_cur_h)}"
+    if _is_big_move("spread", sp_open_h, sp_cur_h):
+        sp += " · big move"
+    return ["Lines (open → now)", tot, sp]
+
+
+def _czarp_block(g, favorite: str | None) -> list[str]:
+    tot, sp = czarp_from_favorite(g, favorite)
+    label = favorite or "Spread"
+    return ["CZarp", f"Total: {_fmt_total_line(tot)}", f"{label}: {_fmt_spread_line(sp)}"]
+
+
+def is_lean(c) -> bool:
+    """low_value + current edge clears the bar while the vs-open edge does not (same rule as slate_games)."""
+    if c.get("qualifies"):
+        return False
+    eo, ec, thr = c.get("edge_pct_vs_open"), c.get("edge_pct"), c.get("thr")
+    return (eo is not None and ec is not None and thr is not None and ec >= thr and eo < thr)
+
+
+def _chat_reasons(r) -> list[str]:
+    """Existing pipeline reasons, minus Big move notes (already flagged on the lines)."""
+    out = []
+    for x in r.get("reasons") or []:
+        if not x or str(x).startswith("Big move:"):
+            continue
+        out.append(str(x))
+    return out
+
+
+def _verdict_suffix(r) -> str:
+    if r.get("qualifies"):
+        return "✅ Official play"
+    reasons = _chat_reasons(r)
+    if r.get("tier") == "track":
+        return "Tracked" + (f": {'; '.join(reasons)}" if reasons else "")
+    label = "Low value (Lean)" if is_lean(r) else "Low value"
+    return label + (f": {'; '.join(reasons)}" if reasons else "")
+
+
+def format_chat_edge_block(r) -> list[str]:
+    """One Top 10 game as a paste-ready block (no leading rank number)."""
+    g = r["g"]
+    fav, _, _ = open_favorite(g)
+    pick = r.get("side") or "—"
+    edges = f"{_fmt_edge_pct(r.get('edge_pct'))} now, {_fmt_edge_pct(r.get('edge_pct_vs_open'))} vs open"
+    L = [_chat_game_title(g)]
+    L.extend(_lines_open_now_block(g))
+    L.append("")
+    L.extend(_czarp_block(g, fav))
+    L.append("")
+    L.append(f"Edge: {pick} · {edges} · {_verdict_suffix(r)}")
+    return L
+
+
+def top_edges_chat(rows) -> list[str]:
+    L = ["## Top 10 edges", ""]
+    if not rows:
+        return L + ["No priced D-I games to rank.", ""]
+    for i, r in enumerate(rows, 1):
+        block = format_chat_edge_block(r)
+        block[0] = f"{i}. {block[0]}"
+        L.extend(block)
+        L.append("")
+    return L
+
+
+def _bet_label(r) -> str:
+    if getattr(r, "market", None) == "spread":
+        return f"{r.side} {_fmt_spread_line(r.line)}"
+    return f"{r.side} {_fmt_total_line(r.line)}"
+
+
+def _game_name(r) -> str:
+    n = " (N)" if str(getattr(r, "neutral", "")) == "True" or getattr(r, "neutral", False) is True else ""
+    return f"{r.away} @ {r.home}{n}"
+
+
+def _result_clause(r) -> str:
+    bet, game = _bet_label(r), _game_name(r)
+    res = r.result if not _missing(getattr(r, "result", None)) else "pending"
+    score = ""
+    if not _missing(getattr(r, "home_score", None)) and not _missing(getattr(r, "away_score", None)):
+        score = f" {int(r.away_score)}-{int(r.home_score)}"
+    if res == "win":
+        return f"{game}, {bet} won{score}"
+    if res == "loss":
+        return f"{game}, {bet} lost{score}"
+    if res == "push":
+        return f"{game}, {bet} pushed{score}"
+    return f"{game}, {bet} pending"
+
+
+def _count_markets(rows) -> str:
+    n = len(rows)
+    if n == 0:
+        return "No official plays today."
+    n_sp = int((rows.market == "spread").sum()) if hasattr(rows, "market") else 0
+    n_tot = int((rows.market == "total").sum()) if hasattr(rows, "market") else 0
+    words = {1: "One", 2: "Two", 3: "Three", 4: "Four", 5: "Five",
+             6: "Six", 7: "Seven", 8: "Eight", 9: "Nine", 10: "Ten"}
+    count = words.get(n, str(n))
+    noun = "official play" if n == 1 else "official plays"
+    if n_tot == n:
+        kind = "a total" if n == 1 else "both totals" if n == 2 else "all totals"
+        return f"{count} {noun} today, {kind}."
+    if n_sp == n:
+        kind = "a side" if n == 1 else "both sides" if n == 2 else "all sides"
+        return f"{count} {noun} today, {kind}."
+    return f"{count} {noun} today, {n_sp} side{'' if n_sp == 1 else 's'} and {n_tot} total{'' if n_tot == 1 else 's'}."
+
+
+def chat_header(today: str, ledger, new_rows=None) -> list[str]:
+    """Short official-play + yesterday-results header in plain sentences."""
+    L = [f"# CZarp paper trades — {today}",
+         "Paper only; notional $1,000 bankroll.", ""]
+    td = ledger[(ledger.game_date == today) & (ledger.status != "void")] if len(ledger) else ledger
+    today_off = official(td) if len(td) else td
+    L.append(_count_markets(today_off))
+    if len(today_off):
+        for _, r in today_off.sort_values("tip_ct").iterrows():
+            L.append(f"- {_game_name(r)}, {_bet_label(r)}, ${float(r.stake):.2f}, {_fmt_tip_ct(r.tip_ct)}.")
+    track_rows = td[td.tier == "track"] if len(td) and "tier" in td else td.iloc[0:0] if len(td) else td
+    if len(track_rows) == 0:
+        L.append("No tracked sides.")
+    else:
+        n = len(track_rows)
+        L.append(f"{n} tracked side{'s' if n != 1 else ''} (paper only, flat 1u, not staked):")
+        for _, r in track_rows.sort_values("tip_ct").iterrows():
+            L.append(f"- {_game_name(r)}, {_bet_label(r)}, {_fmt_tip_ct(r.tip_ct)}.")
+    L.append("")
+    yday = (date.fromisoformat(today) - timedelta(days=1)).isoformat()
+    yr = ledger[ledger.game_date == yday] if len(ledger) else ledger
+    if not len(yr):
+        L.append(f"Yesterday ({yday}): no plays.")
+    else:
+        off = official(yr)
+        og = off[off.status == "graded"] if len(off) else off
+        if not len(og):
+            y = f"Yesterday ({yday}): official results still pending."
+        else:
+            w = int((og.result == "win").sum())
+            l = int((og.result == "loss").sum())
+            p = int((og.result == "push").sum())
+            pnl = pd.to_numeric(og.pnl, errors="coerce").fillna(0).sum()
+            wl = f"{w}-{l}" + (f"-{p}" if p else "")
+            y = f"Yesterday ({yday}): official {wl}, {_fmt_money(pnl)}."
+            clauses = [_result_clause(r) for _, r in og.iterrows()]
+            if clauses:
+                y += " " + "; ".join(clauses) + "."
+        tr = yr[yr.tier == "track"] if "tier" in yr else yr.iloc[0:0]
+        tg = tr[tr.status == "graded"] if len(tr) else tr
+        if len(tg):
+            t_bits = []
+            for _, r in tg.iterrows():
+                u = flat_units(r)
+                t_bits.append(_result_clause(r) + f" ({u:+.2f}u)")
+            y += " Tracked " + "; ".join(t_bits) + "."
+        recs = tier_record(official(ledger)) if len(ledger) else None
+        if recs and recs["n"]:
+            roi = "—" if recs["roi"] is None else f"{recs['roi']:+.1%} ROI"
+            y += f" Official record is now {recs['w']}-{recs['l']}" + (f"-{recs['p']}" if recs["p"] else "") + f", {recs['units']:+.2f}u, {roi}."
+        L.append(y)
+    L.append("")
+    return L
+
+
+def write_chat_summary(today: str, now: datetime, games, new_rows, ledger, graded_idx, notes, top=None,
+                       path: str | None = None) -> str:
+    os.makedirs(OUT_DIR, exist_ok=True)
+    path = path or os.path.join(OUT_DIR, f"{today}.chat.md")
+    L = chat_header(today, ledger, new_rows)
+    L.extend(top_edges_chat(top or []))
+    with open(path, "w") as fh:
+        fh.write("\n".join(L).rstrip() + "\n")
+    return path
+
+
+def _none_if_nan(v):
+    if v is None:
+        return None
+    try:
+        if pd.isna(v):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return v
+
+
+def _parse_coach(v):
+    v = _none_if_nan(v)
+    if not v:
+        return None
+    if isinstance(v, dict):
+        return v
+    try:
+        x = ast.literal_eval(str(v))
+        return x if isinstance(x, dict) else None
+    except (ValueError, SyntaxError):
+        return None
+
+
+def games_from_snapshot(path: str) -> list[dict]:
+    """Rebuild daily_run game dicts from a snapshot CSV (coaches, tip_utc, NaNs cleaned)."""
+    df = pd.read_csv(path)
+    games = []
+    for rec in df.to_dict(orient="records"):
+        g = {k: _none_if_nan(v) for k, v in rec.items()}
+        for k in ("coach_home", "coach_away"):
+            g[k] = _parse_coach(g.get(k))
+        g["neutral"] = bool(g.get("neutral"))
+        if g.get("skip") in ("", "nan", "None"):
+            g["skip"] = None
+        tip = g.get("tip_ct")
+        try:
+            g["tip_utc"] = datetime.strptime(str(tip)[:16], "%Y-%m-%d %H:%M").replace(tzinfo=CENTRAL).astimezone(timezone.utc)
+        except (TypeError, ValueError):
+            g["tip_utc"] = datetime(2099, 1, 1, tzinfo=timezone.utc)
+        games.append(g)
+    return games
+
+
+def latest_snapshot(day: str, directory: str | None = None) -> str | None:
+    d = directory or SNAP_DIR
+    if not os.path.isdir(d):
+        return None
+    cands = [os.path.join(d, n) for n in os.listdir(d)
+             if n.startswith(f"{day}_") and n.endswith(".csv")]
+    return max(cands) if cands else None
+
+
+def snapshot_now(games, fallback=None) -> datetime:
+    raw = next((g.get("snapshot_ct") for g in games if g.get("snapshot_ct")), None)
+    if raw:
+        try:
+            dt = datetime.fromisoformat(str(raw))
+            return dt if dt.tzinfo else dt.replace(tzinfo=CENTRAL)
+        except ValueError:
+            pass
+    return fallback or now_ct()
+
+
+def render_chat_from_snapshot(today: str, snapshot: str | None = None, path: str | None = None,
+                              ledger=None) -> str:
+    """Write <date>.chat.md from a snapshot + the ledger. No grading, no new picks, no writes."""
+    snap = snapshot or latest_snapshot(today)
+    if not snap:
+        raise FileNotFoundError(f"no snapshot for {today} in {SNAP_DIR}")
+    games = games_from_snapshot(snap)
+    now = snapshot_now(games)
+    if ledger is None:
+        ledger = seal(read_ledger())
+    cands = candidates(games, now)
+    if len(ledger):
+        played = set(official(ledger).loc[lambda d: d.game_date == today, "pick_id"].astype(str))
+    else:
+        played = set()
+    top = top_edges(cands, played)
+    return write_chat_summary(today, now, games, [], ledger, [], [], top,
+                              path=path or os.path.join(OUT_DIR, f"{today}.chat.md"))
+
+
 # ── summary ──────────────────────────────────────────────────────────────────
 def _rec(df: pd.DataFrame) -> str:
     g = df[df.status == "graded"]
@@ -1323,6 +1728,8 @@ def write_summary(today: str, now: datetime, games, new_rows, ledger, graded_idx
         L.append(f"- {n}")
     with open(path, "w") as fh:
         fh.write("\n".join(L) + "\n")
+    chat_path = path[:-3] + ".chat.md" if path.endswith(".md") else path + ".chat.md"
+    write_chat_summary(today, now, games, new_rows, ledger, graded_idx, notes, top, path=chat_path)
     return path
 
 
@@ -1340,6 +1747,9 @@ def main(argv=None) -> int:
                     help="re-project today's slate and refresh Supabase (projections, skip reasons, team_profiles, "
                          "finals, NULL pick locks) WITHOUT grading, logging new picks, or writing the ledger/snapshot; "
                          "report goes to outputs/daily/<date>.resync.md")
+    ap.add_argument("--chat-only", action="store_true",
+                    help="rewrite outputs/daily/<date>.chat.md from the latest snapshot + ledger "
+                         "(no grading, no new picks, no ledger/Supabase writes)")
     ap.add_argument("--exclude-line-moves", action="store_true",
                     help=f"exclude sides whose spread moved >= {LINE_MOVE_PTS:g} pts open->current (default: flag only)")
     ap.add_argument("--coach-lock-games", type=int, default=None,
@@ -1367,6 +1777,8 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     if a.resync and a.dry_run:
         ap.error("--resync and --dry-run are mutually exclusive")
+    if a.chat_only and (a.resync or a.dry_run):
+        ap.error("--chat-only cannot be combined with --resync or --dry-run")
     if a.config:
         os.environ["CZARP_CONFIG"] = a.config
     if a.exclude_line_moves:
@@ -1393,6 +1805,10 @@ def main(argv=None) -> int:
     today = a.date or now.date().isoformat()
     notes: list[str] = []
     os.makedirs(SNAP_DIR, exist_ok=True)
+    if a.chat_only:
+        path = render_chat_from_snapshot(today)
+        log(f"  chat summary → {path} (from snapshot; no grading, no new picks, ledger untouched)")
+        return 0
     log(f"CZarp daily run — slate {today}, {now.strftime('%Y-%m-%d %H:%M')} CT")
 
     ledger = seal(read_ledger())        # rows from before the hash chain get sealed (in memory; written below)
