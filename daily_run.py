@@ -63,6 +63,8 @@ import pandas as pd
 import requests
 
 from czarp import big_moves as BM
+from czarp import htu_tracker as HTU
+from czarp import season_form as SF
 
 warnings.filterwarnings("ignore", category=UserWarning)
 CENTRAL = ZoneInfo("America/Chicago")
@@ -1121,8 +1123,8 @@ def top_edges_md(rows) -> list[str]:
     if not rows:
         return L + ["No priced D-I games to rank.", ""]
     L.append("| # | Tip (CT) | Game | Market | Pick | Vegas open | Vegas current | CZarp line | Edge% vs open | "
-             "Edge% vs current | Line move | Tags | Qualifies | Reason if not / notes |")
-    L.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+             "Edge% vs current | Line move | Tags | Qualifies | Reason if not / notes | Points so far (info) |")
+    L.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     for i, r in enumerate(rows, 1):
         g, m = r["g"], r["market"]
         czarp = -r["model_value"] if m == "spread" else r["model_value"]
@@ -1140,7 +1142,7 @@ def top_edges_md(rows) -> list[str]:
         L.append(f"| {i} | {str(g['tip_ct'])[11:]} | {g['kp_away']} @ {g['kp_home']}{' (N)' if g['neutral'] else ''} | "
                  f"{'Side' if m == 'spread' else 'Total'} | {r['side']} | {_fmt_line(r['open_line'], m)} | "
                  f"{_fmt_line(r['line'], m)} | {_fmt_line(round(czarp, 1), m)} | {eo} | {ec} | {mv} | {tags} | "
-                 f"{'yes' if r['qualifies'] else 'no'} | {'; '.join(r['reasons'])} |")
+                 f"{'yes' if r['qualifies'] else 'no'} | {'; '.join(r['reasons'])} | {SF.fmt_cell(r.get('pts_so_far'))} |")
     L.append("")
     return L
 
@@ -1336,6 +1338,9 @@ def format_chat_edge_block(r) -> list[str]:
     L.extend(_czarp_block(g, fav))
     L.append("")
     L.append(f"Edge: {pick} · {edges} · {_verdict_suffix(r)}")
+    pts = SF.fmt_line(r.get("pts_so_far"))
+    if pts:
+        L.append(pts)
     return L
 
 
@@ -1452,10 +1457,12 @@ def chat_header(today: str, ledger, new_rows=None) -> list[str]:
 
 
 def write_chat_summary(today: str, now: datetime, games, new_rows, ledger, graded_idx, notes, top=None,
-                       path: str | None = None) -> str:
+                       path: str | None = None, htu_line: str | None = None) -> str:
     os.makedirs(OUT_DIR, exist_ok=True)
     path = path or os.path.join(OUT_DIR, f"{today}.chat.md")
     L = chat_header(today, ledger, new_rows)
+    if htu_line:
+        L.extend([htu_line, ""])
     L.extend(top_edges_chat(top or []))
     with open(path, "w") as fh:
         fh.write("\n".join(L).rstrip() + "\n")
@@ -1542,8 +1549,60 @@ def render_chat_from_snapshot(today: str, snapshot: str | None = None, path: str
     else:
         played = set()
     top = top_edges(cands, played)
+    if info_extras_on():
+        try:
+            attach_points_so_far(top, season_finals(today))
+        except Exception as e:
+            log(f"  points so far unavailable ({type(e).__name__}: {e})")
     return write_chat_summary(today, now, games, [], ledger, [], [], top,
-                              path=path or os.path.join(OUT_DIR, f"{today}.chat.md"))
+                              path=path or os.path.join(OUT_DIR, f"{today}.chat.md"),
+                              htu_line=htu_record_line() if info_extras_on() else None)
+
+
+# ── info-only extras: points so far + high-total Unders tracker (never picks) ──
+def info_extras_on() -> bool:
+    return os.getenv("CZARP_NO_INFO_EXTRAS", "") not in ("1", "true", "yes")
+
+
+def season_finals(today: str) -> list[dict]:
+    """Season-to-date ESPN finals before `today` (cached per day; read-only network)."""
+    return SF.load_finals(today, espn_scoreboard)
+
+
+def _ratings_matcher():
+    from backtest import NameMatcher
+    names = pd.read_csv(os.path.join("data", "ratings.csv"))["TeamName"].astype(str)
+    return NameMatcher(names)
+
+
+def attach_points_so_far(top, finals, match=None) -> int:
+    """Set r['pts_so_far'] on each Top 10 row (info only). Returns how many got a value."""
+    match = match or _ratings_matcher()
+    logs = SF.team_totals(finals, match)
+    n = 0
+    for r in top or []:
+        r["pts_so_far"] = SF.points_so_far(r["g"], logs)
+        n += r["pts_so_far"] is not None
+    return n
+
+
+def update_htu_tracker(games, finals, now, write: bool = True) -> str:
+    """Log today's qualifying high-total Under leans, grade finished ones, return the record line."""
+    df = HTU.read()
+    df, nlog = HTU.log_games(df, games, now)
+    df, ngr = HTU.grade(df, finals, now)
+    if write and (nlog or ngr):
+        HTU.write(df)
+    log(f"  high-total Unders tracker (info only): {nlog} logged, {ngr} graded" + ("" if write else " (not saved)"))
+    return HTU.record_line(df)
+
+
+def htu_record_line() -> str | None:
+    try:
+        df = HTU.read()
+        return HTU.record_line(df) if len(df) else None
+    except Exception:
+        return None
 
 
 # ── summary ──────────────────────────────────────────────────────────────────
@@ -1618,7 +1677,7 @@ def tier_record_md(ledger: pd.DataFrame) -> list[str]:
 
 
 def write_summary(today: str, now: datetime, games, new_rows, ledger, graded_idx, notes, top=None,
-                  path: str | None = None, big=None, big_record=None) -> str:
+                  path: str | None = None, big=None, big_record=None, htu_line: str | None = None) -> str:
     os.makedirs(OUT_DIR, exist_ok=True)
     path = path or os.path.join(OUT_DIR, f"{today}.md")
     L = [f"# CZarp paper trading — {today}",
@@ -1693,6 +1752,8 @@ def write_summary(today: str, now: datetime, games, new_rows, ledger, graded_idx
         L.append(f"- {m.title()}s: {_rec(off[off.market == m])}")
     pend = (off.status == "open").sum()
     L.append(f"- Open (ungraded) plays: {pend}")
+    if htu_line:
+        L.append(f"- {htu_line}")
     L.append("")
     L.extend(tier_record_md(ledger))
     bad = verify_ledger(ledger) if "pick_hash" in ledger else []
@@ -1729,7 +1790,7 @@ def write_summary(today: str, now: datetime, games, new_rows, ledger, graded_idx
     with open(path, "w") as fh:
         fh.write("\n".join(L) + "\n")
     chat_path = path[:-3] + ".chat.md" if path.endswith(".md") else path + ".chat.md"
-    write_chat_summary(today, now, games, new_rows, ledger, graded_idx, notes, top, path=chat_path)
+    write_chat_summary(today, now, games, new_rows, ledger, graded_idx, notes, top, path=chat_path, htu_line=htu_line)
     return path
 
 
@@ -1840,6 +1901,7 @@ def main(argv=None) -> int:
     top = []
     big = None
     big_record = None
+    htu_line = None
     played = set()
     data = None
     nc = {}
@@ -1922,6 +1984,14 @@ def main(argv=None) -> int:
                 except Exception as e:
                     log(f"  big-move context not saved ({type(e).__name__}: {e})")
             log(f"  BIG MOVES (total >= {BM.TOTAL_PTS:g} / spread >= {BM.SPREAD_PTS:g} pts open->current): {len(big)}")
+            # info-only extras (never change verdicts, picks, stakes, or the ledger)
+            if info_extras_on():
+                try:
+                    finals = season_finals(today)
+                    log(f"  points so far: {attach_points_so_far(top, finals)} of {len(top)} Top 10 rows")
+                    htu_line = update_htu_tracker(games, finals, now, write=not (a.dry_run or a.resync))
+                except Exception as e:
+                    log(f"  info extras skipped ({type(e).__name__}: {e})")
     else:
         notes.append("No games on the slate today.")
 
@@ -1971,7 +2041,7 @@ def main(argv=None) -> int:
     path = write_summary(today, now, games, new_rows, ledger, gi, notes, top,
                          path=os.path.join(OUT_DIR, f"{today}.dryrun.md") if a.dry_run
                          else (os.path.join(OUT_DIR, f"{today}.resync.md") if a.resync else None),
-                         big=big, big_record=big_record)
+                         big=big, big_record=big_record, htu_line=htu_line or (htu_record_line() if info_extras_on() else None))
     log(f"  summary → {path}; ledger → {LEDGER} ({len(ledger)} rows)")
     return 0
 

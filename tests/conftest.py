@@ -36,3 +36,9 @@ def make_league(n=40, seed=7):
 @pytest.fixture
 def league():
     return make_league()
+
+
+@pytest.fixture(autouse=True)
+def _no_info_extras_network(monkeypatch):
+    """Daily-run info extras (points so far / HTU tracker) hit ESPN and data/ledger; off in tests."""
+    monkeypatch.setenv("CZARP_NO_INFO_EXTRAS", "1")
