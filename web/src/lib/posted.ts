@@ -64,3 +64,27 @@ export function postedNowCompact(b: ValueBet, g: SlateGame | null | undefined): 
   if (!parts.length) return null;
   return parts.join(" → ");
 }
+
+/** Posted fair value (time-stamped, never edited) next to the team projections on the card now.
+ *  Official totals use czarp-v1-totals while team projections come from the default model (czarp-v2),
+ *  so the two can differ; this labels both instead of letting them look inconsistent.
+ *  e.g. "Posted FV 142.0 (czarp-v1-totals) · Team projections now (czarp-v2): 64.1 + 82.1 = 146.2" */
+export function postedFairVsProjections(b: ValueBet | null | undefined, g: SlateGame): string | null {
+  if (!b || typeof b.fair_at_post !== "number" || !Number.isFinite(b.fair_at_post)) return null;
+  const model = b.model_version ? ` (${b.model_version})` : "";
+  const pa = g.proj_away, ph = g.proj_home;
+  if (b.market === "total") {
+    const posted = `Posted FV ${b.fair_at_post.toFixed(1)}${model}`;
+    if (pa == null || ph == null) return posted;
+    return `${posted} · Team projections now (czarp-v2): ${pa.toFixed(1)} + ${ph.toFixed(1)} = ${(pa + ph).toFixed(1)}`;
+  }
+  if (b.market === "spread") {
+    const posted = `Posted FV ${fmtLine(b.fair_at_post)}${model}`;
+    if (pa == null || ph == null) return posted;
+    const homeLine = -(ph - pa);
+    const pickedAway = mentionsTeam(b.side, g.away) && !mentionsTeam(b.side, g.home);
+    const now = pickedAway ? -homeLine : homeLine;
+    return `${posted} · Team projections now (czarp-v2): ${pa.toFixed(1)}–${ph.toFixed(1)}, ${fmtLine(now)}`;
+  }
+  return null;
+}

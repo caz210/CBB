@@ -107,3 +107,13 @@ export function newCoachSheetCopy(lock: NewCoachLock): { title: string; body: st
   }
   return { title: "New coach", body: parts.join(" ") };
 }
+
+/** Chip text with the game counter, same wording as the daily report:
+ *  "Paused until game 8 (new coach, 3 played)" (sides first, the longer pause), or
+ *  "Totals paused until game 4 (new coach, 3 played)" when only totals are still paused. With name, the team leads. */
+export function pausedChipLabel(lock: NewCoachLock, name = false): string {
+  const who = name ? `${lock.team} · ` : "";
+  if (lock.sidesLocked) return `${who}${name ? "paused" : "Paused"} until game ${lock.lockSides} (new coach, ${sidesPlayed(lock)} played)`;
+  if (lock.totalsLocked) return `${who}${name ? "totals" : "Totals"} paused until game ${lock.lockTotals} (new coach, ${totalsPlayed(lock)} played)`;
+  return `${who}New coach`;
+}

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { H, LegalPage } from "@/components/LegalPage";
 
-export const metadata: Metadata = { title: "Terms of Use · CZarp Analytics" };
+export const metadata: Metadata = { title: "Terms of Use" };
 
 export default function TermsPage() {
   return (
@@ -16,7 +16,7 @@ export default function TermsPage() {
       <H>2. Eligibility</H>
       <p>You must be 21 or older to create an account or use the service. If you are in a jurisdiction where sports betting is restricted, you are responsible for complying with local law.</p>
       <H>3. No guarantee of results</H>
-      <p>Projections, edges, and records can be wrong. Buying at value does not mean you will win more or lose less on any given bet. Judge results over hundreds of bets, not one night.</p>
+      <p>Projections, edges, and records can be wrong. Buying at value does not mean you will win more or lose less on any given bet. One night proves nothing, and the public record is still a small sample.</p>
       <H>4. Accounts and acceptable use</H>
       <p>You are responsible for your account. Do not scrape, resell, or misrepresent our data as a sure thing. We may suspend access if the service is abused.</p>
       <H>5. Intellectual property</H>

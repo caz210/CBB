@@ -88,7 +88,7 @@ export default async function Landing() {
         <div className="grid gap-3 md:grid-cols-3 md:gap-5">
           {[
             { t: "Price vs fair value", d: "Every game shows the market price next to our fair value. Edge % is the big number — buy when the price is wrong, not when you feel it." },
-            { t: "Portfolio, not vibes", d: "ROI, units P/L, cumulative curve, CLV, and open variance (drawdowns and streaks) on the record page. Judge hundreds of bets." },
+            { t: "Portfolio, not vibes", d: `ROI, units P/L, cumulative curve, CLV, and open variance (drawdowns and streaks) on the record page. Every pick time-stamped.${rec && rec.summary.graded > 0 ? ` Early sample, n=${rec.summary.graded}.` : ""}` },
             { t: "Watchlist", d: "Star games on the slate and filter to what you're watching. No alerts yet — just a clean list you control." },
           ].map((f) => (
             <div key={f.t} className="card p-5 md:p-6">
@@ -161,36 +161,35 @@ function Big({ label, value, sub }: { label: string; value: string; sub?: string
 
 function LiveHero({ hero }: { hero: Hero }) {
   if (hero.kind === "today") {
-    const { game: g, bet: v } = hero;
-    const tier = edgeTier(v.line_edge_pct, v.market);
+    const { plays } = hero;
     return (
-      <Link href="/cbb/slate?sort=value" className="card relative block p-4 shadow-2xl shadow-black/50 md:p-5">
-        <div className="mb-2 flex items-center justify-between text-xs">
-          <span className="font-semibold uppercase tracking-wider text-edge-400">Today&apos;s official play</span>
-          <span className="text-zinc-500">{g.tipoff ? fmtTipoff(g.tipoff) : "Tip TBD"}</span>
+      <div className="card relative p-4 shadow-2xl shadow-black/50 md:p-5">
+        <div className="mb-3 flex items-center justify-between text-xs">
+          <span className="font-semibold uppercase tracking-wider text-edge-400">Today&apos;s official {plays.length === 1 ? "play" : `plays · ${plays.length}`}</span>
+          <Link href="/cbb/slate?sort=value" className="text-zinc-400 hover:text-court-400">Slate →</Link>
         </div>
-        {[{ n: g.away, p: g.proj_away, tags: g.archetypes.away, t: g.archetypes.away_tentative }, { n: g.home, p: g.proj_home, tags: g.archetypes.home, t: g.archetypes.home_tentative }].map((r) => (
-          <div key={r.n} className="flex items-center justify-between gap-3 border-b border-ink-700/60 py-3 last:border-0">
-            <div className="min-w-0">
-              <div className="font-semibold">{r.n}</div>
-              {r.tags.length > 0 && <div className="mt-1.5 flex flex-wrap gap-1">{r.tags.map((a) => <ArchetypeChip key={a.name} tag={a} />)}</div>}
-            </div>
-            <div className="font-mono text-2xl font-bold">{r.p == null ? "—" : r.p.toFixed(1)}</div>
-          </div>
-        ))}
-        <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-edge-400/30 bg-edge-400/10 px-4 py-3">
-          <div className="min-w-0">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-edge-400">{tier ?? "Official"} · {MARKET_LABEL[v.market]} · Edge</div>
-            <div className="truncate text-sm font-semibold">{v.side}</div>
-            {postedVsNow(v, g) && (
-              <div className="font-mono text-[11px] text-zinc-400">{postedVsNow(v, g)}</div>
-            )}
-            {v.logged_at && <div className="text-[10px] text-zinc-500">{fmtPostedStamp(v.logged_at)}</div>}
-            <div className="mt-0.5 text-[11px] text-zinc-500">¼-Kelly {v.kelly_quarter_units == null ? "—" : `${v.kelly_quarter_units.toFixed(2)}u`}</div>
-          </div>
-          <div className={`shrink-0 font-mono text-4xl font-black leading-none ${tier ? "text-edge-400" : "text-zinc-400"}`}>{pct(v.line_edge_pct, 1)}</div>
-        </div>
-      </Link>
+        <ul className="space-y-2.5">
+          {plays.map(({ game: g, bet: v }) => {
+            const tier = edgeTier(v.line_edge_pct, v.market);
+            const pvn = postedVsNow(v, g);
+            return (
+              <li key={`${v.game_id}-${v.market}-${v.side}`}>
+                <Link href="/cbb/slate?sort=value" className="flex items-center justify-between gap-3 rounded-xl border border-edge-400/30 bg-edge-400/10 px-4 py-3 hover:border-edge-400/60">
+                  <div className="min-w-0">
+                    <div className="truncate text-[11px] text-zinc-400">{g.game} · {g.tipoff ? fmtTipoff(g.tipoff) : "Tip TBD"}</div>
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-edge-400">{tier ?? "Official"} · {MARKET_LABEL[v.market]} · Edge</div>
+                    <div className="truncate text-sm font-semibold">{v.side}</div>
+                    {pvn && <div className="font-mono text-[11px] text-zinc-400">{pvn}</div>}
+                    {v.logged_at && <div className="text-[10px] text-zinc-500">{fmtPostedStamp(v.logged_at)}</div>}
+                    <div className="mt-0.5 text-[11px] text-zinc-500">¼-Kelly {v.kelly_quarter_units == null ? "—" : `${v.kelly_quarter_units.toFixed(2)}u`}</div>
+                  </div>
+                  <div className={`shrink-0 font-mono text-4xl font-black leading-none ${tier ? "text-edge-400" : "text-zinc-400"}`}>{pct(v.line_edge_pct, 1)}</div>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
     );
   }
   const r = hero.row;

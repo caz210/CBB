@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { H, LegalPage } from "@/components/LegalPage";
 
-export const metadata: Metadata = { title: "Methodology · CZarp Analytics" };
+export const metadata: Metadata = { title: "Methodology" };
 
 function Placeholder({ children }: { children: React.ReactNode }) {
   return (
@@ -33,7 +33,7 @@ export default function MethodologyPage() {
       <H>New coaches and early season</H>
       <Placeholder>Sides are paused until a new coach has 8 games; totals are paused until 4. Early-season tags can be tentative.</Placeholder>
       <H>Limitations</H>
-      <Placeholder>A plus-EV process still has losing nights and drawdowns. Edges are not a promise of winning. Judge the portfolio over hundreds of bets.</Placeholder>
+      <Placeholder>A plus-EV process still has losing nights and drawdowns. Edges are not a promise of winning. The record is an early sample; read it as evidence, not proof.</Placeholder>
     </LegalPage>
   );
 }

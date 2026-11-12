@@ -1,4 +1,7 @@
 import Link from "next/link";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = { title: "Pricing" };
 
 // Tier keys match profiles.tier ('free' | 'pro' | 'syndicate').
 const TIERS = [

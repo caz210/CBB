@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getSport } from "@/lib/sports";
 import { isIsoDate, loadSlate, shiftDate, todayCT } from "@/lib/data";
@@ -10,6 +11,20 @@ import { SlateBoard } from "@/components/SlateBoard";
 
 // Live data: render per request (RLS depends on the visitor's session).
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata({ params, searchParams }: {
+  params: Promise<{ sport: string }>; searchParams: Promise<{ date?: string }>;
+}): Promise<Metadata> {
+  const { sport: key } = await params;
+  const sport = getSport(key);
+  if (!sport) return { title: "Slate" };
+  const sp = await searchParams;
+  const date = isIsoDate(sp.date) ? sp.date : null;
+  return {
+    title: `${sport.label} slate${date ? ` · ${fmtGameDate(date)}` : " · Today"}`,
+    description: `${sport.long}: fair value vs market price and edge % on every game${date ? ` for ${fmtGameDate(date)}` : " today"}.`,
+  };
+}
 
 export default async function SlatePage({
   params, searchParams,

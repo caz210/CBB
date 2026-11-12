@@ -3,12 +3,18 @@ import "./globals.css";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SiteFooter } from "@/components/SiteFooter";
 import { BottomNav } from "@/components/BottomNav";
+import { SITE_URL } from "@/lib/site";
 
 export const viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: "#07090d" };
 
 export const metadata: Metadata = {
-  title: "CZarpAnalytics · Model-driven sports projections",
-  description: "Daily college basketball projections, value flags and a fully transparent results ledger.",
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: "CZarp Analytics · College basketball fair value vs price",
+    template: "%s · CZarp Analytics",
+  },
+  description: "Daily college basketball fair values vs the market price, edge % on every game, and a public, time-stamped paper-trading record. For entertainment and information, not betting advice.",
+  openGraph: { siteName: "CZarp Analytics", type: "website", url: SITE_URL },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

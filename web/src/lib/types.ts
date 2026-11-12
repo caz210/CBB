@@ -45,6 +45,9 @@ export type SlateGame = {
   final_at?: string | null;
   /** True when final_at was inferred rather than reported. */
   final_at_estimated?: boolean;
+  /** Final (or live) score from games.home_score / away_score; null until ESPN reports it. */
+  home_score?: number | null;
+  away_score?: number | null;
   /** extra detail for the game sheet; fields are null when not published */
   insight?: GameInsight;
   /** Raw |fair − price| ÷ Vegas total (not official-pick sort). */

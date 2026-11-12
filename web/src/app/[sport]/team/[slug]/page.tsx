@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getSport } from "@/lib/sports";
 import { loadTeam } from "@/lib/data";
@@ -14,6 +15,13 @@ import { newCoachLock } from "@/lib/coach";
 import { cardHeadline, notAPlayLine } from "@/lib/verdict";
 
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata({ params }: { params: Promise<{ sport: string; slug: string }> }): Promise<Metadata> {
+  const { sport: key, slug } = await params;
+  const sport = getSport(key);
+  const name = decodeSlug(slug).replace(/\b\w/g, (c) => c.toUpperCase());
+  return { title: sport ? `${name} · ${sport.label}` : name };
+}
 
 export default async function TeamPage({ params }: { params: Promise<{ sport: string; slug: string }> }) {
   const { sport: key, slug } = await params;
@@ -198,7 +206,11 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
       <section>
         <div className="mb-3 flex items-center justify-between">
           <h2 className="font-bold">Game log</h2>
-          <span className="text-xs text-zinc-500">{data.grades.length} games</span>
+          <span className="text-xs text-zinc-500">
+            {p?.games_played != null && p.games_played > data.grades.length
+              ? `${data.grades.length} of ${p.games_played} games · not every game is in our log`
+              : `${data.grades.length} games`}
+          </span>
         </div>
         {data.grades.length === 0 ? (
           <p className="card p-4 text-sm text-zinc-500">No graded or scheduled log rows yet.</p>
