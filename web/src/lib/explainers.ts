@@ -1,8 +1,8 @@
-/** Short tap-to-learn copy. No promises of winning — buy at value, judge over hundreds of bets. */
+/** Short tap-to-learn copy. No promises of winning — buy at value, small samples prove nothing. */
 export const EXPLAINERS = {
   edge: {
     title: "Edge",
-    body: "The gap between our number and the Vegas price, as a share of the expected total score. Example: we like a team by 4.5 more points than Vegas, and the total is 154.5 → edge ≈ 2.9%. Bigger edge means a better price — not a guaranteed win. Judge it over hundreds of bets.",
+    body: "The gap between our number and the Vegas price, as a share of the expected total score. Example: we like a team by 4.5 more points than Vegas, and the total is 154.5 → edge ≈ 2.9%. Bigger edge means a better price — not a guaranteed win. One bet, or a few dozen, proves nothing.",
   },
   fairValue: {
     title: "Fair value",
@@ -14,7 +14,7 @@ export const EXPLAINERS = {
   },
   variance: {
     title: "Variance",
-    body: "Even a +EV book has losing nights and drawdowns. Swings are normal; the portfolio is judged over hundreds of bets, not one card.",
+    body: "Even a +EV book has losing nights and drawdowns. Swings are normal; one card proves nothing, and an early sample proves little.",
   },
   clv: {
     title: "Closing line value (CLV)",

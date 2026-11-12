@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getSport } from "@/lib/sports";
@@ -15,6 +16,15 @@ import { TermLabel } from "@/components/InfoTip";
 export const dynamic = "force-dynamic";
 
 const SHOWN_ROWS = 200;
+
+export async function generateMetadata({ params }: { params: Promise<{ sport: string }> }): Promise<Metadata> {
+  const { sport: key } = await params;
+  const sport = getSport(key);
+  return {
+    title: sport ? `${sport.label} record` : "Record",
+    description: "The public, time-stamped paper-trading record: every official pick, graded, with units, ROI and CLV.",
+  };
+}
 
 export default async function ResultsPage({
   params, searchParams,
@@ -46,7 +56,9 @@ export default async function ResultsPage({
         badge={res.state === "live" ? "live" : "none"}
         eyebrow={`${sport.long} · Portfolio`}
         title="The book, treated like a portfolio"
-        sub="Buy at value. Grade every pick in public. Judge results over hundreds of bets — not one night."
+        sub={res.state === "live" && res.data.summary.graded > 0
+          ? `Buy at value. Every pick is time-stamped and graded in public. Early sample: n=${res.data.summary.graded} graded ${tier === "track" ? "tracked" : "official"} picks — not proof yet.`
+          : "Buy at value. Every pick is time-stamped and graded in public."}
         right={
           <nav className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 text-sm md:mx-0 md:px-0" aria-label="Date range">
             {(Object.keys(RANGES) as RangeKey[]).map((r) => (
@@ -160,7 +172,7 @@ function Live({ data, range }: { data: Extract<Awaited<ReturnType<typeof loadRes
           />
         </div>
         <p className="mt-3 text-xs leading-relaxed text-zinc-500">
-          A +EV book still loses nights. Drawdowns and streaks are part of buying value — judge the portfolio over hundreds of bets.
+          A +EV book still loses nights. Drawdowns and streaks are part of buying value. With n={s.graded} graded picks this is an early sample, so read it as evidence, not proof.
         </p>
       </section>
 

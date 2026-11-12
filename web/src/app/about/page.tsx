@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { H, LegalPage } from "@/components/LegalPage";
 
-export const metadata: Metadata = { title: "About · CZarp Analytics" };
+export const metadata: Metadata = { title: "About" };
 
 export default function AboutPage() {
   return (
@@ -16,7 +16,7 @@ export default function AboutPage() {
       </p>
       <H>How to read it</H>
       <p>
-        Edge is not a promise you will win tonight. It is a measure of whether the market price is off our number, as a share of the expected total score. Judge results over hundreds of bets. Read the <Link href="/methodology" className="font-semibold text-court-400 hover:underline">methodology</Link> for how the numbers are built.
+        Edge is not a promise you will win tonight. It is a measure of whether the market price is off our number, as a share of the expected total score. One night proves nothing, and the record is still an early sample. Read the <Link href="/methodology" className="font-semibold text-court-400 hover:underline">methodology</Link> for how the numbers are built.
       </p>
       <H>Responsible use</H>
       <p>

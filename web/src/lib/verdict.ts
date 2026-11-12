@@ -157,14 +157,26 @@ function rewriteLockWords(s: string): string {
     .trim();
 }
 
+/** "paused until game 8 (new coach, 3 played)" from the stored reason text, if present. */
+export function coachPauseText(human: string | null | undefined): string | null {
+  const m = (human ?? "").match(/paused until game \d+(?:\s*\([^)]*\))?/i);
+  if (!m) return null;
+  return m[0].charAt(0).toLowerCase() + m[0].slice(1);
+}
+
 function formatSkip(human: string | null | undefined, codes: string[] | null | undefined, market: Market): string | null {
   const threshold = fmtThresholdPct(market);
-  const filtered = (codes ?? []).filter((c) => c !== COACH_SKIP);
+  const all = codes ?? [];
+  const filtered = all.filter((c) => c !== COACH_SKIP);
   const text = human?.trim() ?? "";
   if (text && !isCoachOrLockCopy(text)) return text;
   if (filtered.length) {
     const labels = filtered.map((c) => skipCodeLabel(c, threshold)).filter((x): x is string => !!x);
     if (labels.length) return labels.join("; ");
+  }
+  // Skipped only because of the new-coach pause: say so ("Not a play: paused until game 8 (new coach, 3 played)").
+  if (all.includes(COACH_SKIP) || /\bnew\s*coach\b/i.test(text)) {
+    return coachPauseText(text) ?? "paused, new coach";
   }
   if (text) {
     const rewritten = rewriteLockWords(text);
@@ -188,7 +200,7 @@ export function notAPlayLine(g: SlateGame, officialBets: ValueBet[], market?: Ma
   return reason ? `Not a play: ${reason}` : null;
 }
 
-/** Reasons for skipped markets (team page). Coach holds are omitted. */
+/** Reasons for skipped markets (team page). A coach-only skip reads "Not a play: paused until game N (…)". */
 export function notAPlayLines(g: SlateGame, officialMarkets: Iterable<string>): string[] {
   const mk = new Set(officialMarkets);
   const out: string[] = [];

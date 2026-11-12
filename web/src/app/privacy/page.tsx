@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { H, LegalPage } from "@/components/LegalPage";
 
-export const metadata: Metadata = { title: "Privacy Policy · CZarp Analytics" };
+export const metadata: Metadata = { title: "Privacy Policy" };
 
 export default function PrivacyPage() {
   return (

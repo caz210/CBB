@@ -7,6 +7,7 @@ import {
   newCoachLines,
   newCoachSheetCopy,
   newCoachUnlocked,
+  pausedChipLabel,
   type NewCoachLock,
 } from "@/lib/coach";
 import { notAPlayLines } from "@/lib/verdict";
@@ -29,7 +30,7 @@ export function NewCoachChip({ lock, name = false, className = "" }: { lock: New
   const [mounted, setMounted] = useState(false);
   const id = useId();
   const copy = newCoachSheetCopy(lock);
-  const label = name ? `${lock.team} paused · new coach` : "Paused · new coach";
+  const label = pausedChipLabel(lock, name);
 
   useEffect(() => setMounted(true), []);
   useEffect(() => {

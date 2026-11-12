@@ -1,5 +1,5 @@
 import { AuthForm } from "@/components/AuthForm";
-export const metadata = { title: "Sign up · CZarpAnalytics" };
+export const metadata = { title: "Sign up" };
 export default function SignupPage() {
   return <AuthForm mode="signup" />;
 }

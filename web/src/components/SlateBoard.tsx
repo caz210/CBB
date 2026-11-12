@@ -12,7 +12,7 @@ import { InfoTip, TermLabel } from "./InfoTip";
 import { NewCoachChips } from "./NewCoachBadge";
 import { cardHeadline, notAPlayLine } from "@/lib/verdict";
 import { evPer100, fmtEv100 } from "@/lib/stats";
-import { betCoverProb, postedVsNow } from "@/lib/posted";
+import { betCoverProb, postedFairVsProjections, postedVsNow } from "@/lib/posted";
 
 type Sel = { game: SlateGame; bet: ValueBet } | null;
 
@@ -200,9 +200,10 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
 }) {
   const awayWin = g.home_win_prob == null ? null : 1 - g.home_win_prob;
   const awayCover = g.home_cover_prob == null ? null : 1 - g.home_cover_prob;
+  const final = finalScore(g);
   const rows = [
-    { side: "Away", name: g.away, proj: g.proj_away, win: awayWin, cover: awayCover, tags: g.archetypes.away, tent: g.archetypes.away_tentative },
-    { side: "Home", name: g.home, proj: g.proj_home, win: g.home_win_prob, cover: g.home_cover_prob, tags: g.archetypes.home, tent: g.archetypes.home_tentative },
+    { side: "Away", name: g.away, proj: g.proj_away, win: awayWin, cover: awayCover, tags: g.archetypes.away, tent: g.archetypes.away_tentative, score: final?.away ?? null, won: final ? final.away > final.home : false },
+    { side: "Home", name: g.home, proj: g.proj_home, win: g.home_win_prob, cover: g.home_cover_prob, tags: g.archetypes.home, tent: g.archetypes.home_tentative, score: final?.home ?? null, won: final ? final.home > final.away : false },
   ];
   const edge = cardHeadline(g, bets);
   const hasEdge = edge.edgePct != null;
@@ -218,7 +219,8 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
       ? `${MARKET_LABEL[edge.market]} · fair vs price`
       : g.game;
   const openSingle = (e: { stopPropagation: () => void }) => { e.stopPropagation(); onOpen(single!); };
-  const fair = totalFair(g);
+  const postedTotal = official && edge.officialBet?.market === "total" && edge.officialBet.fair_at_post != null ? edge.officialBet.fair_at_post : null;
+  const fair = postedTotal != null ? { value: postedTotal.toFixed(1), v1: false, posted: true } : { ...totalFair(g), posted: false };
   return (
     <article
       role="button" tabIndex={0} aria-label={`Insights for ${g.game}`}
@@ -260,8 +262,17 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
             <div className="flex items-center gap-3">
               <span className="w-9 shrink-0 text-[10px] font-semibold uppercase text-zinc-600">{r.side}</span>
               <Link href={teamHref(sportKey, r.name)} onClick={(e) => e.stopPropagation()} className="min-w-0 flex-1 truncate text-[15px] font-semibold hover:text-court-400">{r.name}</Link>
-              <span className={`text-right font-mono text-xs ${r.win != null && r.win >= 0.5 ? "text-white" : "text-zinc-500"}`}>{r.win == null ? "—" : fmtWinProb(r.win)}<span className="ml-0.5 font-sans text-[10px] text-zinc-600">win</span></span>
-              <span className="w-12 text-right font-mono text-xl font-bold">{r.proj == null ? "—" : r.proj.toFixed(1)}</span>
+              {final ? (
+                <>
+                  <span className="text-right font-mono text-xs text-zinc-500">{r.proj == null ? "—" : r.proj.toFixed(1)}<span className="ml-0.5 font-sans text-[10px] text-zinc-600">proj</span></span>
+                  <span className={`w-12 text-right font-mono text-xl font-bold ${r.won ? "text-white" : "text-zinc-400"}`} aria-label={`${r.name} final score ${r.score}`}>{r.score}</span>
+                </>
+              ) : (
+                <>
+                  <span className={`text-right font-mono text-xs ${r.win != null && r.win >= 0.5 ? "text-white" : "text-zinc-500"}`}>{r.win == null ? "—" : fmtWinProb(r.win)}<span className="ml-0.5 font-sans text-[10px] text-zinc-600">win</span></span>
+                  <span className="w-12 text-right font-mono text-xl font-bold">{r.proj == null ? "—" : r.proj.toFixed(1)}</span>
+                </>
+              )}
             </div>
             {weaknessesOnly(r.tags, 2).length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1.5 pl-12">
@@ -271,6 +282,12 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
           </div>
         ))}
       </div>
+
+      {official && postedFairVsProjections(edge.officialBet, g) && (
+        <div className="border-t border-ink-700/40 px-4 py-2 font-mono text-[11px] leading-snug text-zinc-400">
+          {postedFairVsProjections(edge.officialBet, g)}
+        </div>
+      )}
 
       {whyNot && (
         <div className="border-t border-ink-700/40 px-4 py-2" onClick={(e) => e.stopPropagation()}>
@@ -288,7 +305,7 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
           label="Total"
           fair={fair.value}
           price={g.market_total?.toFixed(1) ?? "—"}
-          tag={fair.v1 ? "v1" : undefined}
+          tag={fair.posted ? "posted" : fair.v1 ? "v1" : undefined}
         />
       </div>
 
@@ -329,6 +346,12 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
       )}
     </article>
   );
+}
+
+/** Final score when the game is completed and both scores are stored; otherwise null. */
+function finalScore(g: SlateGame): { home: number; away: number } | null {
+  if (!g.completed || g.home_score == null || g.away_score == null) return null;
+  return { home: g.home_score, away: g.away_score };
 }
 
 function totalFair(g: SlateGame): { value: string; v1: boolean } {
@@ -420,7 +443,7 @@ function ValueSheet({ sel, onClose }: { sel: Sel; onClose: () => void }) {
           {postedVsNow(b, g) && (
             <p className="mt-1 font-mono text-xs text-zinc-400">{postedVsNow(b, g)}</p>
           )}
-          <p className="mt-1 text-[11px] text-zinc-500">Buy at value. Judge over hundreds of bets — not tonight.</p>
+          <p className="mt-1 text-[11px] text-zinc-500">Buy at value. One game proves nothing; every pick is time-stamped and graded in public.</p>
         </div>
 
         <div className="mt-5 grid grid-cols-2 gap-2">
@@ -474,6 +497,9 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
           <span className="text-zinc-500"> @ </span>
           <Link href={teamHref(sportKey, g.home)} onClick={(e) => e.stopPropagation()} className="hover:text-court-400">{g.home}</Link>
         </h3>
+        {finalScore(g) && (
+          <div className="mt-1 font-mono text-sm font-semibold text-zinc-200">Final: {g.away} {finalScore(g)!.away}, {g.home} {finalScore(g)!.home}</div>
+        )}
         {(i?.upset_alert || g.upset_alert) && (
           <div className="mt-2 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
             <div className="text-[10px] font-bold uppercase tracking-wider text-amber-300">Upset alert</div>
@@ -503,6 +529,9 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
           </div>
         </div>
         <SheetSecondary g={g} bets={bets} />
+        {edge.verdict === "official" && postedFairVsProjections(edge.officialBet, g) && (
+          <p className="mt-2 font-mono text-[11px] leading-snug text-zinc-400">{postedFairVsProjections(edge.officialBet, g)}</p>
+        )}
         <NotAPlay className="mt-2" line={edge.verdict === "official" ? null : notAPlayLine(g, bets)} showTip={!edge.subtitle} />
 
         <div className="mt-4 grid grid-cols-2 gap-2">

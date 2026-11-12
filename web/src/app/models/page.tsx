@@ -1,4 +1,7 @@
+import type { Metadata } from "next";
 import { PageHeader } from "@/components/PageHeader";
+
+export const metadata: Metadata = { title: "My Models" };
 import { ModelsWorkspace } from "@/components/ModelsWorkspace";
 import { ExampleBanner } from "@/components/ExampleBadge";
 

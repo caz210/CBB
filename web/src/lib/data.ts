@@ -233,7 +233,7 @@ export async function loadSlate(sport: Sport, date: string): Promise<Loaded<Slat
     all.sort((a, z) => z.line_edge_pct - a.line_edge_pct);
     bets = all.filter((x) => x.pick_tier === "official");
     const [st, gr, pr, ml] = await Promise.all([
-      sb.from("games").select("id,status,updated_at,final_at,final_at_estimated,home,away,home_team_id,away_team_id").in("id", ids),
+      sb.from("games").select("id,status,updated_at,final_at,final_at_estimated,home,away,home_team_id,away_team_id,home_score,away_score").in("id", ids),
       sb.from("ledger").select("game_id,result").in("game_id", ids).not("result", "is", null),
       sb.from("projections").select("game_id,model_version,spread,total,created_at").in("game_id", ids).order("created_at", { ascending: false }),
       sb.from("market_lines").select("game_id,fetched_at").in("game_id", ids).eq("source", "vegas"),
@@ -249,6 +249,8 @@ export async function loadSlate(sport: Sport, date: string): Promise<Loaded<Slat
       if (row.status) x.status = str(row.status);
       if (row.final_at) x.final_at = str(row.final_at);
       if (row.final_at_estimated === true) x.final_at_estimated = true;
+      x.home_score = num(row.home_score);
+      x.away_score = num(row.away_score);
     }
     finished = games.every((x) => x.completed);
     if (finished) {
@@ -269,7 +271,9 @@ export async function loadSlate(sport: Sport, date: string): Promise<Loaded<Slat
       if (stamps.length) updatedAt = new Date(Math.max(...stamps)).toISOString();
     }
     attachRawEdges(games, (pr.data ?? []) as Row[]);
-    await attachNewCoaches(sb, games, st.data ?? []);
+    // Pause chips read the team's CURRENT profile, so only show them on today's and future slates.
+    // Past slates keep the reason that was stored with that day's projection instead.
+    if (date >= todayCT()) await attachNewCoaches(sb, games, st.data ?? []);
     const ins = await loadInsights(sb, ids);
     for (const x of games) x.insight = ins.get(x.game_id);
     tracked = all.filter((x) => x.pick_tier === "track");
@@ -429,10 +433,10 @@ async function loadInsights(sb: SB, ids: number[]): Promise<Map<number, GameInsi
 
 // ---- landing hero -----------------------------------------------------------
 export type Hero =
-  | { kind: "today"; game: SlateGame; bet: ValueBet }
+  | { kind: "today"; plays: { game: SlateGame; bet: ValueBet }[] }
   | { kind: "graded"; when: "yesterday" | "latest"; row: LedgerRow; game: string | null };
 
-/** Top official play today (highest line edge); else yesterday's top official pick with its result;
+/** Every official play today (highest posted edge first); else yesterday's top official pick with its result;
  *  else the latest graded official pick. Tracked picks are never used. */
 export async function loadHero(sport: Sport): Promise<Loaded<Hero | null>> {
   const sb = await createSupabaseServerClient();
@@ -442,12 +446,17 @@ export async function loadHero(sport: Sport): Promise<Loaded<Hero | null>> {
   if (g.error) return fail("slate_games", g.error);
   const games = (g.data ?? []).map(toSlateGame);
   if (games.length) {
-    const b = await sb.from("value_bets").select("*").eq("sport", sport.key).eq("tier", "official")
-      .in("game_id", games.map((x) => x.game_id)).order("line_edge_pct", { ascending: false }).limit(1);
+    const ids = games.map((x) => x.game_id);
+    const b = await sb.from("value_bets").select("*").eq("sport", sport.key).in("game_id", ids);
     if (b.error) return fail("value_bets", b.error);
-    const bet = b.data?.[0] ? toValueBet(b.data[0]) : null;
-    const game = bet && games.find((x) => x.game_id === bet.game_id);
-    if (bet && game) return { state: "live", data: { kind: "today", game, bet } };
+    // Same merge as the slate, so every time-stamped official play shows (not just the top value_bets row).
+    const all = await mergeOfficialLocked(sb, sport, ids, (b.data ?? []).map(toValueBet));
+    const plays = all
+      .filter((x) => x.pick_tier === "official")
+      .sort((a, z) => (z.edge_at_post_pct ?? z.line_edge_pct) - (a.edge_at_post_pct ?? a.line_edge_pct))
+      .map((bet) => ({ bet, game: games.find((x) => x.game_id === bet.game_id) }))
+      .filter((p): p is { bet: ValueBet; game: SlateGame } => p.game != null);
+    if (plays.length) return { state: "live", data: { kind: "today", plays } };
   }
   const pick = async (q: PromiseLike<{ data: Row[] | null; error: { message: string } | null }>, when: "yesterday" | "latest") => {
     const r = await q;
