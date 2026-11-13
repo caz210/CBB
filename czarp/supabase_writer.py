@@ -323,10 +323,13 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
                      "created_at": ts})
         if g.get("v1_total") is not None:
             t1, m1 = g["v1_total"], g.get("v1_home_margin")
+            pace1 = g.get("v1_pace")
             proj.append({**base, "season": _season(g["game_date"]), "game_id": gid[str(g["event_id"])],
                          "model_version": V1_VERSION, "total": round(t1, 1),
                          "spread": round(-m1, 1) if m1 is not None else None,
                          "over_prob": round(1 - _ncdf((MT - t1) / tsd), 4) if MT is not None else None,
+                         "reason": g.get("v1_reason"),
+                         "proj_possessions": round(pace1, 1) if pace1 is not None else None,
                          "skip_reasons_total": g.get("skip_reasons_total") or [],
                          "skip_reason_total": g.get("skip_reason_total"),
                          **_edge_fields(g),

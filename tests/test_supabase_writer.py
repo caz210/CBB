@@ -121,7 +121,8 @@ def test_projections_merge_upsert_on_unique_key():
     now = datetime(2026, 11, 10, 7, 15, tzinfo=dr.CENTRAL)
     g = dict(event_id="5", game_date="2026-11-10", kp_home="H", kp_away="A", neutral=False, state="pre",
              tip_utc=datetime(2026, 11, 11, 0, 0, tzinfo=timezone.utc), v2_home_margin=3.0, v2_total=140.0,
-             v1_total=141.0, current_home_spread=-2.5, current_total=145.5, reason="why", proj_possessions=70.04,
+             v1_total=141.0, v1_pace=68.14, v1_reason="A at H. Projected total 141.0. Projected pace about 68 possessions.",
+             current_home_spread=-2.5, current_total=145.5, reason="why", proj_possessions=70.04,
              skip_reasons_total=["line_moved_against"], skip_reason_total="total moved 6 pts against our side",
              edge_now_pct_spread=0.045012, edge_vs_open_pct_spread=0.025, edge_now_pct_total=0.01,
              edge_vs_open_pct_total=0.02)
@@ -148,6 +149,37 @@ def test_projections_merge_upsert_on_unique_key():
     assert v2["edge_now_pct_total"] == 0.01 and v2["edge_vs_open_pct_total"] == 0.02
     v1 = next(p for p in c.calls["projections"] if p["model_version"] == sw.V1_VERSION)
     assert v1["edge_now_pct_spread"] == 0.045 and v1["edge_vs_open_pct_total"] == 0.02
+    assert v1["reason"] == "A at H. Projected total 141.0. Projected pace about 68 possessions."
+    assert v1["proj_possessions"] == 68.1
+    assert v1["reason"] != v2["reason"] and v1["proj_possessions"] != v2["proj_possessions"]
+
+
+def test_v1_projection_reason_and_pace_are_separate_from_v2():
+    """v1-totals rows use v1_reason / v1_pace, not the v2 reason or possessions."""
+    now = datetime(2026, 11, 13, 7, 15, tzinfo=dr.CENTRAL)
+    g = dict(event_id="5", game_date="2026-11-13", kp_home="Purdue", kp_away="Ohio", neutral=False, state="pre",
+             tip_utc=datetime(2026, 11, 14, 0, 0, tzinfo=timezone.utc), v2_home_margin=17.7, v2_total=150.9,
+             v1_total=147.0, v1_home_margin=10.0, v1_pace=68.1,
+             v1_reason="Ohio at Purdue. Projected total 147.0. Projected pace about 68 possessions.",
+             current_home_spread=-19.5, current_total=152.5,
+             reason="Ohio (no standout style tags) at Purdue (Slow, Control Glass). Projected pace about 68 possessions.",
+             proj_possessions=67.98)
+    c = FakeClient()
+    sw.sync([g], pd.DataFrame(columns=dr.LEDGER_COLS), None, now, log=lambda *_: None, client=c)
+    v1 = next(p for p in c.calls["projections"] if p["model_version"] == sw.V1_VERSION)
+    v2 = next(p for p in c.calls["projections"] if p["model_version"] == "czarp-v2")
+    assert v1["reason"] == "Ohio at Purdue. Projected total 147.0. Projected pace about 68 possessions."
+    assert v1["proj_possessions"] == 68.1
+    assert v2["reason"].startswith("Ohio (no standout style tags)")
+    assert v2["proj_possessions"] == 68.0
+    # no v1_reason / v1_pace: leave those columns null rather than copying v2
+    g2 = dict(g)
+    g2.pop("v1_reason")
+    g2.pop("v1_pace")
+    c2 = FakeClient()
+    sw.sync([g2], pd.DataFrame(columns=dr.LEDGER_COLS), None, now, log=lambda *_: None, client=c2)
+    v1b = next(p for p in c2.calls["projections"] if p["model_version"] == sw.V1_VERSION)
+    assert v1b["reason"] is None and v1b["proj_possessions"] is None
 
 
 def test_fill_pick_locks_only_null_columns():
