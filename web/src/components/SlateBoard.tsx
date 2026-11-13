@@ -12,7 +12,7 @@ import { InfoTip, TermLabel } from "./InfoTip";
 import { NewCoachChips } from "./NewCoachBadge";
 import { cardHeadline, notAPlayAlso, notAPlayLine } from "@/lib/verdict";
 import { evPer100, fmtEv100 } from "@/lib/stats";
-import { betCoverProb, postedFairVsProjections, postedVsNow } from "@/lib/posted";
+import { betCoverProb, postedFairVsProjections, postedVsNow, totalFair } from "@/lib/posted";
 
 type Sel = { game: SlateGame; bet: ValueBet } | null;
 
@@ -361,16 +361,6 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
 function finalScore(g: SlateGame): { home: number; away: number } | null {
   if (!g.completed || g.home_score == null || g.away_score == null) return null;
   return { home: g.home_score, away: g.away_score };
-}
-
-/** Fair total for a card or sheet. Always czarp-v1-totals (the official totals model):
- *  the posted fair for an official total, else the current v1 projection, else "—".
- *  Never the v2 team-score sum. */
-function totalFair(g: SlateGame, bets: ValueBet[]): { value: string; num: number | null; tag?: "posted" | "v1" } {
-  const posted = bets.find((b) => b.market === "total" && b.pick_tier !== "track" && typeof b.fair_at_post === "number" && Number.isFinite(b.fair_at_post));
-  if (posted?.fair_at_post != null) return { value: posted.fair_at_post.toFixed(1), num: posted.fair_at_post, tag: "posted" };
-  if (g.proj_total_v1 != null) return { value: g.proj_total_v1.toFixed(1), num: g.proj_total_v1, tag: "v1" };
-  return { value: "—", num: null };
 }
 
 function totalModelDetail(g: SlateGame): string | null {

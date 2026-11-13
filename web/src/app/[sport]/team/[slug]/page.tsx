@@ -13,6 +13,7 @@ import { InfoTip, TermLabel } from "@/components/InfoTip";
 import { NewCoachBadge } from "@/components/NewCoachBadge";
 import { newCoachLock } from "@/lib/coach";
 import { cardHeadline, notAPlayLine } from "@/lib/verdict";
+import { totalFair } from "@/lib/posted";
 
 export const dynamic = "force-dynamic";
 
@@ -72,6 +73,7 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
   const coach = p ? newCoachLock(p.team_name, p) : null;
   const nextEdge = next ? cardHeadline(next, next.officialBets ?? []) : null;
   const nextWhy = next && nextEdge?.verdict !== "official" ? notAPlayLine(next, next.officialBets ?? []) : null;
+  const nextTotal = next ? totalFair(next, next.officialBets ?? []) : null;
 
   return (
     <div className="mt-4 space-y-4 md:mt-6 md:space-y-6">
@@ -100,8 +102,10 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
               </div>
               <div className="mt-1 font-mono text-xs text-zinc-400">
                 FV {next.proj_spread == null ? "—" : fmtLine(next.proj_spread)} · Price {next.market_spread == null ? "—" : fmtLine(next.market_spread)}
-                {/* Total FV is czarp-v1-totals (official totals model), never the v2 team sum. */}
-                {next.proj_total_v1 != null && next.market_total != null && <> · Total FV {next.proj_total_v1.toFixed(1)} (v1) / {next.market_total.toFixed(1)}</>}
+                {/* Same helper as the slate card: posted fair for an official total, else czarp-v1-totals, else "—". Never v2. */}
+                {" · Total FV "}{nextTotal!.value}
+                {nextTotal!.tag && <span className="ml-1 rounded px-1 py-px align-middle font-sans text-[9px] font-bold text-zinc-400 ring-1 ring-ink-600">{nextTotal!.tag}</span>}
+                {" / "}{next.market_total == null ? "—" : next.market_total.toFixed(1)}
               </div>
               {next.upset_alert && (
                 <div className="mt-2 inline-block rounded-md border border-amber-400/40 bg-amber-400/10 px-2 py-1 text-[11px] text-amber-200">
