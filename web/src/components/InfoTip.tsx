@@ -3,8 +3,12 @@ import { useEffect, useId, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { EXPLAINERS, type ExplainerKey } from "@/lib/explainers";
 
-/** Small ⓘ that opens a bottom sheet via portal (never clipped by card/table overflow). */
-export function InfoTip({ term, className = "" }: { term: ExplainerKey; className?: string }) {
+/** Small ⓘ that opens a bottom sheet via portal (never clipped by card/table overflow).
+ *  With children, the children become the tap target (e.g. a chip) with a small ⓘ inside it;
+ *  style that trigger with triggerClassName. Taps and keys never reach the card underneath. */
+export function InfoTip({ term, className = "", children, triggerClassName = "" }: {
+  term: ExplainerKey; className?: string; children?: ReactNode; triggerClassName?: string;
+}) {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const id = useId();
@@ -13,13 +17,19 @@ export function InfoTip({ term, className = "" }: { term: ExplainerKey; classNam
   useEffect(() => setMounted(true), []);
   useEffect(() => {
     if (!open) return;
-    const onKey = (ev: KeyboardEvent) => ev.key === "Escape" && setOpen(false);
+    // Capture + stop so Escape closes only this sheet, not a game sheet underneath.
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key !== "Escape") return;
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      setOpen(false);
+    };
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    window.addEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
     return () => {
       document.body.style.overflow = prev;
-      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", onKey, true);
     };
   }, [open]);
 
@@ -58,17 +68,35 @@ export function InfoTip({ term, className = "" }: { term: ExplainerKey; classNam
     : null;
 
   return (
-    <span className={`inline-flex align-middle ${className}`}>
-      <button
-        type="button"
-        aria-label={`What is ${e.title}?`}
-        aria-expanded={open}
-        aria-controls={id}
-        onClick={(ev) => { ev.stopPropagation(); setOpen((o) => !o); }}
-        className="inline-grid h-5 w-5 shrink-0 place-items-center rounded-full border border-ink-600 text-[10px] font-bold normal-case tracking-normal text-zinc-400 hover:border-ink-500 hover:text-zinc-200"
-      >
-        i
-      </button>
+    <span
+      className={`inline-flex align-middle ${className}`}
+      onClick={(ev) => ev.stopPropagation()}
+      onKeyDown={(ev) => ev.stopPropagation()}
+    >
+      {children != null ? (
+        <button
+          type="button"
+          aria-label={`${e.title}: what does this mean?`}
+          aria-expanded={open}
+          aria-controls={id}
+          onClick={(ev) => { ev.stopPropagation(); setOpen((o) => !o); }}
+          className={`inline-flex items-center gap-1 ${triggerClassName}`}
+        >
+          {children}
+          <span aria-hidden="true" className="inline-grid h-3.5 w-3.5 place-items-center rounded-full border border-current/50 text-[8px] font-bold leading-none opacity-80">i</span>
+        </button>
+      ) : (
+        <button
+          type="button"
+          aria-label={`What is ${e.title}?`}
+          aria-expanded={open}
+          aria-controls={id}
+          onClick={(ev) => { ev.stopPropagation(); setOpen((o) => !o); }}
+          className="inline-grid h-5 w-5 shrink-0 place-items-center rounded-full border border-ink-600 text-[10px] font-bold normal-case tracking-normal text-zinc-400 hover:border-ink-500 hover:text-zinc-200"
+        >
+          i
+        </button>
+      )}
       {sheet}
     </span>
   );

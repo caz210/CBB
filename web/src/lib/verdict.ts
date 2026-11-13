@@ -6,6 +6,7 @@
  */
 import { fmtPlayPct, fmtThresholdPct, type Market } from "./labels";
 import type { SlateGame, ValueBet } from "./types";
+import { marketPauseText } from "./coach";
 
 export type Verdict = "official" | "low_value";
 
@@ -132,7 +133,7 @@ export function skipCodeLabel(code: string, thresholdPct: string): string | null
   switch (code) {
     case "below_open_threshold": return `edge vs open below ${thresholdPct}`;
     case "below_current_threshold": return `edge now below ${thresholdPct}`;
-    case "line_moved_against": return "line moved against us";
+    case "line_moved_against": return "market moved 3+ pts away from CZarp since open";
     case "no_opening_line": return "no opening line yet";
     case "no_current_line": return "no current line";
     case "game_started": return "game already started";
@@ -164,53 +165,85 @@ export function coachPauseText(human: string | null | undefined): string | null 
   return m[0].charAt(0).toLowerCase() + m[0].slice(1);
 }
 
-function formatSkip(human: string | null | undefined, codes: string[] | null | undefined, market: Market): string | null {
+export type SkipDetail = {
+  /** The one line the card shows after "Not a play: ". With a new-coach pause, the pause leads. */
+  primary: string | null;
+  /** Other reasons, shown in the game sheet as "Also: …" (only when the pause is primary). */
+  also: string[];
+};
+
+/** Pipeline text split into its "; " parts, with coach/lock parts dropped and lock words rewritten. */
+function textReasons(text: string): string[] {
+  return text
+    .split(/\s*;\s*/)
+    .map((x) => x.trim())
+    .filter((x) => x && !isCoachOrLockCopy(x))
+    .map((x) => (/\bmoved\b.*\bagainst\b/i.test(x) ? skipCodeLabel("line_moved_against", "")! : rewriteLockWords(x)))
+    .filter((x) => x && !isCoachOrLockCopy(x));
+}
+
+/** Code labels win over the pipeline's human text whenever codes are present;
+ *  the text is only used when there are no codes (older rows). */
+function formatSkip(
+  human: string | null | undefined,
+  codes: string[] | null | undefined,
+  market: Market,
+  locks?: SlateGame["coachLocks"],
+): SkipDetail {
   const threshold = fmtThresholdPct(market);
   const all = codes ?? [];
-  const filtered = all.filter((c) => c !== COACH_SKIP);
   const text = human?.trim() ?? "";
-  if (text && !isCoachOrLockCopy(text)) return text;
-  if (filtered.length) {
-    const labels = filtered.map((c) => skipCodeLabel(c, threshold)).filter((x): x is string => !!x);
-    if (labels.length) return labels.join("; ");
+  const coach = all.includes(COACH_SKIP) || /\bnew\s*coach\b/i.test(text);
+  const others = all.length
+    ? all.filter((c) => c !== COACH_SKIP).map((c) => skipCodeLabel(c, threshold)).filter((x): x is string => !!x)
+    : textReasons(text);
+  const uniq = [...new Set(others)];
+  if (coach) {
+    // Pause leads: built from the team's lock data when we have it, else the stored text.
+    const pause = marketPauseText(locks, market === "total" ? "total" : "spread") ?? coachPauseText(text) ?? "paused, new coach";
+    return { primary: pause, also: uniq };
   }
-  // Skipped only because of the new-coach pause: say so ("Not a play: paused until game 8 (new coach, 3 played)").
-  if (all.includes(COACH_SKIP) || /\bnew\s*coach\b/i.test(text)) {
-    return coachPauseText(text) ?? "paused, new coach";
-  }
-  if (text) {
-    const rewritten = rewriteLockWords(text);
-    if (rewritten && !isCoachOrLockCopy(rewritten)) return rewritten;
-  }
-  return null;
+  return { primary: uniq.length ? uniq.join("; ") : null, also: [] };
 }
 
-function skipForMarket(g: Pick<SlateGame, "skip_reason_spread" | "skip_reason_total" | "skip_reasons_spread" | "skip_reasons_total">, market: Market): string | null {
-  if (market === "total") return formatSkip(g.skip_reason_total, g.skip_reasons_total, "total");
-  return formatSkip(g.skip_reason_spread, g.skip_reasons_spread, market === "moneyline" ? "moneyline" : "spread");
+function skipForMarket(g: Pick<SlateGame, "skip_reason_spread" | "skip_reason_total" | "skip_reasons_spread" | "skip_reasons_total" | "coachLocks">, market: Market): SkipDetail {
+  if (market === "total") return formatSkip(g.skip_reason_total, g.skip_reasons_total, "total", g.coachLocks);
+  return formatSkip(g.skip_reason_spread, g.skip_reasons_spread, market === "moneyline" ? "moneyline" : "spread", g.coachLocks);
 }
 
-/** One-line reason for a non-play headline market, e.g. "Not a play: edge vs open below 4%". */
-export function notAPlayLine(g: SlateGame, officialBets: ValueBet[], market?: Market | null): string | null {
+/** Skip detail for the headline (or given) non-play market; null for official plays. */
+export function notAPlayDetail(g: SlateGame, officialBets: ValueBet[], market?: Market | null): SkipDetail | null {
   const h = cardHeadline(g, officialBets);
   const m = market ?? h.market;
   if (!m || h.verdict === "official") return null;
   if (market && (isOfficialMarket(g, officialBets, market) || officialBetFor(officialBets, market))) return null;
-  const reason = skipForMarket(g, m);
-  return reason ? `Not a play: ${reason}` : null;
+  return skipForMarket(g, m);
 }
 
-/** Reasons for skipped markets (team page). A coach-only skip reads "Not a play: paused until game N (…)". */
+/** One-line reason for a non-play headline market, e.g. "Not a play: edge vs open below 4%"
+ *  or, with a new-coach pause, "Not a play: paused until game 4 (new coach, 3 played)". */
+export function notAPlayLine(g: SlateGame, officialBets: ValueBet[], market?: Market | null): string | null {
+  const d = notAPlayDetail(g, officialBets, market);
+  return d?.primary ? `Not a play: ${d.primary}` : null;
+}
+
+/** "Also: …" lines for the game sheet (reasons behind a new-coach pause). */
+export function notAPlayAlso(g: SlateGame, officialBets: ValueBet[], market?: Market | null): string[] {
+  const d = notAPlayDetail(g, officialBets, market);
+  return d?.primary ? d.also.map((r) => `Also: ${r}`) : [];
+}
+
+/** Reasons for skipped markets (team page). A coach skip reads "Not a play: paused until game N (…)",
+ *  followed by "Also: …" lines for any other reasons. */
 export function notAPlayLines(g: SlateGame, officialMarkets: Iterable<string>): string[] {
   const mk = new Set(officialMarkets);
   const out: string[] = [];
-  if (!mk.has("spread") && !mk.has("moneyline")) {
-    const s = skipForMarket(g, "spread");
-    if (s) out.push(`Not a play: ${s}`);
-  }
-  if (!mk.has("total")) {
-    const s = skipForMarket(g, "total");
-    if (s) out.push(`Not a play: ${s}`);
-  }
+  const push = (d: SkipDetail) => {
+    if (!d.primary) return;
+    out.push(`Not a play: ${d.primary}`);
+    for (const r of d.also) out.push(`Also: ${r}`);
+  };
+  if (!mk.has("spread") && !mk.has("moneyline")) push(skipForMarket(g, "spread"));
+  if (!mk.has("total")) push(skipForMarket(g, "total"));
   return [...new Set(out)];
 }

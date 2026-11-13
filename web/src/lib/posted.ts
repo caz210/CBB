@@ -44,8 +44,9 @@ export function betCoverProb(g: SlateGame, b: ValueBet | null, market: Market | 
     return g.proj_spread < g.market_spread ? g.home_cover_prob : 1 - g.home_cover_prob;
   }
   if (market === "total") {
-    const fair = g.proj_total_v1 ?? g.proj_total;
-    const over = g.insight?.over_prob ?? null;
+    // Totals: both the fair total and the over probability come from czarp-v1-totals, never v2.
+    const fair = g.proj_total_v1 ?? null;
+    const over = g.over_prob_v1 ?? null;
     if (over == null || fair == null || g.market_total == null) return null;
     return fair > g.market_total ? over : 1 - over;
   }

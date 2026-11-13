@@ -1,3 +1,5 @@
+import type { Market } from "./labels";
+
 /** New-coach hold copy from team_profiles / team_profile_latest.
  *  Lengths and remaining come from the DB (lock_sides_games, lock_totals_games,
  *  lock_sides_remaining, lock_totals_remaining). Remaining is null when the
@@ -108,12 +110,43 @@ export function newCoachSheetCopy(lock: NewCoachLock): { title: string; body: st
   return { title: "New coach", body: parts.join(" ") };
 }
 
-/** Chip text with the game counter, same wording as the daily report:
- *  "Paused until game 8 (new coach, 3 played)" (sides first, the longer pause), or
- *  "Totals paused until game 4 (new coach, 3 played)" when only totals are still paused. With name, the team leads. */
-export function pausedChipLabel(lock: NewCoachLock, name = false): string {
+/** Chip text with the game counter, same wording as the daily report.
+ *  With a market (the card's headline market):
+ *    - total headline, totals paused  → "Paused until game 4 (new coach, 3 played)"
+ *    - spread/ML headline, sides paused → "Paused until game 8 (new coach, 3 played)"
+ *    - headline market clear, other market paused → "Sides paused until game 8 (…)" / "Totals paused until game 4 (…)"
+ *  Without a market: sides first (the longer pause), else "Totals paused until game 4 (…)".
+ *  With name, the team leads and the rest is lowercase ("Indiana · paused until game 4 (…)"). */
+export function pausedChipLabel(lock: NewCoachLock, name = false, market?: Market | null): string {
   const who = name ? `${lock.team} · ` : "";
-  if (lock.sidesLocked) return `${who}${name ? "paused" : "Paused"} until game ${lock.lockSides} (new coach, ${sidesPlayed(lock)} played)`;
-  if (lock.totalsLocked) return `${who}${name ? "totals" : "Totals"} paused until game ${lock.lockTotals} (new coach, ${totalsPlayed(lock)} played)`;
+  const cap = (s: string) => (name ? s : s.charAt(0).toUpperCase() + s.slice(1));
+  const sides = `until game ${lock.lockSides} (new coach, ${sidesPlayed(lock)} played)`;
+  const totals = `until game ${lock.lockTotals} (new coach, ${totalsPlayed(lock)} played)`;
+  if (market === "total") {
+    if (lock.totalsLocked) return `${who}${cap("paused")} ${totals}`;
+    if (lock.sidesLocked) return `${who}${cap("sides paused")} ${sides}`;
+  } else if (market === "spread" || market === "moneyline") {
+    if (lock.sidesLocked) return `${who}${cap("paused")} ${sides}`;
+    if (lock.totalsLocked) return `${who}${cap("totals paused")} ${totals}`;
+  } else {
+    if (lock.sidesLocked) return `${who}${cap("paused")} ${sides}`;
+    if (lock.totalsLocked) return `${who}${cap("totals paused")} ${totals}`;
+  }
   return `${who}New coach`;
+}
+
+/** Pause text for one market from lock data: "paused until game 4 (new coach, 3 played)".
+ *  Two paused teams: "paused until game N (new coach, both teams)". Null when no lock covers the market. */
+export function marketPauseText(locks: NewCoachLock[] | null | undefined, market: Market): string | null {
+  const total = market === "total";
+  const hit = (locks ?? []).filter((l) => (total ? l.totalsLocked : l.sidesLocked));
+  if (!hit.length) return null;
+  if (hit.length > 1) {
+    const n = Math.max(...hit.map((l) => (total ? l.lockTotals : l.lockSides)));
+    return `paused until game ${n} (new coach, both teams)`;
+  }
+  const l = hit[0];
+  return total
+    ? `paused until game ${l.lockTotals} (new coach, ${totalsPlayed(l)} played)`
+    : `paused until game ${l.lockSides} (new coach, ${sidesPlayed(l)} played)`;
 }
