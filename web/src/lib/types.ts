@@ -55,7 +55,11 @@ export type SlateGame = {
   rawEdgeMarket?: Market | null;
   /** Model that produced the total (or spread) used for rawEdge. */
   rawEdgeModel?: string | null;
+  /** czarp-v1-totals: the official totals model. Every total number on a card comes from here. */
   proj_total_v1?: number | null;
+  /** czarp-v1-totals over probability (insight.over_prob is the default model's). */
+  over_prob_v1?: number | null;
+  /** czarp-v2 total (team scores added up): a second look, never shown as CZarp's total. */
   proj_total_v2?: number | null;
   coachLocks?: import("./coach").NewCoachLock[];
   skip_reasons_spread?: string[] | null;

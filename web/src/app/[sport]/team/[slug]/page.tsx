@@ -9,7 +9,7 @@ import { ComingSoon } from "@/components/ComingSoon";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
 import { ArchetypeChip } from "@/components/ArchetypeChip";
-import { TermLabel } from "@/components/InfoTip";
+import { InfoTip, TermLabel } from "@/components/InfoTip";
 import { NewCoachBadge } from "@/components/NewCoachBadge";
 import { newCoachLock } from "@/lib/coach";
 import { cardHeadline, notAPlayLine } from "@/lib/verdict";
@@ -100,7 +100,8 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
               </div>
               <div className="mt-1 font-mono text-xs text-zinc-400">
                 FV {next.proj_spread == null ? "—" : fmtLine(next.proj_spread)} · Price {next.market_spread == null ? "—" : fmtLine(next.market_spread)}
-                {next.proj_total != null && next.market_total != null && <> · Total FV {next.proj_total.toFixed(1)} / {next.market_total.toFixed(1)}</>}
+                {/* Total FV is czarp-v1-totals (official totals model), never the v2 team sum. */}
+                {next.proj_total_v1 != null && next.market_total != null && <> · Total FV {next.proj_total_v1.toFixed(1)} (v1) / {next.market_total.toFixed(1)}</>}
               </div>
               {next.upset_alert && (
                 <div className="mt-2 inline-block rounded-md border border-amber-400/40 bg-amber-400/10 px-2 py-1 text-[11px] text-amber-200">
@@ -123,7 +124,9 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
                   </span>
                 )}
                 {nextEdge?.verdict === "low_value" && nextEdge.lean && (
-                  <span className="rounded-md bg-ink-800 px-1.5 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-zinc-400">Lean</span>
+                  <InfoTip term="lean" triggerClassName="rounded-md bg-ink-800 px-1.5 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-zinc-400 hover:bg-ink-700 hover:text-zinc-200">
+                    Lean
+                  </InfoTip>
                 )}
               </div>
               <div className={`font-mono text-4xl font-black ${nextEdge?.edgePct == null ? "text-zinc-700" : nextEdge.verdict === "official" ? "text-edge-400" : "text-zinc-500"}`}>

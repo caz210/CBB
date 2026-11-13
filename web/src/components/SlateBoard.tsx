@@ -10,7 +10,7 @@ import Link from "next/link";
 import { ArchetypeChip, ArchetypeLegend } from "./ArchetypeChip";
 import { InfoTip, TermLabel } from "./InfoTip";
 import { NewCoachChips } from "./NewCoachBadge";
-import { cardHeadline, notAPlayLine } from "@/lib/verdict";
+import { cardHeadline, notAPlayAlso, notAPlayLine } from "@/lib/verdict";
 import { evPer100, fmtEv100 } from "@/lib/stats";
 import { betCoverProb, postedFairVsProjections, postedVsNow } from "@/lib/posted";
 
@@ -190,7 +190,11 @@ function VerdictChips({ g, bets }: { g: SlateGame; bets: ValueBet[] }) {
         ? <span className="rounded-md bg-edge-400/15 px-1.5 py-0.5 text-[10px] font-semibold text-edge-400">Official play</span>
         : <span className="rounded-md bg-ink-800 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-400">Low value</span>}
       {tier && <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${TIER_BADGE[tier]}`}>{tier}</span>}
-      {!official && h.lean && <span className="rounded-md bg-ink-800 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-400">Lean</span>}
+      {!official && h.lean && (
+        <InfoTip term="lean" triggerClassName="rounded-md bg-ink-800 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-400 hover:bg-ink-700 hover:text-zinc-200">
+          Lean
+        </InfoTip>
+      )}
     </>
   );
 }
@@ -219,8 +223,8 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
       ? `${MARKET_LABEL[edge.market]} · fair vs price`
       : g.game;
   const openSingle = (e: { stopPropagation: () => void }) => { e.stopPropagation(); onOpen(single!); };
-  const postedTotal = official && edge.officialBet?.market === "total" && edge.officialBet.fair_at_post != null ? edge.officialBet.fair_at_post : null;
-  const fair = postedTotal != null ? { value: postedTotal.toFixed(1), v1: false, posted: true } : { ...totalFair(g), posted: false };
+  const fair = totalFair(g, bets);
+  const hasTeamProj = g.proj_home != null || g.proj_away != null;
   return (
     <article
       role="button" tabIndex={0} aria-label={`Insights for ${g.game}`}
@@ -230,7 +234,7 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
           <span className="font-semibold text-zinc-300">{timeLabel}</span>
           <VerdictChips g={g} bets={bets} />
-          <NewCoachChips locks={g.coachLocks} />
+          <NewCoachChips locks={g.coachLocks} market={edge.market} />
         </div>
         <button
           type="button"
@@ -257,6 +261,11 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
       )}
 
       <div className="divide-y divide-ink-700/40 px-4">
+        {hasTeamProj && (
+          <div className="flex justify-end pt-2 text-[9px] font-semibold uppercase tracking-wider text-zinc-600" title="Team scores are the czarp-v2 projection, a separate model from the official czarp-v1-totals total">
+            v2 team projection
+          </div>
+        )}
         {rows.map((r) => (
           <div key={r.side} className="py-3">
             <div className="flex items-center gap-3">
@@ -305,7 +314,7 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
           label="Total"
           fair={fair.value}
           price={g.market_total?.toFixed(1) ?? "—"}
-          tag={fair.posted ? "posted" : fair.v1 ? "v1" : undefined}
+          tag={fair.tag}
         />
       </div>
 
@@ -354,21 +363,20 @@ function finalScore(g: SlateGame): { home: number; away: number } | null {
   return { home: g.home_score, away: g.away_score };
 }
 
-function totalFair(g: SlateGame): { value: string; v1: boolean } {
-  // Prefer the model that owns the raw total edge; fall back to the default (v2).
-  if (g.rawEdgeMarket === "total" && g.rawEdgeModel === "czarp-v1-totals" && g.proj_total_v1 != null) {
-    return { value: g.proj_total_v1.toFixed(1), v1: true };
-  }
-  if (g.proj_total_v2 != null) return { value: g.proj_total_v2.toFixed(1), v1: false };
-  if (g.proj_total != null) return { value: g.proj_total.toFixed(1), v1: false };
-  if (g.proj_total_v1 != null) return { value: g.proj_total_v1.toFixed(1), v1: true };
-  return { value: "—", v1: false };
+/** Fair total for a card or sheet. Always czarp-v1-totals (the official totals model):
+ *  the posted fair for an official total, else the current v1 projection, else "—".
+ *  Never the v2 team-score sum. */
+function totalFair(g: SlateGame, bets: ValueBet[]): { value: string; num: number | null; tag?: "posted" | "v1" } {
+  const posted = bets.find((b) => b.market === "total" && b.pick_tier !== "track" && typeof b.fair_at_post === "number" && Number.isFinite(b.fair_at_post));
+  if (posted?.fair_at_post != null) return { value: posted.fair_at_post.toFixed(1), num: posted.fair_at_post, tag: "posted" };
+  if (g.proj_total_v1 != null) return { value: g.proj_total_v1.toFixed(1), num: g.proj_total_v1, tag: "v1" };
+  return { value: "—", num: null };
 }
 
 function totalModelDetail(g: SlateGame): string | null {
   const parts: string[] = [];
-  if (g.proj_total_v1 != null) parts.push(`czarp-v1-totals ${g.proj_total_v1.toFixed(1)}`);
-  if (g.proj_total_v2 != null) parts.push(`czarp-v2 ${g.proj_total_v2.toFixed(1)}`);
+  if (g.proj_total_v1 != null) parts.push(`czarp-v1-totals ${g.proj_total_v1.toFixed(1)} (official)`);
+  if (g.proj_total_v2 != null) parts.push(`czarp-v2 team sum ${g.proj_total_v2.toFixed(1)} (second look)`);
   return parts.length ? parts.join(" · ") : null;
 }
 
@@ -479,11 +487,12 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
   const i = g.insight;
   const ph = i?.proj_home ?? g.proj_home, pa = i?.proj_away ?? g.proj_away;
   const czLine = ph != null && pa != null ? -(ph - pa) : g.proj_spread;
-  const czTotal = ph != null && pa != null ? ph + pa : g.proj_total;
+  const czTotal = totalFair(g, bets); // v1 only, never the v2 team sum
   const openS = i?.open_spread ?? null, curS = i?.cur_spread ?? g.market_spread;
   const openT = i?.open_total ?? null, curT = i?.cur_total ?? g.market_total;
   const move = (o: number | null, c: number | null) => (o == null || c == null ? "—" : c === o ? "No move" : `${c > o ? "+" : "−"}${Math.abs(c - o).toFixed(1)}`);
-  const hw = i?.home_win_prob ?? g.home_win_prob, ov = i?.over_prob ?? null;
+  // Over probability from the official totals model (v1), never the default model's.
+  const hw = i?.home_win_prob ?? g.home_win_prob, ov = g.over_prob_v1 ?? null;
   const edge = cardHeadline(g, bets);
   const hasEdge = edge.edgePct != null;
   return (
@@ -512,7 +521,8 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-1.5">
               <VerdictChips g={g} bets={bets} />
-              <NewCoachChips locks={g.coachLocks} />
+              {/* Same market as the card so the chip matches the "Not a play" line; the chip's sheet still lists both pause lengths. */}
+              <NewCoachChips locks={g.coachLocks} market={edge.market} />
             </div>
             <div className="mt-1 truncate text-sm text-zinc-300">
               {edge.officialBet ? `${edge.officialBet.side} · ${MARKET_LABEL[edge.officialBet.market]}` : edge.market ? `${MARKET_LABEL[edge.market]} · fair vs price` : "Fair value vs price"}
@@ -533,10 +543,15 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
           <p className="mt-2 font-mono text-[11px] leading-snug text-zinc-400">{postedFairVsProjections(edge.officialBet, g)}</p>
         )}
         <NotAPlay className="mt-2" line={edge.verdict === "official" ? null : notAPlayLine(g, bets)} showTip={!edge.subtitle} />
+        {edge.verdict !== "official" && notAPlayAlso(g, bets).length > 0 && (
+          <ul className="mt-1 space-y-0.5 text-[11px] leading-snug text-zinc-500">
+            {notAPlayAlso(g, bets).map((l) => <li key={l}>{l}</li>)}
+          </ul>
+        )}
 
         <div className="mt-4 grid grid-cols-2 gap-2">
-          <Big label={`${g.away} proj`} v={pa == null ? "—" : pa.toFixed(1)} />
-          <Big label={`${g.home} proj`} v={ph == null ? "—" : ph.toFixed(1)} />
+          <Big label={`${g.away} proj`} v={pa == null ? "—" : pa.toFixed(1)} sub="v2 team projection" />
+          <Big label={`${g.home} proj`} v={ph == null ? "—" : ph.toFixed(1)} sub="v2 team projection" />
         </div>
 
         <div className="mt-3 overflow-hidden rounded-xl border border-ink-700 text-sm">
@@ -549,11 +564,14 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
           </div>
           {[
             { k: "Spread", cz: czLine == null ? "—" : fmtLine(czLine), o: openS == null ? "—" : fmtLine(openS), c: curS == null ? "—" : fmtLine(curS), m: move(openS, curS) },
-            { k: "Total", cz: czTotal == null ? "—" : czTotal.toFixed(1), o: openT?.toFixed(1) ?? "—", c: curT?.toFixed(1) ?? "—", m: move(openT, curT) },
-          ].map((r) => (
+            { k: "Total", cz: czTotal.value, tag: czTotal.tag, o: openT?.toFixed(1) ?? "—", c: curT?.toFixed(1) ?? "—", m: move(openT, curT) },
+          ].map((r: { k: string; cz: string; tag?: string; o: string; c: string; m: string }) => (
             <div key={r.k} className="grid grid-cols-5 border-t border-ink-700/60 px-3 py-2.5 font-mono">
               <span className="font-sans text-xs font-semibold text-zinc-400">{r.k}</span>
-              <span className="text-right font-bold text-edge-400">{r.cz}</span>
+              <span className="text-right font-bold text-edge-400">
+                {r.cz}
+                {r.tag && <span className="ml-0.5 align-super font-sans text-[8px] font-semibold text-zinc-500">{r.tag}</span>}
+              </span>
               <span className="text-right text-zinc-400">{r.o}</span>
               <span className="text-right">{r.c}</span>
               <span className="text-right text-xs text-zinc-500">{r.m}</span>
@@ -570,7 +588,7 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
 
         <div className="mt-3 grid grid-cols-2 gap-2">
           <Big label="Home win" v={hw == null ? "—" : fmtWinProb(hw)} />
-          <Big label="Over" v={ov == null ? "—" : pct(ov)} />
+          <Big label="Over" v={ov == null ? "—" : pct(ov)} sub={ov == null ? undefined : "czarp-v1-totals"} />
         </div>
         {(i?.proj_possessions ?? g.proj_possessions) != null && <p className="mt-2 text-xs text-zinc-400">Projected pace: <b className="font-mono text-white">{(i?.proj_possessions ?? g.proj_possessions)!.toFixed(1)}</b> possessions</p>}
 

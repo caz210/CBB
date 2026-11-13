@@ -12,6 +12,7 @@ import {
 } from "@/lib/coach";
 import { notAPlayLines } from "@/lib/verdict";
 import type { SlateGame } from "@/lib/types";
+import type { Market } from "@/lib/labels";
 
 /** Full-text note for team pages. Shows the "back on" line once both markets are clear. */
 export function NewCoachBadge({ lock, name = false, className = "" }: { lock: NewCoachLock; name?: boolean; className?: string }) {
@@ -25,12 +26,12 @@ export function NewCoachBadge({ lock, name = false, className = "" }: { lock: Ne
 }
 
 /** Compact amber chip that opens a bottom-sheet explainer. Hidden once the team is fully clear. */
-export function NewCoachChip({ lock, name = false, className = "" }: { lock: NewCoachLock; name?: boolean; className?: string }) {
+export function NewCoachChip({ lock, name = false, market, className = "" }: { lock: NewCoachLock; name?: boolean; market?: Market | null; className?: string }) {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const id = useId();
   const copy = newCoachSheetCopy(lock);
-  const label = pausedChipLabel(lock, name);
+  const label = pausedChipLabel(lock, name, market);
 
   useEffect(() => setMounted(true), []);
   useEffect(() => {
@@ -81,7 +82,7 @@ export function NewCoachChip({ lock, name = false, className = "" }: { lock: New
     : null;
 
   return (
-    <span className={`inline-flex ${className}`} onClick={(ev) => ev.stopPropagation()}>
+    <span className={`inline-flex ${className}`} onClick={(ev) => ev.stopPropagation()} onKeyDown={(ev) => ev.stopPropagation()}>
       <button
         type="button"
         aria-label={`${label} details`}
@@ -98,13 +99,14 @@ export function NewCoachChip({ lock, name = false, className = "" }: { lock: New
   );
 }
 
-export function NewCoachChips({ locks, name, className = "" }: { locks?: NewCoachLock[] | null; name?: boolean; className?: string }) {
+/** market: the card's headline market, so a totals card reads "Paused until game 4". Omit to list sides first. */
+export function NewCoachChips({ locks, name, market, className = "" }: { locks?: NewCoachLock[] | null; name?: boolean; market?: Market | null; className?: string }) {
   const shown = lockedCoachLocks(locks);
   if (!shown.length) return null;
   const showName = name ?? shown.length > 1;
   return (
     <span className={`inline-flex flex-wrap items-center gap-1 ${className}`}>
-      {shown.map((l) => <NewCoachChip key={l.team} lock={l} name={showName} />)}
+      {shown.map((l) => <NewCoachChip key={l.team} lock={l} name={showName} market={market} />)}
     </span>
   );
 }
@@ -113,7 +115,7 @@ export function NewCoachChips({ locks, name, className = "" }: { locks?: NewCoac
 export const SKIP_LABELS: Record<string, string> = {
   below_open_threshold: "edge vs open below threshold",
   below_current_threshold: "edge now below threshold",
-  line_moved_against: "line moved against us",
+  line_moved_against: "market moved 3+ pts away from CZarp since open",
   new_coach_lock: "new coach",
   kelly_too_small: "stake too small to post",
   game_started: "game already started",
@@ -121,7 +123,7 @@ export const SKIP_LABELS: Record<string, string> = {
   no_opening_line: "no opening line yet",
 };
 
-/** Skip-reason lines for markets without an official bet. Coach holds are covered by the chip. */
+/** Skip-reason lines for markets without an official bet: "Not a play: …" then "Also: …" for other reasons. */
 export function whyNotPlayCopy(g: Partial<SlateGame> | undefined, officialMarkets: Iterable<string>): string[] {
   if (!g) return [];
   return notAPlayLines(g as SlateGame, officialMarkets);

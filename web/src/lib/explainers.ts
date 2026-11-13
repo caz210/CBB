@@ -28,6 +28,10 @@ export const EXPLAINERS = {
     title: "Totals models",
     body: "Official totals use czarp-v1-totals. The default model, czarp-v2, is used for sides and as a second look at the total. A small “v1” tag on a card means the fair value shown is from the official totals model, not the default.",
   },
+  lean: {
+    title: "Lean",
+    body: "The edge at today's line clears our bar, but the edge vs the opening line doesn't, so it's not an official play. Bars: 4% sides, 3% totals.",
+  },
   openLineRule: {
     title: "Why we use the opening line",
     body: "We only play edges that were there at the open, so we're never chasing line moves. A number that looks good vs the current price can still be low value if it wasn't there when the market opened.",

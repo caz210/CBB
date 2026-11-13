@@ -235,7 +235,7 @@ export async function loadSlate(sport: Sport, date: string): Promise<Loaded<Slat
     const [st, gr, pr, ml] = await Promise.all([
       sb.from("games").select("id,status,updated_at,final_at,final_at_estimated,home,away,home_team_id,away_team_id,home_score,away_score").in("id", ids),
       sb.from("ledger").select("game_id,result").in("game_id", ids).not("result", "is", null),
-      sb.from("projections").select("game_id,model_version,spread,total,created_at").in("game_id", ids).order("created_at", { ascending: false }),
+      sb.from("projections").select("game_id,model_version,spread,total,over_prob,created_at").in("game_id", ids).order("created_at", { ascending: false }),
       sb.from("market_lines").select("game_id,fetched_at").in("game_id", ids).eq("source", "vegas"),
     ]);
     const done = new Set<number>();
@@ -319,6 +319,7 @@ function attachRawEdges(games: SlateGame[], projRows: Row[]) {
     const totalV1 = num(v1?.total);
     g.proj_total_v2 = totalV2;
     g.proj_total_v1 = totalV1;
+    g.over_prob_v1 = num(v1?.over_prob);
     const vegasT = g.market_total ?? totalV2 ?? totalV1;
     const spreadE = computedLineEdge(spread, g.market_spread, vegasT);
     const totV2E = computedLineEdge(totalV2, g.market_total, g.market_total ?? vegasT);
@@ -757,6 +758,15 @@ export async function loadTeam(sport: Sport, slug: string): Promise<Loaded<TeamP
           .filter((x) => x.pick_tier === "official");
       }
     } catch { /* team page still renders without official rows */ }
+    try {
+      // Official totals model for the next-game Total FV (slate_games.proj_total is the v2 team sum).
+      const v1 = await sb.from("projections").select("total,over_prob").eq("game_id", g.game_id)
+        .eq("model_version", V1_TOTALS).order("created_at", { ascending: false }).limit(1);
+      if (!v1.error && v1.data?.[0]) {
+        g.proj_total_v1 = num(v1.data[0].total);
+        g.over_prob_v1 = num(v1.data[0].over_prob);
+      }
+    } catch { /* Total FV is hidden without v1 */ }
     next = { ...g, officialBets };
   }
 
