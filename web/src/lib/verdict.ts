@@ -142,14 +142,6 @@ export function knownSkipCodeLabel(code: string, thresholdPct: string): string |
   }
 }
 
-/** Machine-readable skip codes → short labels. Y is the play threshold for that market.
- *  Unknown codes fall back to the code with spaces (formatSkip prefers the stored text instead). */
-export function skipCodeLabel(code: string, thresholdPct: string): string | null {
-  if (code === COACH_SKIP) return null; // covered by the coach chip
-  return knownSkipCodeLabel(code, thresholdPct) ?? code.replace(/_/g, " ");
-}
-
-
 /** True if user-facing text still talks about lock/unlock (or a new-coach hold). */
 function isCoachOrLockCopy(s: string) {
   if (/\bnew\s*coach\b/i.test(s)) return true;
@@ -180,21 +172,28 @@ export type SkipDetail = {
   also: string[];
 };
 
-/** Pipeline text split into its "; " parts: lock words rewritten first, then any part that is still
- *  coach/lock copy is dropped. Old "moved … against" text maps to the new line-move wording. */
+/** Raw snake_case code stored as text ("some_new_code", "feed vendor_feed_down"). */
+const SNAKE_TOKEN = /\b[a-z0-9]+(?:_[a-z0-9]+)+\b/i;
+const NOT_A_PLAY_PREFIX = /^\s*not\s+a\s+play\s*:\s*/i;
+
+/** Pipeline text split into its "; " parts:
+ *  - a leading "Not a play:" is stripped (the UI adds its own prefix);
+ *  - parts with a raw snake_case code are dropped;
+ *  - old "moved … against" text maps to the new line-move wording; any other "against" wording
+ *    ("market went against us") is dropped, so "against us/our side" never shows;
+ *  - lock words are rewritten, then any part that is still coach/lock copy is dropped. */
 function textReasons(text: string): string[] {
   return text
     .split(/\s*;\s*/)
-    .map((x) => x.trim())
-    .filter(Boolean)
-    .map((x) => (/\bmoved\b.*\bagainst\b/i.test(x) ? LINE_MOVED_LABEL : rewriteLockWords(x)))
+    .map((x) => x.replace(NOT_A_PLAY_PREFIX, "").trim())
+    .filter((x) => x && !SNAKE_TOKEN.test(x))
+    .map((x) => (/\bmoved\b.*\bagainst\b/i.test(x) ? LINE_MOVED_LABEL : /\bagainst\b/i.test(x) ? "" : rewriteLockWords(x)))
     .filter((x) => x && !isCoachOrLockCopy(x));
 }
 
 /** Known code labels win over the pipeline's human text. The stored text is the fallback when there
- *  are no codes (older rows) or none of the codes has a known label: its "; " parts go through the
- *  lock-word rewrite, coach/lock parts are dropped, and old "moved … against" text maps to the new
- *  line-move wording. Nothing left → no line. Exported for tests. */
+ *  are no codes (older rows) or none of the codes has a known label; see textReasons for how that
+ *  text is cleaned. Nothing left → no line. Exported for tests. */
 export function formatSkip(
   human: string | null | undefined,
   codes: string[] | null | undefined,

@@ -73,3 +73,28 @@ test("pausedChipLabel by market", () => {
   assert.equal(pausedChipLabel(lock()), "Paused until game 8 (new coach, 3 played)");
   assert.equal(pausedChipLabel(lock(), true, "total"), "Indiana · paused until game 4 (new coach, 3 played)");
 });
+
+// ---- Scantron review on #34 ----
+test("fallback never shows 'against us' / 'against our side' wording", () => {
+  assert.deepEqual(formatSkip("market went against us", ["x"], "total"), { primary: null, also: [] });
+  assert.equal(formatSkip("sharp money against our side; injury news pending", ["x"], "total").primary, "injury news pending");
+  // old "moved … against" text still maps to the new wording
+  assert.equal(formatSkip("total moved 4 pts against our side since open", ["x"], "total").primary, "market moved 3+ pts away from CZarp since open");
+  // same rule for the "Also:" list behind a coach pause
+  const d = formatSkip("market went against us; Paused until game 4 (new coach, 2 played)", ["new_coach_lock", "x"], "total");
+  assert.deepEqual(d, { primary: "paused until game 4 (new coach, 2 played)", also: [] });
+});
+
+test("fallback drops snake_case codes stored as text", () => {
+  assert.deepEqual(formatSkip("some_new_code", ["x"], "total"), { primary: null, also: [] });
+  assert.equal(formatSkip("feed vendor_feed_down; injury news pending", ["x"], "spread").primary, "injury news pending");
+  const d = formatSkip("vendor_feed_down; Paused until game 8 (new coach, 3 played)", ["new_coach_lock", "x"], "spread");
+  assert.deepEqual(d, { primary: "paused until game 8 (new coach, 3 played)", also: [] });
+});
+
+test("fallback strips a leading 'Not a play:' so the prefix never doubles", () => {
+  assert.equal(formatSkip("Not a play: injury", ["x"], "total").primary, "injury");
+  assert.equal(formatSkip("NOT A PLAY:injury; not a play :  travel", ["x"], "total").primary, "injury; travel");
+  const g = game({ skip_reasons_total: ["brand_new_rule"], skip_reason_total: "Not a play: injury" });
+  assert.equal(notAPlayLine(g, []), "Not a play: injury");
+});
