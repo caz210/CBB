@@ -50,7 +50,7 @@ def test_detect_uses_candidate_reasons_and_official_flag(monkeypatch):
     now = datetime(2026, 11, 10, 7, 15, tzinfo=dr.CENTRAL)
     cands = dr.candidates([g], now)
     rows = BM.detect([g], cands, played_ids=())
-    assert len(rows) == 1 and "total moved 6 pts against our side" in rows[0]["skip_reason"]
+    assert len(rows) == 1 and "Not a play: market moved 3+ pts away from CZarp since open" in rows[0]["skip_reason"]
     rows = BM.detect([g], cands, played_ids={"10-total"})
     assert rows[0]["official_pick"] and rows[0]["skip_reason"] is None and "official play" in rows[0]["note"]
     assert BM.detect([dict(g, skip="non-D1")], cands) == []
