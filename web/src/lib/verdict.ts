@@ -126,19 +126,19 @@ function lowValueSubtitle(market: Market | null, edgeNow: number | null, edgeVsO
 }
 
 const COACH_SKIP = "new_coach_lock";
+const LINE_MOVED_LABEL = "market moved 3+ pts away from CZarp since open";
 
-/** Machine-readable skip codes → short labels. Y is the play threshold for that market. */
-export function skipCodeLabel(code: string, thresholdPct: string): string | null {
-  if (code === COACH_SKIP) return null; // covered by the coach chip
+/** Label for a known skip code; null for the coach code and for codes we don't know. */
+export function knownSkipCodeLabel(code: string, thresholdPct: string): string | null {
   switch (code) {
     case "below_open_threshold": return `edge vs open below ${thresholdPct}`;
     case "below_current_threshold": return `edge now below ${thresholdPct}`;
-    case "line_moved_against": return "market moved 3+ pts away from CZarp since open";
+    case "line_moved_against": return LINE_MOVED_LABEL;
     case "no_opening_line": return "no opening line yet";
     case "no_current_line": return "no current line";
     case "game_started": return "game already started";
     case "kelly_too_small": return "stake too small to post";
-    default: return code.replace(/_/g, " ");
+    default: return null;
   }
 }
 
@@ -172,19 +172,29 @@ export type SkipDetail = {
   also: string[];
 };
 
-/** Pipeline text split into its "; " parts, with coach/lock parts dropped and lock words rewritten. */
+/** Raw snake_case code stored as text ("some_new_code", "feed vendor_feed_down"). */
+const SNAKE_TOKEN = /\b[a-z0-9]+(?:_[a-z0-9]+)+\b/i;
+const NOT_A_PLAY_PREFIX = /^\s*not\s+a\s+play\s*:\s*/i;
+
+/** Pipeline text split into its "; " parts:
+ *  - a leading "Not a play:" is stripped (the UI adds its own prefix);
+ *  - parts with a raw snake_case code are dropped;
+ *  - old "moved … against" text maps to the new line-move wording; any other "against" wording
+ *    ("market went against us") is dropped, so "against us/our side" never shows;
+ *  - lock words are rewritten, then any part that is still coach/lock copy is dropped. */
 function textReasons(text: string): string[] {
   return text
     .split(/\s*;\s*/)
-    .map((x) => x.trim())
-    .filter((x) => x && !isCoachOrLockCopy(x))
-    .map((x) => (/\bmoved\b.*\bagainst\b/i.test(x) ? skipCodeLabel("line_moved_against", "")! : rewriteLockWords(x)))
+    .map((x) => x.replace(NOT_A_PLAY_PREFIX, "").trim())
+    .filter((x) => x && !SNAKE_TOKEN.test(x))
+    .map((x) => (/\bmoved\b.*\bagainst\b/i.test(x) ? LINE_MOVED_LABEL : /\bagainst\b/i.test(x) ? "" : rewriteLockWords(x)))
     .filter((x) => x && !isCoachOrLockCopy(x));
 }
 
-/** Code labels win over the pipeline's human text whenever codes are present;
- *  the text is only used when there are no codes (older rows). */
-function formatSkip(
+/** Known code labels win over the pipeline's human text. The stored text is the fallback when there
+ *  are no codes (older rows) or none of the codes has a known label; see textReasons for how that
+ *  text is cleaned. Nothing left → no line. Exported for tests. */
+export function formatSkip(
   human: string | null | undefined,
   codes: string[] | null | undefined,
   market: Market,
@@ -194,9 +204,11 @@ function formatSkip(
   const all = codes ?? [];
   const text = human?.trim() ?? "";
   const coach = all.includes(COACH_SKIP) || /\bnew\s*coach\b/i.test(text);
-  const others = all.length
-    ? all.filter((c) => c !== COACH_SKIP).map((c) => skipCodeLabel(c, threshold)).filter((x): x is string => !!x)
-    : textReasons(text);
+  const known = all
+    .filter((c) => c !== COACH_SKIP)
+    .map((c) => knownSkipCodeLabel(c, threshold))
+    .filter((x): x is string => !!x);
+  const others = known.length ? known : textReasons(text);
   const uniq = [...new Set(others)];
   if (coach) {
     // Pause leads: built from the team's lock data when we have it, else the stored text.

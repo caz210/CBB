@@ -89,3 +89,13 @@ export function postedFairVsProjections(b: ValueBet | null | undefined, g: Slate
   }
   return null;
 }
+
+/** Fair total for a card, sheet, or team page. Always czarp-v1-totals (the official totals model):
+ *  the posted fair for an official total, else the current v1 projection, else "—".
+ *  Never the v2 team-score sum. */
+export function totalFair(g: SlateGame, bets: ValueBet[]): { value: string; num: number | null; tag?: "posted" | "v1" } {
+  const posted = bets.find((b) => b.market === "total" && b.pick_tier !== "track" && typeof b.fair_at_post === "number" && Number.isFinite(b.fair_at_post));
+  if (posted?.fair_at_post != null) return { value: posted.fair_at_post.toFixed(1), num: posted.fair_at_post, tag: "posted" };
+  if (g.proj_total_v1 != null) return { value: g.proj_total_v1.toFixed(1), num: g.proj_total_v1, tag: "v1" };
+  return { value: "—", num: null };
+}
