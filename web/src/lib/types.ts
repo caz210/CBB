@@ -90,6 +90,10 @@ export type GameInsight = {
   cur_total: number | null;
   reason: string | null;
   proj_possessions: number | null;
+  /** czarp-v1-totals row's own pace and reason (projections.proj_possessions / .reason).
+   *  Null until the pipeline fills them (PR #35); older rows stay null. Used on total cards only. */
+  v1_proj_possessions?: number | null;
+  v1_reason?: string | null;
   upset_alert?: boolean;
   upset_reason?: string | null;
 };

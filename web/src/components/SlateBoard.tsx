@@ -12,6 +12,7 @@ import { InfoTip, TermLabel } from "./InfoTip";
 import { NewCoachChips } from "./NewCoachBadge";
 import { cardHeadline, notAPlayAlso, notAPlayLine } from "@/lib/verdict";
 import { evPer100, fmtEv100 } from "@/lib/stats";
+import { cardReason, paceAndReason } from "@/lib/pace";
 import { betCoverProb, postedFairVsProjections, postedVsNow, totalFair } from "@/lib/posted";
 
 type Sel = { game: SlateGame; bet: ValueBet } | null;
@@ -224,6 +225,7 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
       : g.game;
   const openSingle = (e: { stopPropagation: () => void }) => { e.stopPropagation(); onOpen(single!); };
   const fair = totalFair(g, bets);
+  const why = cardReason(g, edge.market); // total cards: v1 reason only
   const hasTeamProj = g.proj_home != null || g.proj_away != null;
   return (
     <article
@@ -318,7 +320,7 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
         />
       </div>
 
-      {(g.archetypes.notes.length > 0 || g.reason) && (
+      {(g.archetypes.notes.length > 0 || why) && (
         <div className="space-y-1 border-t border-ink-700/60 px-4 py-2 text-[11px] text-zinc-400">
           {g.archetypes.notes.length > 0 && (
             <div>
@@ -326,8 +328,8 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
               {g.archetypes.tentative && <span className="text-zinc-600"> (tentative)</span>}
             </div>
           )}
-          {g.reason && (
-            <div><span className="font-semibold text-zinc-500">Why: </span>{g.reason}</div>
+          {why && (
+            <div><span className="font-semibold text-zinc-500">Why: </span>{why}</div>
           )}
         </div>
       )}
@@ -484,6 +486,7 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
   // Over probability from the official totals model (v1), never the default model's.
   const hw = i?.home_win_prob ?? g.home_win_prob, ov = g.over_prob_v1 ?? null;
   const edge = cardHeadline(g, bets);
+  const pr = paceAndReason(g, edge.market); // total sheets: v1 pace/reason only, hidden when null
   const hasEdge = edge.edgePct != null;
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center" role="dialog" aria-modal="true" aria-label={`${g.game} insights`}>
@@ -580,7 +583,7 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
           <Big label="Home win" v={hw == null ? "—" : fmtWinProb(hw)} />
           <Big label="Over" v={ov == null ? "—" : pct(ov)} sub={ov == null ? undefined : "czarp-v1-totals"} />
         </div>
-        {(i?.proj_possessions ?? g.proj_possessions) != null && <p className="mt-2 text-xs text-zinc-400">Projected pace: <b className="font-mono text-white">{(i?.proj_possessions ?? g.proj_possessions)!.toFixed(1)}</b> possessions</p>}
+        {pr.pace != null && <p className="mt-2 text-xs text-zinc-400">Projected pace: <b className="font-mono text-white">{pr.pace.toFixed(1)}</b> possessions</p>}
 
         {(g.archetypes.away.length > 0 || g.archetypes.home.length > 0) && (
           <div className="mt-4 space-y-2">
@@ -593,7 +596,7 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
             {g.archetypes.notes.length > 0 && <p className="text-[11px] text-zinc-400">{g.archetypes.notes.join(" · ")}</p>}
           </div>
         )}
-        {(i?.reason || g.reason) && <div className="mt-4 rounded-xl bg-ink-850 p-3 text-sm text-zinc-300"><div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">Why CZarp likes it</div>{i?.reason || g.reason}</div>}
+        {pr.reason && <div className="mt-4 rounded-xl bg-ink-850 p-3 text-sm text-zinc-300"><div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">Why CZarp likes it</div>{pr.reason}</div>}
 
         {bets.length > 0 && (
           <div className="mt-4 space-y-1.5">

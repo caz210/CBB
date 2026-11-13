@@ -408,6 +408,13 @@ async function loadInsights(sb: SB, ids: number[]): Promise<Map<number, GameInsi
       // newest row wins, but a default-model row beats a non-default one
       if (!cur || (!defaults.has(str(cur.model_version)) && defaults.has(str(r.model_version)))) proj.set(id, r);
     }
+    // Newest czarp-v1-totals row per game, for total cards' pace and reason. `select *` above, so a
+    // missing reason / proj_possessions column reads as undefined → null instead of a 42703 error.
+    const v1 = new Map<number, Row>();
+    for (const r of (pr.data ?? []) as Row[]) {
+      const id = Number(r.game_id);
+      if (str(r.model_version) === "czarp-v1-totals" && !v1.has(id)) v1.set(id, r);
+    }
     const lines = new Map<string, Row>(); // newest snapshot per game + line_type
     for (const r of (ml.data ?? []) as Row[]) {
       const k = `${r.game_id}:${r.line_type}`;
@@ -424,6 +431,8 @@ async function loadInsights(sb: SB, ids: number[]): Promise<Map<number, GameInsi
         open_spread: num(o?.spread), cur_spread: num(c?.spread), open_total: num(o?.total), cur_total: num(c?.total),
         reason: typeof p.reason === "string" && p.reason.trim() ? p.reason.trim() : null,
         proj_possessions: num(p.proj_possessions),
+        v1_proj_possessions: num(v1.get(id)?.proj_possessions),
+        v1_reason: typeof v1.get(id)?.reason === "string" && String(v1.get(id)!.reason).trim() ? String(v1.get(id)!.reason).trim() : null,
         upset_alert: p.upset_alert === true,
         upset_reason: typeof p.upset_reason === "string" && p.upset_reason.trim() ? String(p.upset_reason).trim() : null,
       });
