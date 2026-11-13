@@ -734,7 +734,7 @@ def candidates(games, now) -> list[dict]:
         ma = move_against(c)
         c["move_against"] = ma
         if c["market"] == "total" and ma is not None and ma >= TOTAL_MOVE_SKIP_PTS:
-            why.append(f"total moved {ma:g} pts against our side since open (market disagrees)")
+            why.append("Not a play: market moved 3+ pts away from CZarp since open")
         if c["market"] == "spread" and ma is not None and ma >= SIDE_MOVE_AGAINST_PTS and SIDE_MOVE_SKIP:
             why.append(f"spread moved {ma:g} pts against our side since open (market disagrees)")
         locks = coach_locks(c["g"], market=c["market"])

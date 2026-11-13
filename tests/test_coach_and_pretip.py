@@ -48,7 +48,7 @@ def test_total_line_move_skip_and_side_flag(monkeypatch):
     g = _game(open_total=156.5, current_total=162.5, v1_total=149.5)
     t = {x["market"]: x for x in dr.candidates([g], _now())}["total"]
     assert t["side"] == "Under" and t["move_against"] == 6.0 and not t["rule_ok"]
-    assert any("total moved 6 pts against our side" in r for r in t["reasons"])
+    assert "Not a play: market moved 3+ pts away from CZarp since open" in t["reasons"]
     # moved toward our side -> fine
     g = _game(open_total=162.5, current_total=156.5, v1_total=149.5)
     t = {x["market"]: x for x in dr.candidates([g], _now())}["total"]

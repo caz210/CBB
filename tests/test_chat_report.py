@@ -112,12 +112,12 @@ def test_verdicts_official_low_value_and_lean():
 
     # vs-open clears the total bar (3.9% >= 3%) so this is Low value, not Lean
     low = _row(g, side="Under", qualifies=False, edge_pct=0.063, edge_pct_vs_open=0.039,
-               reasons=["total moved 4 pts against our side since open (market disagrees)",
+               reasons=["Not a play: market moved 3+ pts away from CZarp since open",
                         "Paused until game 4 (new coach, 3 played)",
                         "Big move: up 4 pts (155.5 → 159.5) — against our lean"])
     text = "\n".join(dr.format_chat_edge_block(low))
     assert "Edge: Under · 6.3% now, 3.9% vs open · Low value: " in text
-    assert "total moved 4 pts against our side since open (market disagrees)" in text
+    assert "Not a play: market moved 3+ pts away from CZarp since open" in text
     assert "Paused until game 4 (new coach, 3 played)" in text
     assert "Big move:" not in text.split("Edge:")[1]  # stripped from the verdict line
     assert "Lean" not in text
