@@ -519,6 +519,7 @@ def project_all(games: list[dict], data: dict) -> None:
                 r1 = V1.project_game(a, h, None if g["neutral"] else False, v1data)
                 g["v1_home_margin"], g["v1_total"] = -float(r1["spread"]), float(r1["total"])
                 g["v1_pace"] = float(r1.get("projected_pace") or 0) or None
+                g["v1_reason"] = TS.v1_totals_reason(h, a, g["v1_total"], g.get("v1_pace"))
             except Exception:
                 pass
 

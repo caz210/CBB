@@ -389,6 +389,17 @@ def projection_reason(home: str, away: str, home_tags: list, away_tags: list,
     return ". ".join(sentences[:3]) + ("." if sentences else "")
 
 
+def v1_totals_reason(home: str, away: str, total: float | None,
+                     pace: float | None) -> str:
+    """Short plain sentences for czarp-v1-totals projections.reason. No KenPom ranks."""
+    parts = [f"{away} at {home}."]
+    if total is not None:
+        parts.append(f"Projected total {total:.1f}.")
+    if pace is not None:
+        parts.append(f"Projected pace about {pace:.0f} possessions.")
+    return " ".join(parts)
+
+
 PROFILE_STAT_COLS = [
     # (json_key, tt_col, high_better)
     ("efg", "eFG", True),

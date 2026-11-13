@@ -147,3 +147,13 @@ def test_build_team_profiles():
     other = next(r for r in rows if r["name"] == "Team01")
     assert other["new_coach"] is False and other["lock_sides_remaining"] is None
     assert other["lock_sides_games"] == 8 and other["lock_totals_games"] == 4
+
+
+def test_v1_totals_reason():
+    """Short totals line in the same sentence style as v2's projection_reason."""
+    s = T.v1_totals_reason("Purdue", "Ohio", 147.0, 68.1)
+    assert s == "Ohio at Purdue. Projected total 147.0. Projected pace about 68 possessions."
+    s2 = T.v1_totals_reason("Drake", "South Dakota", 155.0, 74.0)
+    assert s2 == "South Dakota at Drake. Projected total 155.0. Projected pace about 74 possessions."
+    assert T.v1_totals_reason("Purdue", "Ohio", 147.0, None) == "Ohio at Purdue. Projected total 147.0."
+    assert T.v1_totals_reason("Purdue", "Ohio", None, 68.1) == "Ohio at Purdue. Projected pace about 68 possessions."
