@@ -6,12 +6,12 @@ import { NextResponse } from "next/server";
 import { SUPABASE_ANON_KEY, SUPABASE_URL, supabaseConfigured } from "@/lib/supabase/env";
 import { DEFAULT_SPORT, getSport } from "@/lib/sports";
 import { teamSlug } from "@/lib/teams";
-import { todayCT } from "@/lib/data";
-import type { SearchTeam, TeamNextGame } from "@/lib/teamSearch";
+import { chicagoDate, isUpcoming, type SearchTeam, type TeamNextGame } from "@/lib/teamSearch";
 
-export const revalidate = 300;
+// Short cache: the browser re-filters by clock too, but keep the CDN copy fresh.
+export const revalidate = 60;
 
-const CACHE = "public, s-maxage=300, stale-while-revalidate=900";
+const CACHE = "public, s-maxage=60, stale-while-revalidate=60";
 
 export async function GET(req: Request) {
   const sport = getSport(new URL(req.url).searchParams.get("sport") ?? DEFAULT_SPORT);
@@ -21,8 +21,8 @@ export async function GET(req: Request) {
   const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
   const [t, g] = await Promise.all([
     sb.from("teams").select("id,name").eq("league", sport.league).order("name").limit(2000),
-    sb.from("slate_games").select("game_id,game_date,home,away,tipoff,status").eq("sport", sport.key)
-      .gte("game_date", todayCT()).order("game_date", { ascending: true }).order("tipoff", { ascending: true, nullsFirst: false }).limit(2000),
+    sb.from("slate_games").select("game_id,game_date,home,away,tipoff,status,final_at").eq("sport", sport.key)
+      .gte("game_date", chicagoDate()).order("game_date", { ascending: true }).order("tipoff", { ascending: true, nullsFirst: false }).limit(2000),
   ]);
   if (t.error) {
     console.error(`[supabase] teams: ${t.error.code ?? ""} ${t.error.message}`);
@@ -31,11 +31,14 @@ export async function GET(req: Request) {
   // A missing schedule only hides the "Next game" buttons; names still search.
   if (g.error) console.error(`[supabase] slate_games: ${g.error.code ?? ""} ${g.error.message}`);
 
+  const now = new Date();
   const next = new Map<string, TeamNextGame>();
   for (const r of g.error ? [] : g.data ?? []) {
-    // Today's unfinished games and later ones only; finished/postponed games aren't "next".
-    if (["final", "postponed", "canceled"].includes(String(r.status))) continue;
+    // Only games that can still be watched. `status` flips to final in the morning run, so also drop anything
+    // with a final_at stamp, a past date, or a tip time more than ~3h ago (see isUpcoming).
+    if (["final", "postponed", "canceled"].includes(String(r.status)) || r.final_at) continue;
     const base = { gameId: Number(r.game_id), date: String(r.game_date), tipoff: r.tipoff ? String(r.tipoff) : null };
+    if (!isUpcoming(base, now)) continue;
     const home = String(r.home), away = String(r.away);
     if (!next.has(home)) next.set(home, { ...base, opponent: away, home: true });
     if (!next.has(away)) next.set(away, { ...base, opponent: home, home: false });

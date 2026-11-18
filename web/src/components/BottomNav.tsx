@@ -21,7 +21,7 @@ export function BottomNav() {
     { href: "/pricing", label: "Plans", icon: Icon.pricing, match: "/pricing" },
   ];
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-ink-700 bg-ink-950/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
+    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-ink-700 bg-ink-950/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
       <div className="grid grid-cols-4">
         {tabs.map((t) => {
           const active = pathname.includes(t.match);

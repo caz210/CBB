@@ -9,26 +9,25 @@ import { createPortal } from "react-dom";
 import { DEFAULT_SPORT, SPORTS } from "@/lib/sports";
 import { teamHref } from "@/lib/teams";
 import { fmtGameDate } from "@/lib/labels";
-import { buildIndex, nextGameHref, searchTeams, type SearchTeam, type TeamIndexEntry } from "@/lib/teamSearch";
+import { buildIndex, chicagoDate, nextGameHref, nextGameLabel, searchTeams, withFreshNext, type SearchTeam, type TeamIndexEntry } from "@/lib/teamSearch";
 
 type Load = { state: "loading" } | { state: "ready"; index: TeamIndexEntry[] } | { state: "error" };
 
-const TTL_MS = 10 * 60 * 1000;
-const memo = new Map<string, Promise<SearchTeam[]>>();
+// Next-game data goes stale, so the in-memory copy expires after TTL_MS, the sessionStorage key carries the
+// CT date, and every render also drops games that have tipped (withFreshNext).
+const TTL_MS = 5 * 60 * 1000;
+const memo = new Map<string, { at: number; p: Promise<SearchTeam[]> }>();
 
 function loadTeams(sport: string): Promise<SearchTeam[]> {
   const hit = memo.get(sport);
-  if (hit) return hit;
-  const key = `czarp:teams:${sport}`;
+  if (hit && Date.now() - hit.at < TTL_MS) return hit.p;
+  const key = `czarp:teams:${sport}:${chicagoDate()}`;
+  const keep = (p: Promise<SearchTeam[]>, at = Date.now()) => { memo.set(sport, { at, p }); return p; };
   try {
     const raw = sessionStorage.getItem(key);
     if (raw) {
       const { at, teams } = JSON.parse(raw) as { at: number; teams: SearchTeam[] };
-      if (Date.now() - at < TTL_MS && Array.isArray(teams) && teams.length) {
-        const p = Promise.resolve(teams);
-        memo.set(sport, p);
-        return p;
-      }
+      if (Date.now() - at < TTL_MS && Array.isArray(teams) && teams.length) return keep(Promise.resolve(teams), at);
     }
   } catch { /* storage blocked or corrupt: just refetch */ }
   const p = fetch(`/api/teams?sport=${encodeURIComponent(sport)}`)
@@ -39,8 +38,7 @@ function loadTeams(sport: string): Promise<SearchTeam[]> {
       return teams;
     })
     .catch((e) => { memo.delete(sport); throw e; }); // don't cache failures
-  memo.set(sport, p);
-  return p;
+  return keep(p);
 }
 
 function useTeamIndex(sport: string, enabled: boolean): Load {
@@ -50,7 +48,7 @@ function useTeamIndex(sport: string, enabled: boolean): Load {
     if (!enabled) return;
     let live = true;
     loadTeams(sport).then(
-      (t) => live && setSt({ state: "ready", index: buildIndex(t) }),
+      (t) => live && setSt({ state: "ready", index: buildIndex(withFreshNext(t)) }),
       () => live && setSt({ state: "error" }),
     );
     return () => { live = false; };
@@ -72,8 +70,8 @@ function nextLabel(t: SearchTeam) {
   return `${n.home ? "vs" : "at"} ${n.opponent} · ${fmtGameDate(n.date).replace(/^\w+, /, "")}`;
 }
 
-function Results({ id, sport, results, active, onPick, onHover, query, load }: {
-  id: string; sport: string; results: SearchTeam[]; active: number; onPick: () => void; onHover: (i: number) => void; query: string; load: Load["state"];
+function Results({ id, sport, now, results, active, onPick, onHover, query, load }: {
+  id: string; sport: string; now: Date; results: SearchTeam[]; active: number; onPick: () => void; onHover: (i: number) => void; query: string; load: Load["state"];
 }) {
   if (!query.trim()) {
     return <p className="px-4 py-6 text-sm text-zinc-500">Type a team name, a short form (Texas St, UNC) or initials (UT, SDSU).</p>;
@@ -101,7 +99,6 @@ function Results({ id, sport, results, active, onPick, onHover, query, load }: {
             <Link
               href={teamHref(sport, t.name)}
               onClick={onPick}
-              tabIndex={-1}
               className="flex min-h-10 shrink-0 items-center rounded-lg border border-ink-600 px-3 text-xs font-semibold text-zinc-200 hover:bg-ink-700"
             >
               Team page
@@ -110,10 +107,9 @@ function Results({ id, sport, results, active, onPick, onHover, query, load }: {
               <Link
                 href={nextGameHref(sport, t.next)}
                 onClick={onPick}
-                tabIndex={-1}
-                className="flex min-h-10 shrink-0 items-center rounded-lg bg-court-500/15 px-3 text-xs font-semibold text-court-400 hover:bg-court-500/25"
+                  className="flex min-h-10 shrink-0 items-center rounded-lg bg-court-500/15 px-3 text-xs font-semibold text-court-400 hover:bg-court-500/25"
               >
-                Next game
+                {nextGameLabel(t.next, now)}
               </Link>
             )}
           </li>
@@ -141,14 +137,17 @@ export function TeamSearch({ footerSlot }: { footerSlot?: ReactNode }) {
   const deskRef = useRef<HTMLDivElement>(null);
   const deskInput = useRef<HTMLInputElement>(null);
   const sheetInput = useRef<HTMLInputElement>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => setMounted(true), []);
   const wanted = sheet || focused;
   const load = useTeamIndex(sport, wanted);
-  const results = useMemo(
-    () => (load.state === "ready" ? searchTeams(load.index, query) : []),
-    [load, query],
-  );
+  // Re-check the clock on every search so a game that tipped while the page sat open never shows a button.
+  const { results, now } = useMemo(() => {
+    const at = new Date();
+    return { now: at, results: load.state === "ready" ? withFreshNext(searchTeams(load.index, query), at) : [] };
+  }, [load, query]);
 
   const close = useCallback(() => {
     setSheet(false);
@@ -161,23 +160,49 @@ export function TeamSearch({ footerSlot }: { footerSlot?: ReactNode }) {
   // close on navigation
   useEffect(() => { close(); }, [pathname, close]);
 
-  // phone sheet: lock scroll, focus input, Escape closes
+  // phone sheet: lock scroll, make the page behind it inert, focus the input, Escape closes,
+  // and hand focus back to the search button when it closes.
   useEffect(() => {
     if (!sheet) return;
+    const dlg = sheetRef.current;
+    const opener = btnRef.current;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+    const inerted: Element[] = [];
+    for (const el of Array.from(document.body.children)) {
+      if (el === dlg || (dlg && el.contains(dlg)) || el.hasAttribute("inert")) continue;
+      el.setAttribute("inert", "");
+      inerted.push(el);
+    }
     sheetInput.current?.focus();
     const onEsc = (e: globalThis.KeyboardEvent) => { if (e.key === "Escape") close(); };
     window.addEventListener("keydown", onEsc);
-    return () => { document.body.style.overflow = prev; window.removeEventListener("keydown", onEsc); };
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onEsc);
+      inerted.forEach((el) => el.removeAttribute("inert"));
+      opener?.focus();
+    };
   }, [sheet, close]);
 
-  // desktop: click outside closes the dropdown
+  // keep Tab / Shift+Tab inside the sheet
+  const trapTab = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "Tab") return;
+    const items = Array.from(e.currentTarget.querySelectorAll<HTMLElement>("input, button, a[href]"));
+    if (!items.length) return;
+    const first = items[0], last = items[items.length - 1];
+    const at = document.activeElement;
+    if (e.shiftKey && (at === first || !e.currentTarget.contains(at))) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && (at === last || !e.currentTarget.contains(at))) { e.preventDefault(); first.focus(); }
+  };
+
+  // desktop: a click outside, or Tab moving focus outside, closes the dropdown
   useEffect(() => {
     if (!focused) return;
-    const onDown = (e: MouseEvent) => { if (!deskRef.current?.contains(e.target as Node)) setFocused(false); };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
+    const outside = (e: Event) => { if (!deskRef.current?.contains(e.target as Node)) setFocused(false); };
+    document.addEventListener("mousedown", outside);
+    document.addEventListener("focusin", outside);
+    return () => { document.removeEventListener("mousedown", outside); document.removeEventListener("focusin", outside); };
   }, [focused]);
 
   const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -216,12 +241,12 @@ export function TeamSearch({ footerSlot }: { footerSlot?: ReactNode }) {
   });
 
   const list = (
-    <Results id={listId} sport={sport} results={results} active={active} onPick={close} onHover={setActive} query={query} load={load.state} />
+    <Results id={listId} sport={sport} now={now} results={results} active={active} onPick={close} onHover={setActive} query={query} load={load.state} />
   );
 
   const phoneSheet = sheet && mounted
     ? createPortal(
-        <div className="fixed inset-0 z-[90] flex flex-col bg-ink-950 pt-[env(safe-area-inset-top)]" role="dialog" aria-modal="true" aria-label="Search teams">
+        <div ref={sheetRef} onKeyDown={trapTab} className="fixed inset-0 z-[90] flex flex-col bg-ink-950 pt-[env(safe-area-inset-top)]" role="dialog" aria-modal="true" aria-label="Search teams">
           <div className="flex items-center gap-2 border-b border-ink-700 px-3 py-2.5">
             <div className="relative flex-1">
               <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
@@ -246,6 +271,7 @@ export function TeamSearch({ footerSlot }: { footerSlot?: ReactNode }) {
     <>
       {/* phone: icon button */}
       <button
+        ref={btnRef}
         type="button"
         onClick={() => setSheet(true)}
         aria-label="Search teams"
