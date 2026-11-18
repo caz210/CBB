@@ -4,7 +4,7 @@
 -- The CSV ledger (data/ledger/ledger.csv) stays the source of truth; daily_run.py mirrors
 -- into these tables when SUPABASE_URL + SUPABASE_SERVICE_KEY are set.
 -- Security: RLS on every table. Model outputs are read-only for anon/authenticated and written only
--- by the service role (bypasses RLS); picks are hidden until tip-off unless profiles.tier is pro/syndicate.
+-- by the service role (bypasses RLS); picks are public to everyone (anon + authenticated) as soon as they are written.
 -- profiles/user_models are per-user (auth.uid()). Requires Supabase auth (auth.users, auth.uid()).
 -- Front-end views: slate_games, value_bets, ledger. Idempotent: safe to re-run.
 
@@ -244,6 +244,7 @@ from picks p
 where p.result is distinct from 'void'
 group by p.league, p.season, p.tier, p.market;
 
+revoke all on pick_record, tier_record from anon, authenticated;
 grant select on pick_record, tier_record to anon, authenticated;
 
 
@@ -311,7 +312,7 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created after insert on auth.users
   for each row execute function public.handle_new_user();
 
--- paid tier check, used by the picks policy (security definer so it can read profiles under RLS)
+-- paid tier check, kept for future tier gating; picks_read no longer uses it (security definer so it can read profiles under RLS)
 create or replace function public.is_pro() returns boolean
 language sql stable security definer set search_path = public as $$
   select exists (select 1 from public.profiles p where p.user_id = auth.uid() and p.tier in ('pro','syndicate'));
@@ -326,18 +327,15 @@ begin
   foreach t in array array['sports','leagues','teams','games','model_configs','projections','market_lines','picks'] loop
     execute format('alter table %I enable row level security', t);
     execute format('drop policy if exists %I on %I', t || '_read', t);
-    execute format('revoke insert, update, delete on %I from anon, authenticated', t);
+    execute format('revoke all on %I from anon, authenticated', t);
     execute format('grant select on %I to anon, authenticated', t);
     if t <> 'picks' then
       execute format('create policy %I on %I for select to anon, authenticated using (true)', t || '_read', t);
     end if;
   end loop;
 end $$;
--- picks (value bets): everyone sees a pick once its game has tipped; Pro/Syndicate see it immediately.
-create policy picks_read on picks for select to anon, authenticated using (
-  public.is_pro()
-  or exists (select 1 from games g where g.id = picks.game_id and g.tipoff is not null and g.tipoff <= now())
-);
+-- picks (value bets): public to everyone, matching the live picks_read policy (no tip-off or tier gate).
+create policy picks_read on picks for select to anon, authenticated using (true);
 
 -- profiles: read your own row only; no client writes (tier is set server-side)
 alter table profiles enable row level security;
@@ -433,6 +431,7 @@ join games g  on g.id = pk.game_id
 join sports s on s.id = pk.sport_id
 where pk.result is distinct from 'void';
 
+revoke all on slate_games, value_bets, ledger, pick_record, tier_record from anon, authenticated;
 grant select on slate_games, value_bets, ledger, pick_record, tier_record to anon, authenticated;
 -- (To restrict reads to signed-in users only, change "to anon, authenticated" to "to authenticated".)
 
