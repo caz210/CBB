@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Logo } from "./Logo";
 import { NavLinks } from "./NavLinks";
 import { SportSwitcher } from "./SportSwitcher";
+import { TeamSearch } from "./TeamSearch";
 
 export function SiteHeader() {
   return (
@@ -12,7 +13,10 @@ export function SiteHeader() {
         <div className="ml-auto hidden md:block">
           <SportSwitcher />
         </div>
-        <div className="ml-auto flex items-center gap-2 md:ml-0 md:gap-3">
+        <div className="ml-auto flex items-center gap-1 md:ml-0 md:gap-3">
+          {/* Team search: icon + full-screen sheet on phones/tablets, inline box on xl+ (1280px).
+              MATCHUP MAKER: later, pass <TeamSearch footerSlot={<Link href="/matchup">Matchup maker</Link>} /> */}
+          <TeamSearch />
           <Link href="/login" className="rounded-lg px-2 py-2 text-sm font-medium text-zinc-300 hover:text-white">
             Log in
           </Link>

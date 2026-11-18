@@ -32,6 +32,14 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
     const qs = q.toString();
     router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false });
   };
+  // ?game=<id> opens that game's sheet (used by the header team search's "Next game" link).
+  const gameParam = search.get("game");
+  useEffect(() => {
+    if (!gameParam) return;
+    const g = games.find((x) => String(x.game_id) === gameParam);
+    if (g) setGameSel(g);
+  }, [gameParam, games]);
+  const closeGame = () => { setGameSel(null); if (gameParam) setParam("game", null); };
   const byGame = (id: number) => bets.filter((b) => b.game_id === id);
   const raw = (g: SlateGame) => g.rawEdge ?? -Infinity;
   const tipMs = (g: SlateGame) => (g.tipoff ? Date.parse(g.tipoff) : Infinity);
@@ -167,7 +175,7 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
       </p>
 
       <ValueSheet sel={sel} onClose={() => setSel(null)} />
-      <GameSheet g={gameSel} sportKey={sportKey} bets={gameSel ? byGame(gameSel.game_id) : []} onClose={() => setGameSel(null)} />
+      <GameSheet g={gameSel} sportKey={sportKey} bets={gameSel ? byGame(gameSel.game_id) : []} onClose={closeGame} />
     </div>
   );
 }
