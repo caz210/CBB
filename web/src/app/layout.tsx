@@ -20,7 +20,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body className="min-h-screen pb-[calc(3.5rem+env(safe-area-inset-bottom))] antialiased md:pb-0">
+      <body className="min-h-screen pb-[calc(3.5rem+env(safe-area-inset-bottom))] antialiased lg:pb-0">
         <SiteHeader />
         <main>{children}</main>
         <SiteFooter />

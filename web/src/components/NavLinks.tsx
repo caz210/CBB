@@ -14,14 +14,14 @@ export function NavLinks() {
     { href: "/pricing", label: "Pricing", match: "/pricing" },
   ];
   return (
-    <nav className="hidden items-center gap-1 md:flex">
+    <nav className="hidden shrink-0 items-center gap-1 lg:flex">
       {links.map((l) => {
         const active = pathname.includes(l.match);
         return (
           <Link
             key={l.label}
             href={l.href}
-            className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
+            className={`whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition ${
               active ? "bg-ink-800 text-white" : "text-zinc-400 hover:text-white"
             }`}
           >
