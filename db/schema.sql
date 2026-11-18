@@ -244,6 +244,7 @@ from picks p
 where p.result is distinct from 'void'
 group by p.league, p.season, p.tier, p.market;
 
+revoke all on pick_record, tier_record from anon, authenticated;
 grant select on pick_record, tier_record to anon, authenticated;
 
 
@@ -326,7 +327,7 @@ begin
   foreach t in array array['sports','leagues','teams','games','model_configs','projections','market_lines','picks'] loop
     execute format('alter table %I enable row level security', t);
     execute format('drop policy if exists %I on %I', t || '_read', t);
-    execute format('revoke insert, update, delete on %I from anon, authenticated', t);
+    execute format('revoke all on %I from anon, authenticated', t);
     execute format('grant select on %I to anon, authenticated', t);
     if t <> 'picks' then
       execute format('create policy %I on %I for select to anon, authenticated using (true)', t || '_read', t);
@@ -433,6 +434,7 @@ join games g  on g.id = pk.game_id
 join sports s on s.id = pk.sport_id
 where pk.result is distinct from 'void';
 
+revoke all on slate_games, value_bets, ledger, pick_record, tier_record from anon, authenticated;
 grant select on slate_games, value_bets, ledger, pick_record, tier_record to anon, authenticated;
 -- (To restrict reads to signed-in users only, change "to anon, authenticated" to "to authenticated".)
 
