@@ -53,16 +53,10 @@ revoke all on table user_models from anon, authenticated;
 grant select, insert, update, delete on table user_models to authenticated;
 
 -- ── 4. legacy Streamlit tables (bet_results, daily_snapshots, game_results) ──
--- RLS is on with no policies, so anon/authenticated can't read or write rows
--- today. Only drop the privileges RLS does not gate (TRUNCATE etc.). The
--- SELECT/INSERT/UPDATE/DELETE grants are left in place on purpose: removing them
--- would only matter if the old Streamlit app used the anon key, which we can't
--- tell from here. To lock these down fully, run
---   revoke all on bet_results, daily_snapshots, game_results from anon, authenticated;
--- once the Streamlit app is confirmed to use the service key (or is retired).
-revoke truncate, references, trigger, maintain on table
-  bet_results, daily_snapshots, game_results
-from anon, authenticated;
+-- Not read by the web app, and no view depends on them. RLS is on with no
+-- policies, so anon/authenticated can't touch rows anyway; remove every grant.
+-- (Scantron QA on PR #39.) The Streamlit app / service role are unaffected.
+revoke all on table bet_results, daily_snapshots, game_results from anon, authenticated;
 
 -- ── 5. sequences: no client role should advance an id sequence ──────────────
 revoke all on all sequences in schema public from anon, authenticated;
@@ -86,5 +80,4 @@ commit;
 -- join pg_roles r on r.oid = a.grantee
 -- where c.relkind in ('r','v','p','m') and r.rolname in ('anon','authenticated')
 --   and a.privilege_type <> 'SELECT'
---   and not (c.relname = 'user_models' and r.rolname = 'authenticated')
---   and c.relname not in ('bet_results','daily_snapshots','game_results');
+--   and not (c.relname = 'user_models' and r.rolname = 'authenticated');
