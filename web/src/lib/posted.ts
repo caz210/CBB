@@ -66,18 +66,19 @@ export function postedNowCompact(b: ValueBet, g: SlateGame | null | undefined): 
   return parts.join(" → ");
 }
 
-/** Posted fair value (time-stamped, never edited) next to the team projections on the card now.
- *  Official totals use czarp-v1-totals while team projections come from the default model (czarp-v2),
- *  so the two can differ; this labels both instead of letting them look inconsistent.
- *  e.g. "Posted FV 142.0 · CZarp projection now: 64.1 + 82.1 = 146.2" */
+/** Posted fair value (time-stamped, never edited) next to what CZarp projects now.
+ *  Totals: compared with the current official CZarp total (proj_total_v1), never the sum of the team scores.
+ *  Spreads: compared with the current team-score line (sides model).
+ *  e.g. "Posted FV 140.5 · CZarp total now: 140.5" / "Posted FV −3.5 · CZarp projection now: 64.1–70.0, −5.9" */
 export function postedFairVsProjections(b: ValueBet | null | undefined, g: SlateGame): string | null {
   if (!b || typeof b.fair_at_post !== "number" || !Number.isFinite(b.fair_at_post)) return null;
   // Model names are internal; customers only ever see "CZarp".
   const pa = g.proj_away, ph = g.proj_home;
   if (b.market === "total") {
     const posted = `Posted FV ${b.fair_at_post.toFixed(1)}`;
-    if (pa == null || ph == null) return posted;
-    return `${posted} · CZarp projection now: ${pa.toFixed(1)} + ${ph.toFixed(1)} = ${(pa + ph).toFixed(1)}`;
+    // Customers only ever see the one official CZarp total. Never the team-score sum (sides model).
+    if (g.proj_total_v1 == null) return posted;
+    return `${posted} · CZarp total now: ${g.proj_total_v1.toFixed(1)}`;
   }
   if (b.market === "spread") {
     const posted = `Posted FV ${fmtLine(b.fair_at_post)}`;
