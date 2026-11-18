@@ -69,23 +69,23 @@ export function postedNowCompact(b: ValueBet, g: SlateGame | null | undefined): 
 /** Posted fair value (time-stamped, never edited) next to the team projections on the card now.
  *  Official totals use czarp-v1-totals while team projections come from the default model (czarp-v2),
  *  so the two can differ; this labels both instead of letting them look inconsistent.
- *  e.g. "Posted FV 142.0 (czarp-v1-totals) · Team projections now (czarp-v2): 64.1 + 82.1 = 146.2" */
+ *  e.g. "Posted FV 142.0 · CZarp projection now: 64.1 + 82.1 = 146.2" */
 export function postedFairVsProjections(b: ValueBet | null | undefined, g: SlateGame): string | null {
   if (!b || typeof b.fair_at_post !== "number" || !Number.isFinite(b.fair_at_post)) return null;
-  const model = b.model_version ? ` (${b.model_version})` : "";
+  // Model names are internal; customers only ever see "CZarp".
   const pa = g.proj_away, ph = g.proj_home;
   if (b.market === "total") {
-    const posted = `Posted FV ${b.fair_at_post.toFixed(1)}${model}`;
+    const posted = `Posted FV ${b.fair_at_post.toFixed(1)}`;
     if (pa == null || ph == null) return posted;
-    return `${posted} · Team projections now (czarp-v2): ${pa.toFixed(1)} + ${ph.toFixed(1)} = ${(pa + ph).toFixed(1)}`;
+    return `${posted} · CZarp projection now: ${pa.toFixed(1)} + ${ph.toFixed(1)} = ${(pa + ph).toFixed(1)}`;
   }
   if (b.market === "spread") {
-    const posted = `Posted FV ${fmtLine(b.fair_at_post)}${model}`;
+    const posted = `Posted FV ${fmtLine(b.fair_at_post)}`;
     if (pa == null || ph == null) return posted;
     const homeLine = -(ph - pa);
     const pickedAway = mentionsTeam(b.side, g.away) && !mentionsTeam(b.side, g.home);
     const now = pickedAway ? -homeLine : homeLine;
-    return `${posted} · Team projections now (czarp-v2): ${pa.toFixed(1)}–${ph.toFixed(1)}, ${fmtLine(now)}`;
+    return `${posted} · CZarp projection now: ${pa.toFixed(1)}–${ph.toFixed(1)}, ${fmtLine(now)}`;
   }
   return null;
 }
@@ -93,9 +93,9 @@ export function postedFairVsProjections(b: ValueBet | null | undefined, g: Slate
 /** Fair total for a card, sheet, or team page. Always czarp-v1-totals (the official totals model):
  *  the posted fair for an official total, else the current v1 projection, else "—".
  *  Never the v2 team-score sum. */
-export function totalFair(g: SlateGame, bets: ValueBet[]): { value: string; num: number | null; tag?: "posted" | "v1" } {
+export function totalFair(g: SlateGame, bets: ValueBet[]): { value: string; num: number | null; tag?: "posted" } {
   const posted = bets.find((b) => b.market === "total" && b.pick_tier !== "track" && typeof b.fair_at_post === "number" && Number.isFinite(b.fair_at_post));
   if (posted?.fair_at_post != null) return { value: posted.fair_at_post.toFixed(1), num: posted.fair_at_post, tag: "posted" };
-  if (g.proj_total_v1 != null) return { value: g.proj_total_v1.toFixed(1), num: g.proj_total_v1, tag: "v1" };
+  if (g.proj_total_v1 != null) return { value: g.proj_total_v1.toFixed(1), num: g.proj_total_v1 };
   return { value: "—", num: null };
 }

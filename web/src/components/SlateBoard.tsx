@@ -270,8 +270,8 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
 
       <div className="divide-y divide-ink-700/40 px-4">
         {hasTeamProj && (
-          <div className="flex justify-end pt-2 text-[9px] font-semibold uppercase tracking-wider text-zinc-600" title="Team scores are the czarp-v2 projection, a separate model from the official czarp-v1-totals total">
-            v2 team projection
+          <div className="flex justify-end pt-2 text-[9px] font-semibold uppercase tracking-wider text-zinc-600">
+            CZarp projection
           </div>
         )}
         {rows.map((r) => (
@@ -369,13 +369,6 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
 function finalScore(g: SlateGame): { home: number; away: number } | null {
   if (!g.completed || g.home_score == null || g.away_score == null) return null;
   return { home: g.home_score, away: g.away_score };
-}
-
-function totalModelDetail(g: SlateGame): string | null {
-  const parts: string[] = [];
-  if (g.proj_total_v1 != null) parts.push(`czarp-v1-totals ${g.proj_total_v1.toFixed(1)} (official)`);
-  if (g.proj_total_v2 != null) parts.push(`czarp-v2 team sum ${g.proj_total_v2.toFixed(1)} (second look)`);
-  return parts.length ? parts.join(" · ") : null;
 }
 
 function MarketStat({ label, fair, price, tag }: { label: string; fair: string; price: string; tag?: string }) {
@@ -485,7 +478,7 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
   const i = g.insight;
   const ph = i?.proj_home ?? g.proj_home, pa = i?.proj_away ?? g.proj_away;
   const czLine = ph != null && pa != null ? -(ph - pa) : g.proj_spread;
-  const czTotal = totalFair(g, bets); // v1 only, never the v2 team sum
+  const czTotal = totalFair(g, bets); // official CZarp total, never the team-score sum
   const openS = i?.open_spread ?? null, curS = i?.cur_spread ?? g.market_spread;
   const openT = i?.open_total ?? null, curT = i?.cur_total ?? g.market_total;
   const move = (o: number | null, c: number | null) => (o == null || c == null ? "—" : c === o ? "No move" : `${c > o ? "+" : "−"}${Math.abs(c - o).toFixed(1)}`);
@@ -548,8 +541,8 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
         )}
 
         <div className="mt-4 grid grid-cols-2 gap-2">
-          <Big label={`${g.away} proj`} v={pa == null ? "—" : pa.toFixed(1)} sub="v2 team projection" />
-          <Big label={`${g.home} proj`} v={ph == null ? "—" : ph.toFixed(1)} sub="v2 team projection" />
+          <Big label={`${g.away} proj`} v={pa == null ? "—" : pa.toFixed(1)} sub="CZarp projection" />
+          <Big label={`${g.home} proj`} v={ph == null ? "—" : ph.toFixed(1)} sub="CZarp projection" />
         </div>
 
         <div className="mt-3 overflow-hidden rounded-xl border border-ink-700 text-sm">
@@ -577,16 +570,10 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
           ))}
         </div>
         <p className="mt-1 text-[10px] text-zinc-600">Home-line notation (−5.5 = {g.home} favored). Price = Vegas consensus. Fair value = our model.</p>
-        {totalModelDetail(g) && (
-          <p className="mt-1 text-[11px] text-zinc-400">
-            <TermLabel term="totalsModel">Totals models</TermLabel>
-            {": "}{totalModelDetail(g)}
-          </p>
-        )}
 
         <div className="mt-3 grid grid-cols-2 gap-2">
           <Big label="Home win" v={hw == null ? "—" : fmtWinProb(hw)} />
-          <Big label="Over" v={ov == null ? "—" : pct(ov)} sub={ov == null ? undefined : "czarp-v1-totals"} />
+          <Big label="Over" v={ov == null ? "—" : pct(ov)} sub={ov == null ? undefined : "CZarp total"} />
         </div>
         {(i?.proj_possessions ?? g.proj_possessions) != null && <p className="mt-2 text-xs text-zinc-400">Projected pace: <b className="font-mono text-white">{(i?.proj_possessions ?? g.proj_possessions)!.toFixed(1)}</b> possessions</p>}
 
