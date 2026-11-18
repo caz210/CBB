@@ -11,6 +11,7 @@ import { ComingSoon } from "@/components/ComingSoon";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
 import { TermLabel } from "@/components/InfoTip";
+import { fmtUnitsTick, unitsScale } from "@/lib/chartScale";
 
 // Live data: render per request (fresh picks every request).
 export const dynamic = "force-dynamic";
@@ -348,10 +349,13 @@ function RiskStat({ label, value, hint, tone, className = "" }: { label: string;
   );
 }
 function UnitsChart({ data }: { data: number[] }) {
-  const w = 600, h = 220, pad = 28;
-  const min = Math.min(...data, -2), max = Math.max(...data, 2);
+  // Auto-scaled y-axis: covers the data in both directions with no cap (works at ±hundreds of units).
+  const sc = unitsScale(data);
+  const labels = sc.ticks.map((t) => fmtUnitsTick(t, sc.decimals));
+  const w = 600, h = 220;
+  const pad = Math.max(28, Math.max(...labels.map((l) => l.length)) * 8 + 8); // room for the widest label
   const x = (i: number) => pad + (i / (data.length - 1)) * (w - pad * 1.5);
-  const y = (v: number) => 12 + ((max - v) / (max - min)) * (h - 24);
+  const y = (v: number) => 12 + ((sc.max - v) / (sc.max - sc.min)) * (h - 24);
   const line = data.map((v, i) => `${i ? "L" : "M"}${x(i)},${y(v)}`).join(" ");
   const area = `${line} L${x(data.length - 1)},${y(0)} L${x(0)},${y(0)} Z`;
   return (
@@ -362,10 +366,10 @@ function UnitsChart({ data }: { data: number[] }) {
           <stop offset="1" stopColor="#ff7a1a" stopOpacity="0" />
         </linearGradient>
       </defs>
-      {[-2, -1, 0, 1, 2].map((t) => (
+      {sc.ticks.map((t, i) => (
         <g key={t}>
           <line x1={pad} x2={w} y1={y(t)} y2={y(t)} stroke={t === 0 ? "#3a4659" : "#1f2836"} strokeDasharray={t === 0 ? "" : "3 4"} />
-          <text x={0} y={y(t) + 4} fontSize="13" fill="#6b7280">{t > 0 ? `+${t}` : t}u</text>
+          <text x={0} y={y(t) + 4} fontSize="13" fill="#6b7280">{labels[i]}</text>
         </g>
       ))}
       <path d={area} fill="url(#u)" />
