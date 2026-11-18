@@ -61,7 +61,7 @@ test("padding keeps the extreme point off the frame", () => {
 });
 
 test("tick labels", () => {
-  assert.equal(fmtUnitsTick(0, 0), "0u");
+  assert.equal(fmtUnitsTick(0, 0), "0u"); assert.equal(fmtUnitsTick(0, 1), "0u");
   assert.equal(fmtUnitsTick(5, 0), "+5u");
   assert.equal(fmtUnitsTick(-1250, 0), "−1,250u");
   assert.equal(fmtUnitsTick(0.5, 1), "+0.5u");

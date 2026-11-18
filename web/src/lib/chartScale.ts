@@ -21,6 +21,13 @@ export function niceStep(raw: number): number {
   return nice * pow;
 }
 
+/** The next round step above `step` (1 → 2 → 5 → 10 → 20 …). */
+export function nextNiceStep(step: number): number {
+  const pow = Math.pow(10, Math.floor(Math.log10(step) + 1e-9));
+  const f = step / pow;
+  return (f < 1.5 ? 2 : f < 3.5 ? 5 : 10) * pow;
+}
+
 const clean = (v: number) => Math.round(v * 1e9) / 1e9 + 0; // + 0 turns -0 into 0
 
 /** `padFrac` pads the outer edge on each side that has data (top if any value > 0, bottom if any < 0)
@@ -33,10 +40,19 @@ export function unitsScale(values: number[], opts: { padFrac?: number; targetTic
   let hi = Math.max(0, ...vals);
   if (lo === hi) { lo = -1; hi = 1; } // nothing but zeros: show ±1u
   const span = hi - lo;
-  const step = niceStep(span / (targetTicks - 1));
   const pad = span * padFrac;
-  const kMin = Math.floor((lo < 0 ? lo - pad : lo) / step + 1e-9);
-  const kMax = Math.ceil((hi > 0 ? hi + pad : hi) / step - 1e-9);
+  const top = hi > 0 ? hi + pad : hi;
+  const bottom = lo < 0 ? lo - pad : lo;
+  // Smallest round step that keeps the gridlines to about `targetTicks` (at most one extra).
+  const maxTicks = targetTicks + 1;
+  let step = niceStep(span / (maxTicks * 2));
+  let kMin = 0, kMax = 0;
+  for (let guard = 0; guard < 60; guard++) {
+    kMin = Math.floor(bottom / step + 1e-9);
+    kMax = Math.ceil(top / step - 1e-9);
+    if (kMax - kMin + 1 <= maxTicks) break;
+    step = nextNiceStep(step);
+  }
   const ticks: number[] = [];
   for (let k = kMin; k <= kMax; k++) ticks.push(clean(k * step));
   const decimals = step >= 1 ? 0 : Math.min(6, Math.ceil(-Math.log10(step) - 1e-9));
@@ -45,6 +61,7 @@ export function unitsScale(values: number[], opts: { padFrac?: number; targetTic
 
 /** "+1,250u" / "−40u" / "0u" with a true minus sign, matching fmtUnits. */
 export function fmtUnitsTick(v: number, decimals: number): string {
+  if (v === 0) return "0u";
   const body = Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
   return `${v > 0 ? "+" : v < 0 ? "−" : ""}${body}u`;
 }
