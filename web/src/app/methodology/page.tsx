@@ -21,7 +21,7 @@ export default function MethodologyPage() {
     >
       <p>This page will explain how CZarp builds projections, measures edge, and grades the public book. Until that copy lands, the sections below are an outline.</p>
       <H>The models</H>
-      <Placeholder>czarp-v2 is the default model for sides (spreads). Official totals use czarp-v1-totals. Describe features, inputs, and what is not used (for example KenPom ranks are never shown).</Placeholder>
+      <Placeholder>CZarp projects a spread and a total for every game. Describe features, inputs, and what is not used (for example KenPom ranks are never shown).</Placeholder>
       <H>Fair value, price, and edge</H>
       <Placeholder>Edge is the gap between our number and the Vegas price, as a share of the expected total score: |fair − price| ÷ Vegas total, for both sides and totals. Play thresholds: sides 4%, totals 3%; EDGE at 5%+, HOT at 7%+.</Placeholder>
       <H>Official vs tracked</H>
