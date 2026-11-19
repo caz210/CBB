@@ -413,11 +413,28 @@ def fanmatch_preds(day: str) -> dict:
         return {}
 
 
+def _v1_renames(names) -> dict:
+    """{current KenPom name: name the frozen v1 lookup expects}.
+
+    czarp/legacy_v1.get_team() applies its TEAM_NAME_MAP *before* the exact match, and three of
+    its targets are old spellings KenPom no longer uses ("Queens" -> "Queens NC", "LIU" ->
+    "LIU Brooklyn", "SIUE" -> "SIU Edwardsville"). The lookup then fails, the error was swallowed,
+    and those games silently fell back to the v2 total. legacy_v1.py is frozen, so instead the v1
+    frames carry the spelling its map points to (only when the KenPom name is a map key and the
+    target is absent, so it is a no-op for every other team)."""
+    import czarp.legacy_v1 as V1
+    have = {str(n) for n in names}
+    return {k: v for k, v in V1.TEAM_NAME_MAP.items() if k in have and v not in have}
+
+
 def v1_frames(tt: pd.DataFrame) -> dict:
     t = tt.reset_index().rename(columns={"index": "TeamName"})
     if "TeamName" not in t:
         t = t.rename(columns={t.columns[0]: "TeamName"})
-    return {
+    ren = _v1_renames(t["TeamName"])
+    if ren:
+        t = t.assign(TeamName=t["TeamName"].astype(str).replace(ren))
+    out = {
         "ratings": t[["TeamName", "AdjOE", "AdjDE", "AdjTempo", "RankAdjEM"]],
         "four_factors": t[["TeamName"]].assign(TO_Pct=t["TO"], DTO_Pct=t["D_TO"], OR_Pct=t["OR"],
                                                DOR_Pct=t.get("Opp_OR", t.get("D_OR_raw")),
@@ -425,6 +442,24 @@ def v1_frames(tt: pd.DataFrame) -> dict:
         "height": t[["TeamName", "AvgHgt", "Exp", "Bench"]],
         "net": pd.DataFrame(columns=["TeamName", "Rank"]), "misc": pd.DataFrame(),
     }
+    out["ratings"].attrs["v1_renamed"] = {v: k for k, v in ren.items()}   # v1 row name -> KenPom name
+    return out
+
+
+def v1_name_check(v1data: dict, names) -> list[tuple[str, str]]:
+    """[(KenPom name, what v1 resolves it to)] for every name the frozen v1 lookup gets wrong."""
+    import czarp.legacy_v1 as V1
+    back = v1data["ratings"].attrs.get("v1_renamed", {})
+    bad = []
+    for n in names:
+        try:
+            got = str(V1.get_team(v1data["ratings"], n)["TeamName"])
+            got = back.get(got, got)
+        except Exception:
+            got = "NOT FOUND"
+        if got != n:
+            bad.append((n, got))
+    return bad
 
 
 TENTATIVE_SUFFIX = " (tentative)"
@@ -477,6 +512,10 @@ def project_all(games: list[dict], data: dict) -> None:
     try:
         ctx = M._context(data, data["config"])
         v1data = v1_frames(ctx["tt"])
+        bad = v1_name_check(v1data, ctx["tt"].index.astype(str))
+        if bad:
+            log(f"  WARNING v1 name lookup: {len(bad)} teams resolve wrong in the v1 totals model "
+                f"(their games fall back to the v2 total): " + ", ".join(f"{a} -> {b}" for a, b in bad[:8]))
     except Exception as e:
         log(f"  v1 inputs unavailable ({type(e).__name__}: {e}) — totals rule disabled")
         v1data = None
@@ -519,8 +558,30 @@ def project_all(games: list[dict], data: dict) -> None:
                 r1 = V1.project_game(a, h, None if g["neutral"] else False, v1data)
                 g["v1_home_margin"], g["v1_total"] = -float(r1["spread"]), float(r1["total"])
                 g["v1_pace"] = float(r1.get("projected_pace") or 0) or None
-            except Exception:
-                pass
+            except Exception as e:
+                # never silent: a v1 failure means this game's CZarp total falls back to v2
+                log(f"  WARNING v1 total unavailable for {a} @ {h} ({type(e).__name__}: {e}) "
+                    "— using the v2 total for this game")
+
+
+def matchup_parity(games: list[dict], data: dict, today: str):
+    """Build the matchup-maker inputs and check them against today's projections.
+
+    Recomputes every projected slate game through czarp.matchup.project() (the same formulas as the
+    SQL function public.project_matchup) and compares margin / win % / v1 total with what
+    project_all() produced. A mismatch is logged loudly but never blocks picks. Returns
+    (rows, constants) for the Supabase writer, or None if the inputs could not be built."""
+    try:
+        from czarp import matchup as MU
+        import model as M
+        rows, consts = MU.build_inputs(data, data["config"], as_of=today,
+                                       v1data=v1_frames(M._context(data, data["config"])["tt"]))
+        for ln in MU.parity_log_lines(MU.parity_check(games, rows, consts)):
+            log(ln)
+        return rows, consts
+    except Exception as e:
+        log(f"  !!! MATCHUP PARITY CHECK ERRORED ({type(e).__name__}: {e}) — matchup inputs not refreshed")
+        return None
 
 
 # ── plays ─────────────────────────────────────────────────────────────────────
@@ -1904,6 +1965,7 @@ def main(argv=None) -> int:
     htu_line = None
     played = set()
     data = None
+    matchup = None
     nc = {}
     if games:
         # (a) data
@@ -1921,6 +1983,7 @@ def main(argv=None) -> int:
             f"{sum(g.get('current_total') is not None for g in pre)} totals of {len(pre)} upcoming games")
         if data is not None:
             project_all(games, data)
+            matchup = matchup_parity(games, data, today)
             nc = tag_new_coaches(games, today)
             if PACE_FIX:
                 log(f"  totals PACE FIX on (w={PACE_FIX_MKT_W:g}): {apply_pace_fix(games, today)} v1 totals re-paced")
@@ -2015,6 +2078,16 @@ def main(argv=None) -> int:
         except Exception as e:
             log(f"  Supabase sync failed ({type(e).__name__}: {e}) — CSV ledger unaffected")
             notes.append("Supabase sync failed this run (CSV ledger is unaffected).")
+        # matchup maker inputs (private tables behind public.project_matchup); never blocks picks
+        if matchup is not None:
+            try:
+                from czarp.matchup import write_supabase
+                from czarp.supabase_writer import Client as _MC, _season
+                n = write_supabase(_MC(), matchup[0], matchup[1], _season(today),
+                                   now.isoformat(timespec="seconds"), log=log)
+                log(f"  matchup inputs: {n} teams + constants upserted")
+            except Exception as e:
+                log(f"  matchup inputs not written ({type(e).__name__}: {e}) — matchup maker keeps the previous inputs")
         # finals for yesterday + any older non-final games in the lookback window (and today, for a late run)
         try:
             from czarp.sync_finals import DEFAULT_LOOKBACK, sync_finals
