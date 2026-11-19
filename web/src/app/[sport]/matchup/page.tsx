@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { getSport } from "@/lib/sports";
-import { parseMatchupParams } from "@/lib/matchup";
 import { ComingSoon } from "@/components/ComingSoon";
 import { PageHeader } from "@/components/PageHeader";
 import { MatchupMaker } from "@/components/MatchupMaker";
@@ -13,15 +13,11 @@ export const metadata: Metadata = {
   description: "Pick any two teams and a court. CZarp projects the score, spread, total and win chance.",
 };
 
-export default async function MatchupPage({ params, searchParams }: {
-  params: Promise<{ sport: string }>;
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
+export default async function MatchupPage({ params }: { params: Promise<{ sport: string }> }) {
   const { sport: key } = await params;
   const sport = getSport(key);
   if (!sport) notFound();
   if (sport.status !== "live") return <ComingSoon sport={sport} />;
-  const initial = parseMatchupParams(await searchParams);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-5 md:px-6 md:py-10">
@@ -32,7 +28,10 @@ export default async function MatchupPage({ params, searchParams }: {
         sub="Pick two teams and a court. CZarp projects the score, spread, total and win chance."
       />
       <div className="mt-4 md:mt-6">
-        <MatchupMaker sportKey={sport.key} initial={initial} />
+        {/* The maker reads the URL itself (useSearchParams), so Back/Forward and shared links stay in sync. */}
+        <Suspense fallback={<div className="mx-auto max-w-2xl text-sm text-zinc-500">Loading…</div>}>
+          <MatchupMaker sportKey={sport.key} />
+        </Suspense>
       </div>
     </div>
   );

@@ -83,11 +83,11 @@ export function buildIndex(teams: SearchTeam[], aliasesFor: AliasLookup = teamAl
 }
 
 /** Ranks, lower is better:
- *  0 exact · 1 prefix · 2 words in order · 3 substring · 4 words in any order.
- *  Prefix and word-level matches (1, 2 and 4) that only come from an alias sit half a rank lower, so a plain
+ *  0 exact · 1 prefix · 2 words in order · 3 substring · 4 words in any order (names only).
+ *  Prefix and in-order word matches (1 and 2) that only come from an alias sit half a rank lower, so a plain
  *  "state" lists every X St. team before LSU ("Louisiana State") and "saint" lists the Saint schools before
  *  Siena ("Saints"). Exact alias hits (unc, uconn) keep full rank. */
-function scoreForms(forms: string[], qForms: string[], qTokens: string[]): { r: number; word: boolean } | null {
+function scoreForms(forms: string[], qForms: string[], qTokens: string[], anyOrder: boolean): { r: number; word: boolean } | null {
   let best: { r: number; word: boolean } | null = null;
   const take = (r: number, word = false) => { if (!best || r < best.r) best = { r, word }; };
   for (const q of qForms) {
@@ -112,8 +112,9 @@ function scoreForms(forms: string[], qForms: string[], qTokens: string[]): { r: 
   // plain substring, spaces ignored ("ichigan", "texasst")
   const squashed = qForms.map((q) => q.replace(/ /g, ""));
   if (forms.some((f) => squashed.some((q) => f.replace(/ /g, "").includes(q)))) take(3);
-  // same words, any order ("carolina north"), ranked last
-  if (forms.some((f) => {
+  // same words, any order ("carolina north"), ranked last. Real names only: letting aliases match this loosely
+  // made "st louis" list LSU ("Louisiana State").
+  if (anyOrder && forms.some((f) => {
     const words = f.split(" ");
     const used = new Set<number>();
     return qTokens.every((t) => {
@@ -128,8 +129,8 @@ function scoreForms(forms: string[], qForms: string[], qTokens: string[]): { r: 
 
 /** Score for one entry (lower is better), or null when it doesn't match. */
 function score(e: TeamIndexEntry, qForms: string[], qTokens: string[]): number | null {
-  const n = scoreForms(e.nameForms, qForms, qTokens);
-  const a = e.aliasForms.length ? scoreForms(e.aliasForms, qForms, qTokens) : null;
+  const n = scoreForms(e.nameForms, qForms, qTokens, true);
+  const a = e.aliasForms.length ? scoreForms(e.aliasForms, qForms, qTokens, false) : null;
   const sa = a ? a.r + (a.word || a.r === 1 ? 0.5 : 0) : null;
   if (!n) return sa;
   return sa == null ? n.r : Math.min(n.r, sa);

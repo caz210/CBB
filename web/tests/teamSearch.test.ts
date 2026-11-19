@@ -143,8 +143,10 @@ test("'state' finds only X St. teams and 'saint' only Saint schools", () => {
 test("short 'st' queries stay on St/Saint: 'st louis' does not find LSU", () => {
   const r = find("st louis");
   assert.equal(r[0], "Saint Louis");
-  // LSU (Louisiana State) only matches with the words reversed, so it can only trail the real hit
-  assert.ok(!r.includes("LSU") || r.indexOf("LSU") > 0);
+  // LSU's "Louisiana State" alias is not allowed to match with the words reversed
+  assert.ok(!r.includes("LSU"));
+  assert.ok(!find("state louis").includes("LSU"));
+  assert.deepEqual(find("louisiana state"), ["LSU"]);
   assert.ok(find("st").includes("St. John's"));
   assert.equal(find("cal st fullerton")[0], "Cal St. Fullerton");
   assert.equal(find("cal state fullerton")[0], "Cal St. Fullerton");

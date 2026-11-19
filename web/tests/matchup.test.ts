@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  ageHours, favorite, fetchMatchup, fmtAsOf, fmtScore, fmtSpread, fmtVenueDelta, fmtWinPct, isStale, mapRpcError,
+  ageHours, favorite, fetchMatchup, firstUnknown, fmtAsOf, fmtScore, fmtSpread, fmtVenueDelta, fmtWinPct, isStale, mapRpcError,
   matchupHref, parseMatchup, parseMatchupParams, swapVenue, venueDelta, venueLabel, winBarPct, type Matchup,
 } from "../src/lib/matchup";
 
@@ -15,11 +15,59 @@ const m = (o: Partial<Matchup> = {}) => ({ ...NEUTRAL, ...o }) as Matchup;
 
 // ---- formatting ----------------------------------------------------------------------------------------------
 
-test("scores and totals show one decimal", () => {
+test("scores show the RPC's exact value: one decimal, or two only when it ends in .x5", () => {
   assert.equal(fmtScore(72.2), "72.2");
   assert.equal(fmtScore(74), "74.0");
   assert.equal(fmtScore(145), "145.0");
   assert.equal(fmtScore(70.5), "70.5");
+  assert.equal(fmtScore(68.15), "68.15");
+  assert.equal(fmtScore(81.85), "81.85");
+  assert.equal(fmtScore(104.15), "104.15"); // used to display as 104.2
+  assert.equal(fmtScore(68.85), "68.85");   // used to display as 68.8
+  assert.equal(fmtScore(65.05), "65.05");
+  assert.equal(fmtScore(84.95), "84.95");
+  assert.equal(fmtScore(72.20), "72.2");    // numeric(…,2) "72.20" arrives as 72.2
+  assert.equal(fmtScore(71.5), "71.5");
+});
+
+// cents as an integer, so the checks below are exact (no float noise)
+const cents = (shown: string) => Math.round(Number(shown) * 100);
+
+test("displayed score gap equals the displayed spread and displayed sum equals the total, for every .x5 case", () => {
+  // Rebuild the RPC's rule: total on a 0.5 grid, spread on a 0.1 grid, score_a=(total-spread)/2, score_b=(total+spread)/2.
+  // The Texas St./Duke values from the live RPC come first.
+  const cases: [number, number][] = [[150.0, 13.7], [150.0, 16.4], [150.0, 19.9], [145.0, 0.6], [144.5, -3.5], [161.0, -8.0]];
+  for (let t = 100; t <= 190; t += 0.5) for (let sp = -40; sp <= 40; sp = Math.round((sp + 0.1) * 10) / 10) cases.push([t, sp]);
+  let x5 = 0;
+  for (const [total, spread] of cases) {
+    const aC = Math.round((total * 100 - spread * 100) / 2), bC = Math.round((total * 100 + spread * 100) / 2);
+    const sa = aC / 100, sb = bC / 100;
+    const shownA = fmtScore(sa), shownB = fmtScore(sb);
+    if (shownA.split(".")[1].length === 2) x5++;
+    // the page shows spread to one decimal and total to one decimal
+    const shownSpread = Math.round(spread * 10), shownTotal = Math.round(total * 10);
+    assert.equal(cents(shownB) - cents(shownA), shownSpread * 10, `gap for total ${total} spread ${spread}: ${shownA} / ${shownB}`);
+    assert.equal(cents(shownA) + cents(shownB), shownTotal * 10, `sum for total ${total} spread ${spread}`);
+  }
+  assert.ok(x5 > 1000, `expected plenty of .x5 cases, got ${x5}`); // about half of all pairs
+});
+
+test("Texas St. vs Duke with Texas St. home: 68.15 - 81.85 sits next to Duke \u221213.7 and the gap is 13.7", () => {
+  const mm = m({ team_a: 520, team_b: 78, venue: "a_home", score_a: 68.15, score_b: 81.85, total: 150, spread_a: 13.7, win_pct_a: 0.115, win_pct_b: 0.885 });
+  assert.equal(fmtScore(mm.score_a), "68.15");
+  assert.equal(fmtScore(mm.score_b), "81.85");
+  assert.equal(fmtSpread(mm, "Texas St.", "Duke"), "Duke \u221213.7");
+  assert.equal((cents(fmtScore(mm.score_b)) - cents(fmtScore(mm.score_a))) / 100, 13.7);
+  assert.equal(fmtScore(mm.total), "150.0");
+});
+
+test("firstUnknown flags ids missing from the team list so the RPC can be skipped", () => {
+  const known = (id: number) => id === 520 || id === 78;
+  assert.equal(firstUnknown(520, 78, known), null);
+  assert.equal(firstUnknown(999999, 78, known), "a");
+  assert.equal(firstUnknown(520, 999999, known), "b");
+  assert.equal(firstUnknown(null, 999999, known), "b");
+  assert.equal(firstUnknown(null, null, known), null);
 });
 
 test("win % shows one decimal and the bounds become <0.1% and >99.9%", () => {

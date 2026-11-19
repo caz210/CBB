@@ -1,13 +1,14 @@
 "use client";
 // Matchup maker: two team pickers, a court control, and CZarp's projection from the `project_matchup` RPC.
 // The UI never computes a projection; it shows what the RPC returns (and the difference between two replies).
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useSearchParams } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { useTeamIndex } from "@/lib/useTeamIndex";
 import type { SearchTeam } from "@/lib/teamSearch";
 import {
-  favorite, fetchMatchup, fmtAsOf, fmtScore, fmtSpread, fmtVenueDelta, fmtWinPct, isStale, matchupHref, swapVenue,
-  venueDelta, venueLabel, winBarPct, type Matchup, type MatchupError, type MatchupParams, type Venue,
+  favorite, fetchMatchup, firstUnknown, fmtAsOf, fmtScore, fmtSpread, fmtVenueDelta, fmtWinPct, isStale, matchupHref,
+  parseMatchupParams, swapVenue, venueDelta, venueLabel, winBarPct, type Matchup, type MatchupError, type Venue,
 } from "@/lib/matchup";
 import { TeamPicker } from "./TeamPicker";
 
@@ -15,21 +16,30 @@ type Fetched = { key: string; match: Matchup; neutral: Matchup | null };
 type View =
   | { s: "idle" }
   | { s: "same" }
+  | { s: "unknown"; side: "a" | "b" }
   | { s: "loading" }
   | { s: "error"; error: MatchupError }
   | { s: "ok"; r: Fetched };
 
 const keyOf = (a: number, b: number, v: Venue) => `${a}:${b}:${v}`;
+const RETRY_COOLDOWN_MS = 3000;
 
-export function MatchupMaker({ sportKey, initial }: { sportKey: string; initial: MatchupParams }) {
+export function MatchupMaker({ sportKey }: { sportKey: string }) {
   const load = useTeamIndex(sportKey, true);
-  const [a, setA] = useState<number | null>(initial.a);
-  const [b, setB] = useState<number | null>(initial.b);
-  const [venue, setVenue] = useState<Venue>(initial.venue);
+  // The URL is the state. Picks and court are read from it, so Back/Forward, reloads and shared links all agree.
+  const sp = useSearchParams();
+  const { a, b, venue } = useMemo(() => parseMatchupParams(sp), [sp]);
   const [retry, setRetry] = useState(0);
-  const [view, setView] = useState<View>(initial.a && initial.b && initial.a !== initial.b ? { s: "loading" } : { s: "idle" });
+  const [canRetry, setCanRetry] = useState(true);
+  const [view, setView] = useState<View>({ s: "idle" });
   const cache = useRef(new Map<string, Fetched>());
   const seq = useRef(0);
+
+  // replaceState(null, ...) lets the Next router adopt the new URL (and useSearchParams follow it) without
+  // adding history entries or keeping a stale payload for this one.
+  const setUrl = useCallback((next: { a: number | null; b: number | null; venue: Venue }) => {
+    window.history.replaceState(null, "", matchupHref(sportKey, { a: next.a ?? undefined, b: next.b ?? undefined, venue: next.venue }));
+  }, [sportKey]);
 
   const byId = useMemo(() => {
     const m = new Map<number, SearchTeam>();
@@ -41,40 +51,61 @@ export function MatchupMaker({ sportKey, initial }: { sportKey: string; initial:
   const nameA = teamA?.name ?? "Team A";
   const nameB = teamB?.name ?? "Team B";
 
-  // keep the URL shareable without a server round trip
-  useEffect(() => {
-    window.history.replaceState(window.history.state, "", matchupHref(sportKey, { a: a ?? undefined, b: b ?? undefined, venue }));
-  }, [sportKey, a, b, venue]);
-
-  // (re)query whenever the pair or the court changes. Replies are cached per pair+court so toggling is instant.
+  // (Re)query whenever the pair or the court changes. Replies are cached per pair+court so toggling is instant.
   useEffect(() => {
     const mine = ++seq.current; // invalidates any request still in flight
     if (a == null || b == null) { setView({ s: "idle" }); return; }
     if (a === b) { setView({ s: "same" }); return; }
+    if (load.state === "loading") { setView({ s: "loading" }); return; }
+    // ids that aren't in the team list can't work: say so without calling the RPC
+    const bad = load.state === "ready" ? firstUnknown(a, b, (id) => byId.has(id)) : null;
+    if (bad) { setView({ s: "unknown", side: bad }); return; }
     const key = keyOf(a, b, venue);
     const hit = cache.current.get(key);
     if (hit && retry === 0) { setView({ s: "ok", r: hit }); return; }
     const sb = createSupabaseBrowserClient();
     if (!sb) { setView({ s: "error", error: { kind: "other", message: "Something went wrong loading that matchup. Try again in a moment." } }); return; }
     setView({ s: "loading" });
+    const nKey = keyOf(a, b, "neutral");
+    const cachedNeutral = cache.current.get(nKey)?.match ?? null;
     (async () => {
       const [main, neutral] = await Promise.all([
         fetchMatchup(sb, a, b, venue),
-        venue === "neutral" ? Promise.resolve(null) : fetchMatchup(sb, a, b, "neutral"),
+        venue === "neutral" || cachedNeutral ? Promise.resolve(null) : fetchMatchup(sb, a, b, "neutral"),
       ]);
       if (mine !== seq.current) return; // a newer request superseded this one
-      if (!main.ok) { setView({ s: "error", error: main.error }); return; }
-      const nm = venue === "neutral" ? main.data : neutral && neutral.ok ? neutral.data : null;
+      if (!main.ok) {
+        setView({ s: "error", error: main.error });
+        setCanRetry(false);
+        setTimeout(() => { if (mine === seq.current) setCanRetry(true); }, RETRY_COOLDOWN_MS);
+        return;
+      }
+      const nm = venue === "neutral" ? main.data : cachedNeutral ?? (neutral && neutral.ok ? neutral.data : null);
       const r: Fetched = { key, match: main.data, neutral: nm };
       cache.current.set(key, r);
-      if (nm) cache.current.set(keyOf(a, b, "neutral"), { key: keyOf(a, b, "neutral"), match: nm, neutral: nm });
+      if (nm) cache.current.set(nKey, { key: nKey, match: nm, neutral: nm });
       setView({ s: "ok", r });
     })();
-  }, [a, b, venue, retry]);
+  }, [a, b, venue, retry, load.state, byId]);
 
-  const pickA = useCallback((t: SearchTeam) => { setRetry(0); setA(t.id); }, []);
-  const pickB = useCallback((t: SearchTeam) => { setRetry(0); setB(t.id); }, []);
-  const swap = () => { setRetry(0); setA(b); setB(a); setVenue(swapVenue(venue)); };
+  const pickA = useCallback((t: SearchTeam) => { setRetry(0); setUrl({ a: t.id, b, venue }); }, [setUrl, b, venue]);
+  const pickB = useCallback((t: SearchTeam) => { setRetry(0); setUrl({ a, b: t.id, venue }); }, [setUrl, a, venue]);
+  const swap = () => { setRetry(0); setUrl({ a: b, b: a, venue: swapVenue(venue) }); };
+  const setVenue = (v: Venue) => { setRetry(0); setUrl({ a, b, venue: v }); };
+
+  // radiogroup keyboard: arrows move and select, Home/End jump; only the selected radio is a tab stop
+  const courtKey = (e: KeyboardEvent<HTMLButtonElement>, v: Venue) => {
+    const order: Venue[] = ["neutral", "a_home", "b_home"];
+    const i = order.indexOf(v);
+    const to = e.key === "ArrowRight" || e.key === "ArrowDown" ? order[(i + 1) % 3]
+      : e.key === "ArrowLeft" || e.key === "ArrowUp" ? order[(i + 2) % 3]
+      : e.key === "Home" ? order[0] : e.key === "End" ? order[2] : null;
+    if (!to) return;
+    e.preventDefault();
+    setVenue(to);
+    // focus right away (a tabindex=-1 radio can take programmatic focus) so fast repeated presses keep moving
+    e.currentTarget.parentElement?.querySelectorAll<HTMLElement>('[role="radio"]')[order.indexOf(to)]?.focus();
+  };
 
   const ready = a != null && b != null && a !== b;
   const courts: { v: Venue; label: string }[] = [
@@ -113,7 +144,9 @@ export function MatchupMaker({ sportKey, initial }: { sportKey: string; initial:
               type="button"
               role="radio"
               aria-checked={venue === c.v}
-              onClick={() => { setRetry(0); setVenue(c.v); }}
+              tabIndex={venue === c.v ? 0 : -1}
+              onClick={() => setVenue(c.v)}
+              onKeyDown={(e) => courtKey(e, c.v)}
               className={`min-h-12 rounded-lg px-1.5 text-center text-[13px] font-semibold leading-tight transition ${venue === c.v ? "bg-court-500/20 text-court-400" : "text-zinc-400 hover:bg-ink-800"}`}
             >
               <span className="line-clamp-2 break-words">{c.label}</span>
@@ -134,6 +167,11 @@ export function MatchupMaker({ sportKey, initial }: { sportKey: string; initial:
         {view.s === "same" && (
           <div className="card border-amber-400/30 px-4 py-5 text-sm text-amber-200">Pick two different teams.</div>
         )}
+        {view.s === "unknown" && (
+          <div className="card border-amber-400/30 px-4 py-5 text-sm text-amber-200" role="alert">
+            That team isn&apos;t available. Pick team {view.side === "a" ? "A" : "B"} from the list.
+          </div>
+        )}
         {view.s === "loading" && (
           <div className="card px-4 py-10 text-center text-sm text-zinc-400" role="status">Loading projection…</div>
         )}
@@ -141,8 +179,8 @@ export function MatchupMaker({ sportKey, initial }: { sportKey: string; initial:
           <div className="card border-fade-400/30 px-4 py-5" role="alert">
             <p className="text-sm font-semibold text-white">{view.error.message}</p>
             {view.error.kind !== "bad_id" && view.error.kind !== "invalid" && (
-              <button type="button" onClick={() => setRetry((r) => r + 1)} className="mt-3 min-h-11 rounded-xl border border-ink-600 px-4 text-sm font-semibold text-zinc-200 hover:bg-ink-800">
-                Try again
+              <button type="button" disabled={!canRetry} onClick={() => setRetry((r) => r + 1)} className="mt-3 min-h-11 rounded-xl border border-ink-600 px-4 text-sm font-semibold text-zinc-200 hover:bg-ink-800 disabled:cursor-not-allowed disabled:opacity-50">
+                {canRetry ? "Try again" : "Try again in a moment"}
               </button>
             )}
           </div>
@@ -151,7 +189,7 @@ export function MatchupMaker({ sportKey, initial }: { sportKey: string; initial:
       </section>
 
       <p className="mt-4 text-xs leading-relaxed text-zinc-500">
-        Spread is in betting notation: the favorite carries the minus sign. Scores are shown to one decimal, so a displayed score pair can differ from the total by 0.1. For information and entertainment, not betting advice.
+        Spread is in betting notation: the favorite carries the minus sign. For information and entertainment, not betting advice.
       </p>
     </div>
   );
@@ -174,7 +212,7 @@ function ResultCard({ r, nameA, nameB }: { r: Fetched; nameA: string; nameB: str
         {([["a", nameA, m.score_a], ["b", nameB, m.score_b]] as const).map(([side, name, score]) => (
           <div key={side} className="min-w-0 px-3 py-4 text-center">
             <div className={`truncate text-sm font-semibold ${fav === side ? "text-white" : "text-zinc-300"}`} title={name}>{name}</div>
-            <div className={`mt-1 font-mono text-4xl font-black tabular-nums ${fav === side ? hi : "text-zinc-200"}`}>{fmtScore(score)}</div>
+            <div className={`mt-1 font-mono text-3xl font-black tabular-nums min-[400px]:text-4xl ${fav === side ? hi : "text-zinc-200"}`}>{fmtScore(score)}</div>
             <div className="mt-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">{fav === side ? "Favorite" : fav ? "Underdog" : "Pick'em"}</div>
           </div>
         ))}
@@ -217,6 +255,9 @@ function ResultCard({ r, nameA, nameB }: { r: Fetched; nameA: string; nameB: str
           </span>
         )}
       </div>
+      <p className="border-t border-ink-700/70 px-4 py-2.5 text-[11px] leading-relaxed text-zinc-500">
+        Projection only, not an official CZarp play.
+      </p>
     </div>
   );
 }
