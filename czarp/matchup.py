@@ -12,12 +12,25 @@ so both agree to the last bit. The parity guard (`parity_check`) recomputes toda
 through `project()` and compares them with the daily run's own numbers; a mismatch means the SQL
 function no longer matches the model and is logged loudly (picks are never blocked).
 
-What the function returns (team_a perspective):
+What the model computes (team_a perspective, full precision; private):
   total   = CZarp total = v1 totals model, each team score rounded to 0.5 (Python round(), i.e.
             half-to-even; Postgres round(float8) is half-to-even too), then summed
   margin  = v2 margin (efficiency + calibration + unit score + per-team home court)
   score_a = (total + margin) / 2, score_b = (total - margin) / 2   -> add up to the CZarp total
   spread_a = -margin, win_pct_a = Phi(margin / margin_sd), win_pct_b = 1 - win_pct_a
+
+What public.project_matchup() returns is ROUNDED to display precision (full-precision outputs would
+let anyone solve for the private, licensed per-team inputs). See `public_projection()`:
+  total     0.5 (unchanged: already the CZarp total's own rounding)
+  spread_a  0.1, half-to-even on spread*10 (Postgres round(float8) = rint = Python round())
+  score_a   (total - spread_a) / 2, score_b = (total + spread_a) / 2, computed exactly in decimal
+            AFTER rounding, so score_a + score_b = total and score_a - score_b = -spread_a hold exactly.
+            A score lands on a 0.1 step unless total and spread have mismatched tenths (e.g. total
+            145.5, spread -1.0): then both scores sit 0.05 off the 0.1 grid (72.25 / 73.25). That is
+            the only "adjustment by 0.05" — it never moves the total or the spread.
+  win_pct   0.001, half-to-even on win*1000; win_pct_b = 1 - win_pct_a (exact in decimal)
+The full-precision version lives in matchup_private.project_matchup_full(), which no client role
+can reach; the parity checks use it (or project()) before rounding.
 """
 from __future__ import annotations
 
@@ -25,12 +38,15 @@ import math
 import re
 import unicodedata
 from datetime import date
+from decimal import Decimal
 
 import numpy as np
 
 LEAGUE = "ncaam"
 VENUES = ("neutral", "a_home", "b_home")
 PARITY_TOL = 1e-6
+MIN_TEAMS = 300        # D-I has ~365; never publish (or prune down to) fewer than this
+MAX_DROP = 0.05        # refuse a publish that would cover >5% fewer teams than are live now
 
 # v1 constants (czarp/legacy_v1.py: HCA_VALUE 3.5 split ±0.5; unit_score_adjustments 0.25)
 V1_HCA = 3.5
@@ -254,6 +270,17 @@ def project(a: dict, b: dict, venue: str, C: dict) -> dict:
             "spread_a": -margin_a, "win_pct_a": win_a, "win_pct_b": 1 - win_a}
 
 
+def public_projection(a: dict, b: dict, venue: str, C: dict) -> dict:
+    """What public.project_matchup() returns (rounded, Decimal values). See the module docstring."""
+    p = project(a, b, venue, C)
+    total = Decimal(repr(p["total"]))                     # a multiple of 0.5: exact
+    spread = Decimal(round(-p["margin_a"] * 10)) / 10     # half-to-even on spread*10, like rint()
+    win_a = Decimal(round(p["win_pct_a"] * 1000)) / 1000
+    return {"venue": venue, "total": total, "spread_a": spread,
+            "score_a": (total - spread) / 2, "score_b": (total + spread) / 2,
+            "win_pct_a": win_a, "win_pct_b": 1 - win_a}
+
+
 # ── parity guard ──────────────────────────────────────────────────────────────
 def parity_check(games: list[dict], rows: dict, consts: dict, tol: float = PARITY_TOL) -> dict:
     """Recompute today's projected games through project() and compare with the daily run.
@@ -289,6 +316,26 @@ def parity_check(games: list[dict], rows: dict, consts: dict, tol: float = PARIT
     return out
 
 
+def parity_ok(res: dict) -> bool:
+    """True when the matchup maker may publish: no drift, no missing team, no unsupported feature."""
+    return not (res["mismatches"] or res["missing"] or res["unsupported"])
+
+
+def parity_status(res: dict) -> str:
+    """One line for the daily report."""
+    if parity_ok(res):
+        return f"Matchup maker check: {res['checked']}/{res['checked']} slate games match the model exactly."
+    bits = []
+    if res["mismatches"]:
+        bits.append(f"{len(res['mismatches'])} of {res['checked']} games differ from the model")
+    if res["missing"]:
+        bits.append(f"{len(res['missing'])} games have no inputs")
+    if res["unsupported"]:
+        bits.append("model uses features the matchup maker doesn't implement (" + "; ".join(res["unsupported"]) + ")")
+    return ("Matchup maker check FAILED: " + ", ".join(bits) +
+            ". Inputs NOT refreshed (it keeps yesterday's); picks are unaffected.")
+
+
 def parity_log_lines(res: dict) -> list[str]:
     lines = [f"  matchup parity: {res['checked']} games, max diff margin {res['max_margin_diff']:.2e} / "
              f"total {res['max_total_diff']:.2e} / win% {res['max_win_diff']:.2e}"]
@@ -309,6 +356,8 @@ def parity_log_lines(res: dict) -> list[str]:
 # ── Supabase writer (service role) ────────────────────────────────────────────
 def write_supabase(client, rows: dict, consts: dict, season: int, as_of_ts: str, log=print) -> int:
     """Upsert matchup_inputs (one row per team) + matchup_constants (one row per league)."""
+    if len(rows) < MIN_TEAMS:
+        raise RuntimeError(f"refusing to publish matchup inputs: only {len(rows)} teams built (< {MIN_TEAMS})")
     teams = client.get("teams", select="id,name", league=f"eq.{LEAGUE}", limit="2000")
     tid = {t["name"]: t["id"] for t in teams}
     missing = sorted(set(rows) - set(tid))
@@ -320,15 +369,22 @@ def write_supabase(client, rows: dict, consts: dict, season: int, as_of_ts: str,
             f"maker will report them as unknown): {', '.join(incomplete[:5])}")
     body = [{"team_id": tid[n], "season": season, **{k: rows[n][k] for k in INPUT_COLS}, "as_of": as_of_ts}
             for n in sorted(rows) if n in tid and n not in incomplete]
+    # guard: an empty / short teams fetch (or a broken build) must never wipe or shrink the live inputs
+    existing = [t["team_id"] for t in client.get("matchup_inputs", select="team_id", limit="2000")]
+    floor = max(MIN_TEAMS, math.ceil(len(existing) * (1 - MAX_DROP)))
+    if len(body) < floor:
+        raise RuntimeError(f"refusing to publish matchup inputs: {len(body)} publishable teams vs {len(existing)} "
+                           f"live (minimum {floor}); live inputs left as they are")
     client.upsert("matchup_inputs", body, on_conflict="team_id", returning=False)
     crow = {"league": LEAGUE, "season": season, "model_version": consts["model_version"],
             **{k: consts[k] for k in CONST_COLS}, "as_of": as_of_ts}
     client.upsert("matchup_constants", [crow], on_conflict="league", returning=False)
-    # rows for teams that dropped out of this season's table would be stale: remove them
+    # rows for teams that dropped out of this season's table would be stale: remove them, but only a few
     keep = {r["team_id"] for r in body}
-    stale = [t["team_id"] for t in client.get("matchup_inputs", select="team_id", limit="2000")
-             if t["team_id"] not in keep]
-    if stale:
+    stale = [t for t in existing if t not in keep]
+    if stale and len(stale) > max(5, int(len(existing) * MAX_DROP)):
+        log(f"  matchup inputs: {len(stale)} live teams not in today's build — NOT deleting that many; check by hand")
+    elif stale:
         client.delete("matchup_inputs", team_id=f"in.({','.join(map(str, stale))})")
     return len(body)
 

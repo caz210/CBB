@@ -166,37 +166,79 @@ def _q(v):
     return "null" if v is None else repr(float(v))
 
 
-@pytest.mark.skipif(not DSN or not shutil.which("psql"), reason="set MATCHUP_PG_DSN to a scratch db with the migrations applied")
+def _psql(sql):
+    return subprocess.run(["psql", DSN, "-X", "-q", "-A", "-t", "-F", ",", "-v", "ON_ERROR_STOP=1"],
+                          input=sql, capture_output=True, text=True, check=True).stdout
+
+
+def _load_sql(rows, consts, ids):
+    names = sorted(rows)
+    cols = MU.INPUT_COLS
+    return ["begin;", "delete from public.matchup_constants where league = 'ncaam';",
+            "insert into public.teams (id, sport_id, league, season, name) overriding system value values " +
+            ", ".join(f"({ids[n]}, (select id from public.sports where code='cbb'), 'ncaam', 2027, 'zz_test_{n}')" for n in names) + ";",
+            f"insert into public.matchup_inputs (team_id, season, {', '.join(cols)}, as_of) values " +
+            ", ".join(f"({ids[n]}, 2027, {', '.join(_q(rows[n][c]) for c in cols)}, now())" for n in names) + ";",
+            f"insert into public.matchup_constants (league, season, model_version, {', '.join(MU.CONST_COLS)}, as_of) values "
+            f"('ncaam', 2027, 'test', {', '.join(_q(consts[c]) for c in MU.CONST_COLS)}, now());"]
+
+
+needs_pg = pytest.mark.skipif(not DSN or not shutil.which("psql"),
+                              reason="set MATCHUP_PG_DSN to a scratch db with the migrations applied")
+
+
+@needs_pg
 def test_sql_function_matches_python_twin(built):
+    from decimal import Decimal
     data, v1, rows, consts = built
     names = sorted(rows)
     ids = {n: 900000 + i for i, n in enumerate(names)}
-    cols = MU.INPUT_COLS
     rnd = random.Random(5)
     cases = sorted({tuple(rnd.sample(names, 2)) for _ in range(120)})
-    sql = ["begin;", "delete from public.matchup_constants where league = 'ncaam';",
-           "insert into public.teams (id, sport_id, league, season, name) overriding system value values " +
-           ", ".join(f"({ids[n]}, (select id from public.sports where code='cbb'), 'ncaam', 2027, 'zz_test_{n}')" for n in names) + ";",
-           f"insert into public.matchup_inputs (team_id, season, {', '.join(cols)}, as_of) values " +
-           ", ".join(f"({ids[n]}, 2027, {', '.join(_q(rows[n][c]) for c in cols)}, now())" for n in names) + ";",
-           f"insert into public.matchup_constants (league, season, model_version, {', '.join(MU.CONST_COLS)}, as_of) values "
-           f"('ncaam', 2027, 'test', {', '.join(_q(consts[c]) for c in MU.CONST_COLS)}, now());",
-           "select a, b, v, (p).total, (p).spread_a, (p).win_pct_a, (p).score_a, (p).score_b from (values " +
-           ", ".join(f"({ids[a]}, {ids[b]}, '{v}')" for a, b in cases for v in MU.VENUES) +
-           ") x(a, b, v) cross join lateral (select public.project_matchup(x.a, x.b, x.v) p) y;",
-           "rollback;"]
-    out = subprocess.run(["psql", DSN, "-X", "-q", "-A", "-t", "-F", ",", "-v", "ON_ERROR_STOP=1"],
-                         input="\n".join(sql), capture_output=True, text=True, check=True).stdout
+    vals = ", ".join(f"({ids[a]}, {ids[b]}, '{v}')" for a, b in cases for v in MU.VENUES)
+    sql = _load_sql(rows, consts, ids) + [
+        # full precision core (owner only) and the rounded public RPC, side by side
+        "select a, b, v, (f).total, (f).margin_a, (f).win_pct_a, (p).total, (p).spread_a, (p).score_a, (p).score_b, "
+        "(p).win_pct_a, (p).win_pct_b from (values " + vals + ") x(a, b, v) "
+        "cross join lateral (select matchup_private.project_matchup_full(x.a, x.b, x.v) f, "
+        "public.project_matchup(x.a, x.b, x.v) p) y;",
+        "rollback;"]
     back = {v: k for k, v in ids.items()}
-    lines = [ln for ln in out.splitlines() if ln.count(",") == 7]
+    lines = [ln for ln in _psql("\n".join(sql)).splitlines() if ln.count(",") == 11]
     assert len(lines) == len(cases) * 3
     for ln in lines:
-        a, b, v, total, spread_a, win_a, sa, sb = ln.split(",")
-        p = MU.project(rows[back[int(a)]], rows[back[int(b)]], v, consts)
-        assert float(total) == p["total"]
-        assert abs(float(spread_a) - p["spread_a"]) <= 1e-9
-        assert abs(float(win_a) - p["win_pct_a"]) <= 1e-12
-        assert abs(float(sa) + float(sb) - p["total"]) <= 1e-9
+        a, b, v, ftot, fm, fw, total, spread, sa, sb, wa, wb = ln.split(",")
+        A, B = rows[back[int(a)]], rows[back[int(b)]]
+        p = MU.project(A, B, v, consts)
+        assert float(ftot) == p["total"]
+        assert abs(float(fm) - p["margin_a"]) <= 1e-9 and abs(float(fw) - p["win_pct_a"]) <= 1e-12
+        q = MU.public_projection(A, B, v, consts)
+        got = dict(total=Decimal(total), spread_a=Decimal(spread), score_a=Decimal(sa), score_b=Decimal(sb),
+                   win_pct_a=Decimal(wa), win_pct_b=Decimal(wb))
+        for k, x in got.items():
+            assert x == q[k], (k, x, q[k])
+        assert got["score_a"] + got["score_b"] == got["total"]
+        assert got["score_a"] - got["score_b"] == -got["spread_a"]
+        assert got["win_pct_a"] + got["win_pct_b"] == 1
+        assert got["spread_a"] == got["spread_a"].quantize(Decimal("0.1"))
+        assert got["score_a"] * 20 == int(got["score_a"] * 20)                # 0.05 grid at worst
+        assert got["win_pct_a"] == got["win_pct_a"].quantize(Decimal("0.001"))
+
+
+@needs_pg
+def test_sql_private_core_is_not_reachable_by_clients():
+    out = _psql("select has_function_privilege('anon', 'matchup_private.project_matchup_full(bigint,bigint,text)', 'execute'),"
+                " has_function_privilege('authenticated', 'matchup_private.project_matchup_full(bigint,bigint,text)', 'execute'),"
+                " has_schema_privilege('anon', 'matchup_private', 'usage'),"
+                " has_function_privilege('anon', 'public.project_matchup(bigint,bigint,text)', 'execute');")
+    assert out.strip() == "f,f,f,t"
+
+
+@needs_pg
+def test_sql_venue_error_is_truncated():
+    r = subprocess.run(["psql", DSN, "-X", "-q", "-A", "-t"], input="select public.project_matchup(1, 2, repeat('x', 5000));",
+                       capture_output=True, text=True)
+    assert "venue must be" in r.stderr and "x" * 21 not in r.stderr and "..." in r.stderr
 
 
 class _FakeClient:
@@ -215,7 +257,9 @@ class _FakeClient:
 
 
 def test_write_supabase_payloads(built):
-    _, _, rows, consts = built
+    _, _, rows0, consts = built
+    src = sorted(rows0)
+    rows = {f"T{i:03d}": rows0[src[i % len(src)]] for i in range(365)}       # a full-size league
     names = sorted(rows)
     c = _FakeClient([{"id": i + 1, "name": n} for i, n in enumerate(names[:-1])], existing=[1, 2, 999])
     logs = []
@@ -226,3 +270,48 @@ def test_write_supabase_payloads(built):
     (crow,), ckey = c.upserts["matchup_constants"]
     assert ckey == "league" and crow["league"] == "ncaam" and set(MU.CONST_COLS) <= set(crow)
     assert c.deleted == [("matchup_inputs", {"team_id": "in.(999)"})]       # stale team removed
+
+
+def test_write_supabase_refuses_empty_or_short_teams_fetch(built):
+    _, _, rows, consts = built
+    names = sorted(rows)
+    big = {f"T{i}": rows[names[i % len(names)]] for i in range(365)}           # a full-size league
+    live = list(range(1, 366))
+    for teams in ([], [{"id": i + 1, "name": f"T{i}"} for i in range(200)],     # empty / short fetch
+                  [{"id": i + 1, "name": f"T{i}"} for i in range(340)]):        # >5% drop vs live
+        c = _FakeClient(teams, existing=live)
+        with pytest.raises(RuntimeError, match="refusing to publish"):
+            MU.write_supabase(c, big, consts, 2027, "2026-11-18T07:15:00-06:00", log=lambda *_: None)
+        assert c.upserts == {} and c.deleted == []                             # nothing written or wiped
+    with pytest.raises(RuntimeError, match="only 40 teams built"):
+        MU.write_supabase(_FakeClient([], []), rows, consts, 2027, "x", log=lambda *_: None)
+
+
+def test_daily_parity_refuses_to_publish_on_drift_and_reports(built, monkeypatch):
+    data, _, _, _ = built
+    monkeypatch.setattr(D, "log", lambda *_: None)
+    games = [{"home": "Team00", "away": "Team01", "neutral": False, "game_date": "2026-11-18"}]
+    D.project_all(games, data)
+    notes = []
+    assert D.matchup_parity(games, data, "2026-11-18", notes) is not None
+    assert notes == ["Matchup maker check: 1/1 slate games match the model exactly."]
+    games[0]["v2_home_margin"] += 0.5
+    notes = []
+    assert D.matchup_parity(games, data, "2026-11-18", notes) is None             # not published
+    assert len(notes) == 1 and notes[0].startswith("Matchup maker check FAILED") and "picks are unaffected" in notes[0]
+
+
+def test_public_projection_rounding_rule(built):
+    from decimal import Decimal
+    _, _, rows, consts = built
+    names = sorted(rows)
+    seen_off_grid = False
+    for a, b in zip(names, names[1:]):
+        for v in MU.VENUES:
+            q = MU.public_projection(rows[a], rows[b], v, consts)
+            p = MU.project(rows[a], rows[b], v, consts)
+            assert q["total"] == Decimal(repr(p["total"]))
+            assert abs(q["spread_a"] - Decimal(repr(p["spread_a"]))) <= Decimal("0.05")
+            assert q["score_a"] + q["score_b"] == q["total"] and q["score_a"] - q["score_b"] == -q["spread_a"]
+            seen_off_grid |= (q["score_a"] * 10) % 1 != 0
+    assert seen_off_grid           # the documented 0.05 case does occur

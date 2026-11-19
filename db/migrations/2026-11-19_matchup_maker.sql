@@ -76,7 +76,7 @@ grant select, insert, update, delete on table public.matchup_inputs, public.matc
 -- team_aliases: search spellings -> team (anon-readable). alias is normalised like the site's
 -- search box (web/src/lib/teamSearch.ts normalize): lowercase, accents/punctuation dropped,
 -- "A&M" -> "am", "&"/"and" dropped, single spaces. One alias may point at several teams
--- ("miami", "a&m", "wildcats"), so the key is (alias, team_id).
+-- ("a&m", "wildcats", "sdsu"), so the key is (alias, team_id).
 create table if not exists public.team_aliases (
     alias    text not null check (alias <> '' and alias = lower(alias)),
     team_id  bigint not null references public.teams(id) on delete cascade,
@@ -92,38 +92,40 @@ revoke all on table public.team_aliases from public, anon, authenticated;
 grant select on table public.team_aliases to anon, authenticated;
 grant select, insert, update, delete on table public.team_aliases to service_role;
 
--- result row of project_matchup (a composite, so the function's arguments can keep the
--- natural names team_a / team_b / venue and PostgREST returns one JSON object)
-do $$ begin
-  if to_regtype('public.matchup_projection') is null then
-    create type public.matchup_projection as (
-        team_a     bigint,
-        team_b     bigint,
-        venue      text,
-        as_of      timestamptz,
-        score_a    float8,
-        score_b    float8,
-        total      float8,
-        spread_a   float8,
-        win_pct_a  float8,
-        win_pct_b  float8
-    );
-  end if;
-end $$;
+-- ── full-precision core: PRIVATE ──────────────────────────────────────────────
+-- Full float8 outputs would let anyone solve for the private, licensed per-team inputs (e.g. two
+-- calls give 1.109*(hca_a + hca_b) to the last bit). So the exact math lives in a schema no client
+-- role can use, and the public RPC below returns display-rounded numbers only. Parity checks run
+-- against this function (as the owner) and against the Python twin, before any rounding.
+create schema if not exists matchup_private;
+revoke all on schema matchup_private from public, anon, authenticated, service_role;
+
+drop function if exists public.project_matchup(bigint, bigint, text);
+drop function if exists matchup_private.project_matchup_full(bigint, bigint, text);
+drop type if exists public.matchup_projection;
+drop type if exists matchup_private.matchup_full;
+create type matchup_private.matchup_full as (
+    team_a     bigint,
+    team_b     bigint,
+    venue      text,
+    as_of      timestamptz,
+    total      float8,       -- CZarp total (already a multiple of 0.5)
+    margin_a   float8,       -- team_a margin, full precision
+    win_pct_a  float8        -- full precision
+);
 
 -- Twin of czarp/matchup.py project(); same operation order (keep them in sync: the daily run's
 -- parity check compares that Python twin with the model every morning, and
 -- tests/test_matchup.py compares this function with it).
---   total    = v1 totals model: each team rounded to 0.5 (round() on float8 is half-to-even,
---              like Python), then summed  -> the CZarp total the daily run uses
---   margin   = v2 margin (efficiency, calibration, unit score, per-team home court)
---   score_a  = (total + margin_a) / 2, score_b = (total - margin_a) / 2
---   spread_a = -margin_a (betting notation), win_pct_a = Phi(margin_a / margin_sd)
+--   total     = v1 totals model: each team rounded to 0.5 (round() on float8 is half-to-even,
+--               like Python), then summed  -> the CZarp total the daily run uses
+--   margin_a  = v2 margin (efficiency, calibration, unit score, per-team home court)
+--   win_pct_a = Phi(margin_a / margin_sd)
 -- The daily run projects (away, home): a home team is team2, and at a neutral site team_a takes
--- the listed-away (team1) role. Full precision is returned; round only for display.
-create or replace function public.project_matchup(team_a bigint, team_b bigint, venue text default 'neutral')
-returns public.matchup_projection
-language plpgsql stable security definer
+-- the listed-away (team1) role.
+create or replace function matchup_private.project_matchup_full(team_a bigint, team_b bigint, venue text default 'neutral')
+returns matchup_private.matchup_full
+language plpgsql stable
 set search_path = ''
 as $$
 declare
@@ -132,7 +134,7 @@ declare
   b   public.matchup_inputs%rowtype;
   t1  public.matchup_inputs%rowtype;
   t2  public.matchup_inputs%rowtype;
-  v   text := project_matchup.venue;
+  v   text := project_matchup_full.venue;
   t1_home boolean;                       -- null = neutral site
   a_is_t1 boolean;
   -- v2
@@ -143,31 +145,32 @@ declare
   a1 float8; a2 float8; avg float8; pace1 float8; ppp1 float8; ppp2 float8; raw float8;
   to1 float8; to2 float8; rb1 float8; rb2 float8; poss1 float8; poss2 float8; c1 float8; c2 float8;
   tot float8; margin_a float8; win_a float8;
-  r public.matchup_projection;
+  r matchup_private.matchup_full;
 begin
-  if project_matchup.team_a is null or project_matchup.team_b is null then
+  if project_matchup_full.team_a is null or project_matchup_full.team_b is null then
     raise exception 'team_a and team_b are required' using errcode = '22023';
   end if;
   if v is null or v not in ('neutral', 'a_home', 'b_home') then
-    raise exception 'venue must be ''neutral'', ''a_home'' or ''b_home'' (got %)', coalesce(quote_literal(v), 'null')
+    raise exception 'venue must be ''neutral'', ''a_home'' or ''b_home'' (got %)',
+      coalesce(quote_literal(left(v, 20)) || case when length(v) > 20 then '...' else '' end, 'null')
       using errcode = '22023';
   end if;
-  if project_matchup.team_a = project_matchup.team_b then
-    raise exception 'team_a and team_b must be different teams (both are %)', project_matchup.team_a
+  if project_matchup_full.team_a = project_matchup_full.team_b then
+    raise exception 'team_a and team_b must be different teams (both are %)', project_matchup_full.team_a
       using errcode = '22023';
   end if;
-  select * into a from public.matchup_inputs mi where mi.team_id = project_matchup.team_a;
+  select * into a from public.matchup_inputs mi where mi.team_id = project_matchup_full.team_a;
   if not found then
-    raise exception 'unknown team id % (no current-season matchup inputs)', project_matchup.team_a
+    raise exception 'unknown team id % (no current-season matchup inputs)', project_matchup_full.team_a
       using errcode = '22023', hint = 'use a teams.id for a current D-I team';
   end if;
-  select * into b from public.matchup_inputs mi where mi.team_id = project_matchup.team_b;
+  select * into b from public.matchup_inputs mi where mi.team_id = project_matchup_full.team_b;
   if not found then
-    raise exception 'unknown team id % (no current-season matchup inputs)', project_matchup.team_b
+    raise exception 'unknown team id % (no current-season matchup inputs)', project_matchup_full.team_b
       using errcode = '22023', hint = 'use a teams.id for a current D-I team';
   end if;
   select mc.* into c from public.matchup_constants mc
-   join public.teams t on t.league = mc.league where t.id = project_matchup.team_a;
+   join public.teams t on t.league = mc.league where t.id = project_matchup_full.team_a;
   if not found then
     raise exception 'matchup constants are not loaded yet' using errcode = '55000';
   end if;
@@ -236,16 +239,69 @@ begin
   margin_a := case when a_is_t1 then m1 else -m1 end;
   win_a := 0.5::float8 * (1::float8 + pg_catalog.erf((margin_a / c.margin_sd) / pg_catalog.sqrt(2::float8)));
 
-  r.team_a := project_matchup.team_a;
-  r.team_b := project_matchup.team_b;
+  r.team_a := project_matchup_full.team_a;
+  r.team_b := project_matchup_full.team_b;
   r.venue := v;
   r.as_of := least(a.as_of, b.as_of, c.as_of);
-  r.score_a := (tot + margin_a) / 2::float8;
-  r.score_b := (tot - margin_a) / 2::float8;
   r.total := tot;
-  r.spread_a := -margin_a;
+  r.margin_a := margin_a;
   r.win_pct_a := win_a;
-  r.win_pct_b := 1::float8 - win_a;
+  return r;
+end $$;
+
+revoke all on function matchup_private.project_matchup_full(bigint, bigint, text) from public, anon, authenticated, service_role;
+
+-- ── public RPC: display-rounded ──────────────────────────────────────────────
+-- Rounding rule (czarp/matchup.py public_projection() is the Python twin):
+--   total     multiple of 0.5 (the CZarp total, unchanged)
+--   spread_a  0.1: rint(-margin_a * 10) / 10 (half-to-even, same as Python round())
+--   score_a   (total - spread_a) / 2 and score_b = (total + spread_a) / 2, exact decimals computed
+--             after rounding, so score_a + score_b = total and score_a - score_b = -spread_a always.
+--             Scores are on a 0.1 step except when the total's and the spread's tenths don't pair
+--             up (total 145.5 with spread -1.0): then both sit 0.05 off it (72.25 / 73.25). That
+--             0.05 is the only adjustment; the total and the spread are never moved.
+--   win_pct   0.001: rint(win_a * 1000) / 1000; win_pct_b = 1 - win_pct_a (sums to exactly 1)
+-- Returns one composite (PostgREST: one JSON object). numeric, so JSON shows 72.25, not 72.2500001.
+create type public.matchup_projection as (
+    team_a     bigint,
+    team_b     bigint,
+    venue      text,
+    as_of      timestamptz,
+    score_a    numeric,
+    score_b    numeric,
+    total      numeric,
+    spread_a   numeric,
+    win_pct_a  numeric,
+    win_pct_b  numeric
+);
+
+create or replace function public.project_matchup(team_a bigint, team_b bigint, venue text default 'neutral')
+returns public.matchup_projection
+language plpgsql stable security definer
+set search_path = ''
+as $$
+declare
+  f   matchup_private.matchup_full;
+  r   public.matchup_projection;
+  sp  numeric;
+  w   numeric;
+  t   numeric;
+begin
+  -- validation (null / same team / unknown id / bad venue) happens in the core and raises 22023
+  f  := matchup_private.project_matchup_full(project_matchup.team_a, project_matchup.team_b, project_matchup.venue);
+  t  := f.total::numeric;                                                    -- exact: k * 0.5
+  sp := pg_catalog.round(pg_catalog.round(-f.margin_a * 10::float8)::numeric / 10, 1);
+  w  := pg_catalog.round(pg_catalog.round(f.win_pct_a * 1000::float8)::numeric / 1000, 3);
+  r.team_a    := f.team_a;
+  r.team_b    := f.team_b;
+  r.venue     := f.venue;
+  r.as_of     := f.as_of;
+  r.total     := pg_catalog.round(t, 1);
+  r.spread_a  := sp;
+  r.score_a   := pg_catalog.round((t - sp) / 2, 2);                          -- exact: k * 0.05
+  r.score_b   := pg_catalog.round((t + sp) / 2, 2);
+  r.win_pct_a := w;
+  r.win_pct_b := 1 - w;
   return r;
 end $$;
 
@@ -268,3 +324,7 @@ notify pgrst, 'reload schema';
 -- 2. function: security definer, search_path='' and anon may execute (expect t, {search_path=""}, t)
 -- select p.prosecdef, p.proconfig, has_function_privilege('anon', p.oid, 'execute')
 -- from pg_proc p where p.oid = 'public.project_matchup(bigint,bigint,text)'::regprocedure;
+-- 3. the full-precision core is unreachable for clients (expect f, f, f)
+-- select has_function_privilege('anon', 'matchup_private.project_matchup_full(bigint,bigint,text)', 'execute'),
+--        has_function_privilege('authenticated', 'matchup_private.project_matchup_full(bigint,bigint,text)', 'execute'),
+--        has_schema_privilege('anon', 'matchup_private', 'usage');

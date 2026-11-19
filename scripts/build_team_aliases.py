@@ -153,7 +153,14 @@ def main(argv=None) -> int:
         f.write(",\n".join(f"  ({q(al)}, {q(tm)}, {q(src)})" for al, tm, src in rows))
         f.write("\n) as v(alias, team_name, source)\n"
                 "join public.teams t on t.league = 'ncaam' and t.name = v.team_name\n"
-                "on conflict (alias, team_id) do nothing;\n\ncommit;\n")
+                "on conflict (alias, team_id) do nothing;\n\n"
+                "-- loud if the seed matched (almost) nothing, e.g. teams not loaded yet on a fresh db\n"
+                "do $$\ndeclare n int;\nbegin\n"
+                "  select count(distinct team_id) into n from public.team_aliases;\n"
+                f"  if n < {int(len({t for _, t, _ in rows}) * 0.95)} then\n"
+                f"    raise warning 'team_aliases covers only % teams (expected ~{len({t for _, t, _ in rows})}): "
+                "load public.teams first, then re-run this file', n;\n"
+                "  end if;\nend $$;\n\ncommit;\n")
     from collections import Counter
     print(f"wrote {OUT}: {len(rows)} aliases, {len({t for _, t, _ in rows})} teams, "
           f"by source {dict(Counter(s for *_, s in rows))}")

@@ -99,7 +99,10 @@ def main(argv=None) -> int:
     if a.dry_run:
         return 0
     from czarp.supabase_writer import Client
-    n = MU.write_supabase(Client(), rows, consts, season, now)
+    try:
+        n = MU.write_supabase(Client(), rows, consts, season, now)
+    except RuntimeError as e:
+        print(f"!!! {e}"); return 1
     print(f"upserted matchup_inputs for {n} teams + matchup_constants ({MU.LEAGUE}, season {season})")
     return 0
 

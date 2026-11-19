@@ -564,23 +564,32 @@ def project_all(games: list[dict], data: dict) -> None:
                     "— using the v2 total for this game")
 
 
-def matchup_parity(games: list[dict], data: dict, today: str):
+def matchup_parity(games: list[dict], data: dict, today: str, notes: list | None = None):
     """Build the matchup-maker inputs and check them against today's projections.
 
-    Recomputes every projected slate game through czarp.matchup.project() (the same formulas as the
-    SQL function public.project_matchup) and compares margin / win % / v1 total with what
-    project_all() produced. A mismatch is logged loudly but never blocks picks. Returns
-    (rows, constants) for the Supabase writer, or None if the inputs could not be built."""
+    Recomputes every projected slate game through czarp.matchup.project() (the same full-precision
+    formulas as the SQL function, before its display rounding) and compares margin / win % / v1
+    total with what project_all() produced. Same rule as scripts/publish_matchup_inputs.py: on any
+    mismatch, missing team or unsupported model feature it logs loudly and returns None, so the
+    inputs are NOT published (the matchup maker keeps the last good ones). Never blocks picks.
+    Adds a one-line status to `notes` (the daily report). Returns (rows, constants) or None."""
+    notes = notes if notes is not None else []
     try:
         from czarp import matchup as MU
         import model as M
         rows, consts = MU.build_inputs(data, data["config"], as_of=today,
                                        v1data=v1_frames(M._context(data, data["config"])["tt"]))
-        for ln in MU.parity_log_lines(MU.parity_check(games, rows, consts)):
+        res = MU.parity_check(games, rows, consts)
+        for ln in MU.parity_log_lines(res):
             log(ln)
+        notes.append(MU.parity_status(res))
+        if not MU.parity_ok(res):
+            log("  !!! matchup inputs NOT published this run (parity failed)")
+            return None
         return rows, consts
     except Exception as e:
         log(f"  !!! MATCHUP PARITY CHECK ERRORED ({type(e).__name__}: {e}) — matchup inputs not refreshed")
+        notes.append("Matchup maker check errored; inputs NOT refreshed (it keeps yesterday's); picks are unaffected.")
         return None
 
 
@@ -1983,7 +1992,7 @@ def main(argv=None) -> int:
             f"{sum(g.get('current_total') is not None for g in pre)} totals of {len(pre)} upcoming games")
         if data is not None:
             project_all(games, data)
-            matchup = matchup_parity(games, data, today)
+            matchup = matchup_parity(games, data, today, notes)
             nc = tag_new_coaches(games, today)
             if PACE_FIX:
                 log(f"  totals PACE FIX on (w={PACE_FIX_MKT_W:g}): {apply_pace_fix(games, today)} v1 totals re-paced")
@@ -2087,7 +2096,8 @@ def main(argv=None) -> int:
                                    now.isoformat(timespec="seconds"), log=log)
                 log(f"  matchup inputs: {n} teams + constants upserted")
             except Exception as e:
-                log(f"  matchup inputs not written ({type(e).__name__}: {e}) — matchup maker keeps the previous inputs")
+                log(f"  !!! matchup inputs not written ({type(e).__name__}: {e}) — matchup maker keeps the previous inputs")
+                notes.append("Matchup maker inputs were not published this run (it keeps the previous ones); picks are unaffected.")
         # finals for yesterday + any older non-final games in the lookback window (and today, for a late run)
         try:
             from czarp.sync_finals import DEFAULT_LOOKBACK, sync_finals

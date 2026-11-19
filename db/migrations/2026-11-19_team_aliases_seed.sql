@@ -1687,4 +1687,14 @@ from (values
 join public.teams t on t.league = 'ncaam' and t.name = v.team_name
 on conflict (alias, team_id) do nothing;
 
+-- loud if the seed matched (almost) nothing, e.g. teams not loaded yet on a fresh db
+do $$
+declare n int;
+begin
+  select count(distinct team_id) into n from public.team_aliases;
+  if n < 346 then
+    raise warning 'team_aliases covers only % teams (expected ~365): load public.teams first, then re-run this file', n;
+  end if;
+end $$;
+
 commit;
