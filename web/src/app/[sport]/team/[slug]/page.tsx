@@ -1,3 +1,5 @@
+import { NeutralChip } from "@/components/NeutralChip";
+import { atsSideLabel, gameTitle } from "@/lib/gameTitle";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
@@ -108,8 +110,9 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
               <div className="text-xs text-zinc-500">{fmtGameDate(next.game_date)}{next.tipoff ? ` · ${fmtTipoff(next.tipoff)}` : ""}</div>
               <div className="mt-0.5 text-lg font-bold">
                 <Link className="hover:text-court-400" href={teamHref(sportKey, next.away)}>{next.away}</Link>
-                <span className="text-zinc-500"> @ </span>
+                <span className="text-zinc-500"> {gameTitle(next.away, next.home, next.neutral).sep} </span>
                 <Link className="hover:text-court-400" href={teamHref(sportKey, next.home)}>{next.home}</Link>
+                {next.neutral && <NeutralChip className="ml-2" />}
               </div>
               <div className="mt-1 font-mono text-xs text-zinc-400">
                 FV {next.proj_spread == null ? "—" : fmtLine(next.proj_spread)} · Price {next.market_spread == null ? "—" : fmtLine(next.market_spread)}
@@ -236,22 +239,26 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
           <ul className="space-y-2">
             {data.grades.map((g) => {
               const opp = g.home_team_id === p?.team_id || g.home === p?.team_name ? g.away : g.home;
-              const loc = g.home_team_id === p?.team_id || g.home === p?.team_name ? "vs" : "@";
+              // a neutral site has no road team, so it is always "vs" (the chip below carries the label)
+              const loc = g.neutral || g.home_team_id === p?.team_id || g.home === p?.team_name ? "vs" : "@";
               return (
                 <li key={g.game_id} className="card p-3.5">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="text-[11px] text-zinc-500">{fmtGameDate(g.game_date)}{g.status === "final" || g.final_at ? ` · ${finalLabel(g.final_at, g.final_at_estimated, g.game_date)}` : g.status ? ` · ${GAME_STATUS_LABEL[g.status as keyof typeof GAME_STATUS_LABEL] ?? g.status}` : ""}</div>
-                      <div className="truncate font-semibold">
-                        {loc}{" "}
-                        <Link href={teamHref(sportKey, opp)} className="hover:text-court-400">{opp}</Link>
-                        {g.home_score != null && g.away_score != null && (
-                          <span className="ml-2 font-mono text-sm text-zinc-400">{g.away_score}–{g.home_score}</span>
-                        )}
+                      <div className={g.neutral ? "flex min-w-0 items-center gap-1.5 font-semibold" : "truncate font-semibold"}>
+                        <span className={g.neutral ? "min-w-0 truncate" : undefined}>
+                          {loc}{" "}
+                          <Link href={teamHref(sportKey, opp)} className="hover:text-court-400">{opp}</Link>
+                          {g.home_score != null && g.away_score != null && (
+                            <span className="ml-2 font-mono text-sm text-zinc-400">{g.away_score}–{g.home_score}</span>
+                          )}
+                        </span>
+                        {g.neutral && <NeutralChip />}
                       </div>
                       <div className="mt-0.5 font-mono text-[11px] text-zinc-500">
                         FV {g.model_spread == null ? "—" : fmtLine(g.model_spread)} · Price {g.vegas_spread == null ? "—" : fmtLine(g.vegas_spread)}
-                        {g.model_ats_side ? ` · ATS ${g.model_ats_side}` : ""}
+                        {g.model_ats_side ? ` · ATS ${atsSideLabel(g.model_ats_side, g.away, g.home, g.neutral)}` : ""}
                         {g.model_ou_side ? ` · ${g.model_ou_side}` : ""}
                       </div>
                     </div>

@@ -73,6 +73,8 @@ export type ModelGrade = {
   away: string;
   home_team_id: number | null;
   away_team_id: number | null;
+  /** games.neutral; missing or null means a normal home game */
+  neutral?: boolean;
   home_score: number | null;
   away_score: number | null;
   status: string | null;

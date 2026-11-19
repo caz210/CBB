@@ -13,7 +13,7 @@ const memo = new Map<string, { at: number; p: Promise<SearchTeam[]> }>();
 function loadTeams(sport: string): Promise<SearchTeam[]> {
   const hit = memo.get(sport);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.p;
-  const key = `czarp:teams:v2:${sport}:${chicagoDate()}`;
+  const key = `czarp:teams:v3:${sport}:${chicagoDate()}`;
   const keep = (p: Promise<SearchTeam[]>, at = Date.now()) => { memo.set(sport, { at, p }); return p; };
   try {
     const raw = sessionStorage.getItem(key);

@@ -3,6 +3,7 @@
 // full-screen sheet. Both share one results list. The team list loads once per session (module cache +
 // sessionStorage) from /api/teams, then every keystroke filters locally.
 import Link from "next/link";
+import { TitleLine } from "./NeutralChip";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -21,7 +22,9 @@ const SearchIcon = ({ className = "h-5 w-5" }: { className?: string }) => (
 function nextLabel(t: SearchTeam) {
   const n = t.next;
   if (!n) return null;
-  return `${n.home ? "vs" : "at"} ${n.opponent} · ${fmtGameDate(n.date).replace(/^\w+, /, "")}`;
+  const when = fmtGameDate(n.date).replace(/^\w+, /, "");
+  // neutral site: nobody is "at" anyone (the Neutral chip is added where this is rendered)
+  return `${n.neutral || n.home ? "vs" : "at"} ${n.opponent} · ${when}`;
 }
 
 function Results({ id, sport, now, results, active, onPick, onHover, query, load }: {
@@ -48,7 +51,7 @@ function Results({ id, sport, now, results, active, onPick, onHover, query, load
           >
             <span className="min-w-0 flex-1">
               <span className="block truncate text-[15px] font-semibold text-white">{t.name}</span>
-              {sub && <span className="block truncate text-[11px] text-zinc-500">{sub}</span>}
+              {sub && <TitleLine text={sub} neutral={t.next?.neutral === true} className="text-[11px] text-zinc-500" />}
             </span>
             <Link
               href={teamHref(sport, t.name)}

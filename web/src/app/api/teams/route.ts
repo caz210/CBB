@@ -47,12 +47,21 @@ export async function GET(req: Request) {
     aliasesById.set(id, list);
   }
 
+  // slate_games has no neutral column, so ask games for the ids that could become someone's "next game".
+  // A failed lookup just leaves those games titled as normal home games.
+  const neutral = new Set<number>();
+  if (!g.error && (g.data ?? []).length) {
+    const nr = await sb.from("games").select("id").eq("neutral", true).in("id", (g.data ?? []).map((r) => Number(r.game_id)));
+    if (nr.error) console.error(`[supabase] games.neutral: ${nr.error.code ?? ""} ${nr.error.message}`);
+    for (const x of nr.data ?? []) neutral.add(Number(x.id));
+  }
+
   const next = new Map<string, TeamNextGame>();
   for (const r of g.error ? [] : g.data ?? []) {
     // Only games that can still be watched. `status` flips to final in the morning run, so also drop anything
     // with a final_at stamp or a tip time more than ~3h ago (yesterday's rows are read so a late tip survives midnight) (see isUpcoming).
     if (["final", "postponed", "canceled"].includes(String(r.status)) || r.final_at) continue;
-    const base = { gameId: Number(r.game_id), date: String(r.game_date), tipoff: r.tipoff ? String(r.tipoff) : null };
+    const base = { gameId: Number(r.game_id), date: String(r.game_date), tipoff: r.tipoff ? String(r.tipoff) : null, neutral: neutral.has(Number(r.game_id)) };
     if (!isUpcoming(base, now)) continue;
     const home = String(r.home), away = String(r.away);
     if (!next.has(home)) next.set(home, { ...base, opponent: away, home: true });
