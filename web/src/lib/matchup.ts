@@ -141,11 +141,17 @@ export function favorite(m: Pick<Matchup, "spread_a">): "a" | "b" | null {
 }
 
 const MINUS = "\u2212";
+/** The favorite's name and signed number kept apart so the UI can truncate the name without ever clipping the number. */
+export function spreadParts(m: Pick<Matchup, "spread_a">, nameA: string, nameB: string): { name: string; value: string } | null {
+  const fav = favorite(m);
+  if (!fav) return null;
+  return { name: fav === "a" ? nameA : nameB, value: `${MINUS}${Math.abs(m.spread_a).toFixed(1)}` };
+}
+
 /** Betting notation for the favorite: "Duke −3.5", or "Pick'em" at 0. */
 export function fmtSpread(m: Pick<Matchup, "spread_a">, nameA: string, nameB: string): string {
-  const fav = favorite(m);
-  if (!fav) return "Pick'em";
-  return `${fav === "a" ? nameA : nameB} ${MINUS}${Math.abs(m.spread_a).toFixed(1)}`;
+  const p = spreadParts(m, nameA, nameB);
+  return p ? `${p.name} ${p.value}` : "Pick'em";
 }
 
 /** Hours since as_of; null when unparseable. */

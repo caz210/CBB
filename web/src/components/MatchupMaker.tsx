@@ -7,8 +7,8 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import { useTeamIndex } from "@/lib/useTeamIndex";
 import type { SearchTeam } from "@/lib/teamSearch";
 import {
-  favorite, fetchMatchup, firstUnknown, fmtAsOf, fmtScore, fmtSpread, fmtVenueDelta, fmtWinPct, isStale, matchupHref,
-  parseMatchupParams, swapVenue, venueDelta, venueLabel, winBarPct, type Matchup, type MatchupError, type Venue,
+  favorite, fetchMatchup, firstUnknown, fmtAsOf, fmtScore, fmtVenueDelta, fmtWinPct, isStale, matchupHref,
+  parseMatchupParams, spreadParts, swapVenue, venueDelta, venueLabel, winBarPct, type Matchup, type MatchupError, type Venue,
 } from "@/lib/matchup";
 import { TeamPicker } from "./TeamPicker";
 
@@ -221,7 +221,17 @@ function ResultCard({ r, nameA, nameB }: { r: Fetched; nameA: string; nameB: str
       <div className="grid grid-cols-2 gap-px border-t border-ink-700/70 bg-ink-700/70">
         <div className="bg-ink-900 px-4 py-3">
           <div className="text-[11px] font-bold uppercase tracking-wider text-zinc-500">CZarp spread</div>
-          <div className="mt-0.5 font-mono text-xl font-black text-white">{fmtSpread(m, nameA, nameB)}</div>
+          {(() => {
+            const sp = spreadParts(m, nameA, nameB);
+            return sp ? (
+              <div className="mt-0.5 min-w-0 text-white">
+                <div className="truncate text-sm font-semibold" title={sp.name}>{sp.name}</div>
+                <div className="whitespace-nowrap font-mono text-xl font-black">{sp.value}</div>
+              </div>
+            ) : (
+              <div className="mt-0.5 font-mono text-xl font-black text-white">Pick&apos;em</div>
+            );
+          })()}
         </div>
         <div className="bg-ink-900 px-4 py-3">
           <div className="text-[11px] font-bold uppercase tracking-wider text-zinc-500">CZarp total</div>
@@ -238,8 +248,15 @@ function ResultCard({ r, nameA, nameB }: { r: Fetched; nameA: string; nameB: str
       <div className="border-t border-ink-700/70 px-4 py-4">
         <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-zinc-500">Win chance</div>
         <div className="flex items-baseline justify-between gap-3 text-sm font-semibold">
-          <span className="min-w-0 truncate text-white">{nameA} <span className="font-mono text-base font-black">{fmtWinPct(m.win_pct_a)}</span></span>
-          <span className="min-w-0 truncate text-right text-white"><span className="font-mono text-base font-black">{fmtWinPct(m.win_pct_b)}</span> {nameB}</span>
+          {/* the name truncates on its own; the percentage never shares that text node */}
+          <span className="flex min-w-0 items-baseline gap-1.5 text-white">
+            <span className="min-w-0 truncate" title={nameA}>{nameA}</span>
+            <span className="shrink-0 whitespace-nowrap font-mono text-base font-black">{fmtWinPct(m.win_pct_a)}</span>
+          </span>
+          <span className="flex min-w-0 items-baseline justify-end gap-1.5 text-white">
+            <span className="shrink-0 whitespace-nowrap font-mono text-base font-black">{fmtWinPct(m.win_pct_b)}</span>
+            <span className="min-w-0 truncate" title={nameB}>{nameB}</span>
+          </span>
         </div>
         <div className="mt-2 flex h-2.5 overflow-hidden rounded-full bg-ink-700" role="img" aria-label={`${nameA} ${fmtWinPct(m.win_pct_a)}, ${nameB} ${fmtWinPct(m.win_pct_b)}`}>
           <div className="bg-court-500" style={{ width: `${winBarPct(m.win_pct_a)}%` }} />

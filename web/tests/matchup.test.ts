@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  ageHours, favorite, fetchMatchup, firstUnknown, fmtAsOf, fmtScore, fmtSpread, fmtVenueDelta, fmtWinPct, isStale, mapRpcError,
+  ageHours, favorite, fetchMatchup, firstUnknown, fmtAsOf, fmtScore, fmtSpread, spreadParts, fmtVenueDelta, fmtWinPct, isStale, mapRpcError,
   matchupHref, parseMatchup, parseMatchupParams, swapVenue, venueDelta, venueLabel, winBarPct, type Matchup,
 } from "../src/lib/matchup";
 
@@ -201,4 +201,10 @@ test("matchupHref round-trips through parseMatchupParams", () => {
   const href = matchupHref("cbb", { a: 520, b: 78, venue: "a_home" });
   assert.equal(href, "/cbb/matchup?a=520&b=78&venue=a_home");
   assert.deepEqual(parseMatchupParams(new URL(href, "https://x.test").searchParams), { a: 520, b: 78, venue: "a_home" });
+});
+
+test("spreadParts keeps the number apart from the name (UI truncates only the name)", () => {
+  assert.deepEqual(spreadParts({ spread_a: 13.7 }, "Texas St.", "Duke"), { name: "Duke", value: "\u221213.7" });
+  assert.deepEqual(spreadParts({ spread_a: -3.5 }, "Western Carolina", "Norfolk St."), { name: "Western Carolina", value: "\u22123.5" });
+  assert.equal(spreadParts({ spread_a: 0 }, "A", "B"), null);
 });
