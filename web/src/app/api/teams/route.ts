@@ -19,10 +19,14 @@ export async function GET(req: Request) {
   if (!supabaseConfigured) return NextResponse.json({ error: "unconfigured" }, { status: 503 });
 
   const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
-  const [t, g] = await Promise.all([
+  // team_aliases is anon-readable (1,674 rows, already normalised). PostgREST caps a page at 1,000 rows, so read two ranges.
+  const aliasPage = (from: number, to: number) => sb.from("team_aliases").select("team_id,alias").order("alias").order("team_id").range(from, to);
+  const [t, g, a1, a2] = await Promise.all([
     sb.from("teams").select("id,name").eq("league", sport.league).order("name").limit(2000),
     sb.from("slate_games").select("game_id,game_date,home,away,tipoff,status,final_at").eq("sport", sport.key)
-      .gte("game_date", chicagoDate()).order("game_date", { ascending: true }).order("tipoff", { ascending: true, nullsFirst: false }).limit(2000),
+      .gte("game_date", chicagoDate(new Date(Date.now() - 24 * 3600 * 1000))).order("game_date", { ascending: true }).order("tipoff", { ascending: true, nullsFirst: false }).limit(2000),
+    aliasPage(0, 999),
+    aliasPage(1000, 1999),
   ]);
   if (t.error) {
     console.error(`[supabase] teams: ${t.error.code ?? ""} ${t.error.message}`);
@@ -32,10 +36,21 @@ export async function GET(req: Request) {
   if (g.error) console.error(`[supabase] slate_games: ${g.error.code ?? ""} ${g.error.message}`);
 
   const now = new Date();
+  // If either alias page fails, send no DB aliases at all: the client then uses the local alias map.
+  const aliasRows = a1.error || a2.error ? null : [...(a1.data ?? []), ...(a2.data ?? [])];
+  if (!aliasRows) console.error(`[supabase] team_aliases: ${(a1.error ?? a2.error)?.message}`);
+  const aliasesById = new Map<number, string[]>();
+  for (const r of aliasRows ?? []) {
+    const id = Number(r.team_id);
+    const list = aliasesById.get(id) ?? [];
+    list.push(String(r.alias));
+    aliasesById.set(id, list);
+  }
+
   const next = new Map<string, TeamNextGame>();
   for (const r of g.error ? [] : g.data ?? []) {
     // Only games that can still be watched. `status` flips to final in the morning run, so also drop anything
-    // with a final_at stamp, a past date, or a tip time more than ~3h ago (see isUpcoming).
+    // with a final_at stamp or a tip time more than ~3h ago (yesterday's rows are read so a late tip survives midnight) (see isUpcoming).
     if (["final", "postponed", "canceled"].includes(String(r.status)) || r.final_at) continue;
     const base = { gameId: Number(r.game_id), date: String(r.game_date), tipoff: r.tipoff ? String(r.tipoff) : null };
     if (!isUpcoming(base, now)) continue;
@@ -45,7 +60,9 @@ export async function GET(req: Request) {
   }
   const teams: SearchTeam[] = (t.data ?? []).map((r) => {
     const name = String(r.name);
-    return { id: Number(r.id), name, slug: teamSlug(name), next: next.get(name) ?? null };
+    const team: SearchTeam = { id: Number(r.id), name, slug: teamSlug(name), next: next.get(name) ?? null };
+    if (aliasRows) team.aliases = aliasesById.get(team.id) ?? [];
+    return team;
   });
   return NextResponse.json({ teams }, { headers: { "Cache-Control": CACHE } });
 }

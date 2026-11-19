@@ -9,6 +9,7 @@ export function NavLinks() {
   const sport = SPORTS.some((s) => s.key === seg) ? seg : DEFAULT_SPORT;
   const links = [
     { href: `/${sport}/slate`, label: "Daily Slate", match: "/slate" },
+    { href: `/${sport}/matchup`, label: "Matchup", match: "/matchup" },
     { href: `/${sport}/results`, label: "Portfolio", match: "/results" },
     { href: "/models", label: "My Models", match: "/models" },
     { href: "/pricing", label: "Pricing", match: "/pricing" },
@@ -21,7 +22,7 @@ export function NavLinks() {
           <Link
             key={l.label}
             href={l.href}
-            className={`whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition ${
+            className={`whitespace-nowrap rounded-lg px-2.5 py-2 text-sm font-medium transition ${
               active ? "bg-ink-800 text-white" : "text-zinc-400 hover:text-white"
             }`}
           >

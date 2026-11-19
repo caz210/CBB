@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { getSport } from "@/lib/sports";
 import { loadTeam } from "@/lib/data";
 import { teamHref } from "@/lib/teams";
+import { matchupHref } from "@/lib/matchup";
 import { GAME_STATUS_LABEL, TIER_BADGE, edgeTier, finalLabel, fmtGameDate, fmtLine, fmtPlayPct, fmtTipoff } from "@/lib/labels";
 import { ComingSoon } from "@/components/ComingSoon";
 import { EmptyState } from "@/components/EmptyState";
@@ -45,9 +46,19 @@ export default async function TeamPage({ params }: { params: Promise<{ sport: st
             : "Profile, CZarp record, and game log."
         }
         right={
-          <Link href={`/${sport.key}/slate`} className="flex min-h-10 items-center rounded-lg border border-ink-600 px-3 text-sm font-semibold text-zinc-300 hover:bg-ink-800">
-            ← Slate
-          </Link>
+          <div className="flex gap-2">
+            {res.state === "live" && (res.data?.profile?.team_id ?? res.data?.record?.team_id) != null && (
+              <Link
+                href={matchupHref(sport.key, { a: (res.data?.profile?.team_id ?? res.data?.record?.team_id) as number, venue: "neutral" })}
+                className="flex min-h-10 items-center rounded-lg bg-court-500/15 px-3 text-sm font-semibold text-court-400 hover:bg-court-500/25"
+              >
+                Matchup
+              </Link>
+            )}
+            <Link href={`/${sport.key}/slate`} className="flex min-h-10 items-center rounded-lg border border-ink-600 px-3 text-sm font-semibold text-zinc-300 hover:bg-ink-800">
+              ← Slate
+            </Link>
+          </div>
         }
       />
 
