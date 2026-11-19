@@ -9,54 +9,8 @@ import { createPortal } from "react-dom";
 import { DEFAULT_SPORT, SPORTS } from "@/lib/sports";
 import { teamHref } from "@/lib/teams";
 import { fmtGameDate } from "@/lib/labels";
-import { buildIndex, chicagoDate, nextGameHref, nextGameLabel, searchTeams, withFreshNext, type SearchTeam, type TeamIndexEntry } from "@/lib/teamSearch";
-
-type Load = { state: "loading" } | { state: "ready"; index: TeamIndexEntry[] } | { state: "error" };
-
-// Next-game data goes stale, so the in-memory copy expires after TTL_MS, the sessionStorage key carries the
-// CT date, and every render also drops games that have tipped (withFreshNext).
-const TTL_MS = 5 * 60 * 1000;
-const memo = new Map<string, { at: number; p: Promise<SearchTeam[]> }>();
-
-function loadTeams(sport: string): Promise<SearchTeam[]> {
-  const hit = memo.get(sport);
-  if (hit && Date.now() - hit.at < TTL_MS) return hit.p;
-  const key = `czarp:teams:${sport}:${chicagoDate()}`;
-  const keep = (p: Promise<SearchTeam[]>, at = Date.now()) => { memo.set(sport, { at, p }); return p; };
-  try {
-    const raw = sessionStorage.getItem(key);
-    if (raw) {
-      const { at, teams } = JSON.parse(raw) as { at: number; teams: SearchTeam[] };
-      if (Date.now() - at < TTL_MS && Array.isArray(teams) && teams.length) return keep(Promise.resolve(teams), at);
-    }
-  } catch { /* storage blocked or corrupt: just refetch */ }
-  const p = fetch(`/api/teams?sport=${encodeURIComponent(sport)}`)
-    .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-    .then((j: { teams?: SearchTeam[] }) => {
-      const teams = j.teams ?? [];
-      try { sessionStorage.setItem(key, JSON.stringify({ at: Date.now(), teams })); } catch { /* ignore */ }
-      return teams;
-    })
-    .catch((e) => { memo.delete(sport); throw e; }); // don't cache failures
-  return keep(p);
-}
-
-function useTeamIndex(sport: string, enabled: boolean): Load {
-  const [st, setSt] = useState<Load>({ state: "loading" });
-  const [attempt, setAttempt] = useState(0);
-  useEffect(() => {
-    if (!enabled) return;
-    let live = true;
-    loadTeams(sport).then(
-      (t) => live && setSt({ state: "ready", index: buildIndex(withFreshNext(t)) }),
-      () => live && setSt({ state: "error" }),
-    );
-    return () => { live = false; };
-  }, [sport, enabled, attempt]);
-  // after an error, reopening retries
-  useEffect(() => { if (enabled && st.state === "error") setAttempt((a) => a + 1); }, [enabled]); // eslint-disable-line react-hooks/exhaustive-deps
-  return st;
-}
+import { nextGameHref, nextGameLabel, searchTeams, withFreshNext, type SearchTeam } from "@/lib/teamSearch";
+import { useTeamIndex, type Load } from "@/lib/useTeamIndex";
 
 const SearchIcon = ({ className = "h-5 w-5" }: { className?: string }) => (
   <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -119,8 +73,7 @@ function Results({ id, sport, now, results, active, onPick, onHover, query, load
   );
 }
 
-/** footerSlot: reserved spot under the results (inside the phone sheet and the desktop dropdown) for a future
- *  "Matchup maker" link. Pass it from SiteHeader. Nothing is rendered when it's omitted. */
+/** footerSlot: spot under the results (inside the phone sheet and the desktop dropdown), used for the "Build a matchup" link. Pass it from SiteHeader. Nothing is rendered when it's omitted. */
 export function TeamSearch({ footerSlot }: { footerSlot?: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -184,6 +137,9 @@ export function TeamSearch({ footerSlot }: { footerSlot?: ReactNode }) {
       opener?.focus();
     };
   }, [sheet, close]);
+
+  // a link in the footer slot closes the search even when it points at the page we are already on
+  const closeOnLink = (e: React.MouseEvent) => { if ((e.target as HTMLElement).closest("a")) close(); };
 
   // keep Tab / Shift+Tab inside the sheet
   const trapTab = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -259,8 +215,8 @@ export function TeamSearch({ footerSlot }: { footerSlot?: ReactNode }) {
           </div>
           <div className="flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
             {list}
-            {/* MATCHUP MAKER SLOT: a future "Matchup maker" link renders here via the footerSlot prop */}
-            {footerSlot && <div className="border-t border-ink-700/60 p-4">{footerSlot}</div>}
+            {/* footerSlot: SiteHeader passes the "Build a matchup" link here */}
+            {footerSlot && <div onClickCapture={closeOnLink} className="border-t border-ink-700/60 p-4">{footerSlot}</div>}
           </div>
         </div>,
         document.body,
@@ -275,14 +231,14 @@ export function TeamSearch({ footerSlot }: { footerSlot?: ReactNode }) {
         type="button"
         onClick={() => setSheet(true)}
         aria-label="Search teams"
-        className="grid h-10 w-10 place-items-center rounded-lg text-zinc-300 hover:text-white xl:hidden"
+        className="grid h-11 w-11 place-items-center rounded-lg text-zinc-300 hover:text-white xl:hidden"
       >
         <SearchIcon />
       </button>
       {phoneSheet}
 
       {/* desktop: inline box + dropdown */}
-      <div ref={deskRef} className="relative hidden w-60 xl:block">
+      <div ref={deskRef} className="relative hidden w-40 xl:block">
         <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
         <input
           {...inputProps(deskInput)}
@@ -292,7 +248,7 @@ export function TeamSearch({ footerSlot }: { footerSlot?: ReactNode }) {
         {focused && query.trim() !== "" && (
           <div className="absolute left-0 top-full z-50 mt-2 w-[26rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-ink-600 bg-ink-900 shadow-2xl">
             {list}
-            {footerSlot && <div className="border-t border-ink-700/60 p-3">{footerSlot}</div>}
+            {footerSlot && <div onClickCapture={closeOnLink} className="border-t border-ink-700/60 p-3">{footerSlot}</div>}
           </div>
         )}
       </div>

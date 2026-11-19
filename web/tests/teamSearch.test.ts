@@ -105,6 +105,19 @@ test("no match when a typed word has no counterpart", () => {
   assert.ok(!find("texas duke").length);
 });
 
+test("reversed word order still matches, ranked below in-order matches", () => {
+  assert.equal(find("carolina north")[0], "North Carolina");
+  assert.ok(find("state kent").includes("Kent St."));
+  assert.equal(find("state arizona")[0], "Arizona St.");
+  const r = find("st alabama");           // reversed: only Alabama St. has both words
+  assert.equal(r[0], "Alabama St.");
+  // an in-order hit always beats a reversed one
+  const idx = buildIndex(mk(), () => []);
+  const names = searchTeams(idx, "state mich").map((t) => t.name);
+  assert.deepEqual(names.slice(0, 1), ["Michigan St."]);
+  assert.ok(find("mich st")[0] === "Michigan St.");
+});
+
 test("nextGameHref opens that game's sheet on its slate date", () => {
   assert.equal(
     nextGameHref("cbb", { gameId: 1281, date: "2026-11-17", opponent: "Notre Dame", home: true, tipoff: null }),
@@ -130,7 +143,8 @@ test("'state' finds only X St. teams and 'saint' only Saint schools", () => {
 test("short 'st' queries stay on St/Saint: 'st louis' does not find LSU", () => {
   const r = find("st louis");
   assert.equal(r[0], "Saint Louis");
-  assert.ok(!r.includes("LSU"));
+  // LSU (Louisiana State) only matches with the words reversed, so it can only trail the real hit
+  assert.ok(!r.includes("LSU") || r.indexOf("LSU") > 0);
   assert.ok(find("st").includes("St. John's"));
   assert.equal(find("cal st fullerton")[0], "Cal St. Fullerton");
   assert.equal(find("cal state fullerton")[0], "Cal St. Fullerton");
@@ -174,13 +188,18 @@ test("isUpcoming: 3h boundary, future tips, missing tip time, past dates", () =>
   assert.equal(isUpcoming(game("2026-11-18", "2026-11-19T01:00:00Z"), now), true);  // tomorrow
   assert.equal(isUpcoming(game("2026-11-17", null), now), true);                    // no tip time: keep, date is today
   assert.equal(isUpcoming(game("2026-11-16", null), now), false);                   // past date
-  assert.equal(isUpcoming(game("2026-11-16", "2026-11-18T03:00:00Z"), now), false); // past date wins
+  assert.equal(isUpcoming(game("2026-11-16", "2026-11-18T03:00:00Z"), now), true);  // past date but tipped under 3h ago: still on
   assert.equal(isUpcoming(game("2026-11-17", "garbage"), now), true);               // unparseable tip: date rule only
 });
 
-test("after midnight CT yesterday's games disappear", () => {
-  const now = at("2026-11-18T06:30:00Z"); // 12:30 AM CST on the 18th
-  assert.equal(isUpcoming(game("2026-11-17", "2026-11-18T03:00:00Z"), now), false);
+test("after midnight CT: a late tip keeps its button for 3h, an earlier game is gone", () => {
+  // 10:59 PM CST on the 17th tips at 04:59Z on the 18th
+  const late = game("2026-11-17", "2026-11-18T04:59:00Z");
+  assert.equal(isUpcoming(late, at("2026-11-18T06:05:00Z")), true);   // 12:05 AM CT, one hour in
+  assert.equal(isUpcoming(late, at("2026-11-18T07:59:00Z")), true);   // 1:59 AM CT, just under 3h
+  assert.equal(isUpcoming(late, at("2026-11-18T08:00:00Z")), false);  // over 3h after tip
+  assert.equal(isUpcoming(game("2026-11-17", "2026-11-18T03:00:00Z"), at("2026-11-18T06:30:00Z")), false); // 9 PM tip, 3.5h in
+  assert.equal(nextGameLabel(late, at("2026-11-18T06:05:00Z")), "Today's game"); // still tonight's game
 });
 
 test("withFreshNext clears stale next games and keeps live ones", () => {
@@ -204,4 +223,42 @@ test("a team with a stale next game is no longer ranked as 'has a game'", () => 
   const teams = mk(["Alabama St."]).map((t) => (t.next ? { ...t, next: { ...t.next, date: "2026-11-17", tipoff: "2026-11-17T17:00:00Z" } } : t));
   const out = searchTeams(buildIndex(withFreshNext(teams, now)), "alabama").map((t) => t.name);
   assert.deepEqual(out.slice(0, 3), ["Alabama", "Alabama A&M", "Alabama St."]);
+});
+
+// ---- DB aliases (team_aliases) + the local map as fallback -----------------------------------------------------
+
+test("DB aliases feed the index; the local map still works when they are absent", () => {
+  const teams = mk().map((t) => (t.name === "Duke" ? { ...t, aliases: ["blue devils", "dook"] } : { ...t }));
+  const idx = buildIndex(teams);
+  assert.equal(searchTeams(idx, "dook")[0].name, "Duke");        // from the DB list
+  assert.equal(searchTeams(idx, "unc")[0].name, "North Carolina"); // from the local map (no DB aliases on that team)
+  // alias query failed: no `aliases` anywhere, local map only
+  assert.equal(searchTeams(buildIndex(mk()), "unc")[0].name, "North Carolina");
+  assert.deepEqual(searchTeams(buildIndex(mk()), "dook"), []);
+});
+
+test("a DB alias containing the typed word ranks below real name matches", () => {
+  const teams = mk().map((t) => (t.name === "Duke" ? { ...t, aliases: ["texas state fans"] } : { ...t }));
+  const r = searchTeams(buildIndex(teams), "texas state").map((t) => t.name);
+  assert.equal(r[0], "Texas St.");
+});
+
+test("'louisiana state' finds LSU, but a plain 'state' lists X St. teams first", () => {
+  const idx = buildIndex(mk());
+  assert.equal(searchTeams(idx, "louisiana state")[0].name, "LSU");
+  const all = searchTeams(idx, "state", 100).map((t) => t.name);
+  assert.notEqual(all[0], "LSU");
+  // LSU matches only through its alias, so it trails every team whose own name has "St."
+  const lsu = all.indexOf("LSU");
+  assert.ok(lsu > 0);
+  for (const n of all.slice(lsu + 1)) assert.ok(!/ St\.( |$)/.test(n), n);
+});
+
+test("new aliases: Brigham Young, North Carolina State, Mt St Marys", () => {
+  const names = [...NAMES, "BYU", "Mount St. Mary's"];
+  const idx = buildIndex(names.map((name, i) => ({ id: i + 1, name, slug: teamSlug(name), next: null })));
+  assert.equal(searchTeams(idx, "brigham young")[0].name, "BYU");
+  assert.equal(searchTeams(idx, "north carolina state")[0].name, "N.C. State");
+  assert.equal(searchTeams(idx, "mt st marys")[0].name, "Mount St. Mary's");
+  assert.equal(searchTeams(idx, "mt st mary's")[0].name, "Mount St. Mary's");
 });
