@@ -14,17 +14,19 @@ export function NeutralChip({ className = "" }: { className?: string }) {
  * A one-line title that truncates. A normal game renders exactly the single truncating text it always did.
  * A neutral game puts the chip beside the title, so the chip is never what gets cut off.
  */
-export function TitleLine({ text, neutral, suffix, className = "" }: {
+export function TitleLine({ text, neutral, suffix, className = "", wrap = false }: {
   text: string;
   neutral: boolean;
   /** text that follows the title, e.g. " · 7:30 PM" */
   suffix?: ReactNode;
   className?: string;
+  /** neutral only: let the chip and suffix drop to a second line instead of squeezing the title (narrow cards) */
+  wrap?: boolean;
 }) {
   if (!neutral) return <span className={`block truncate ${className}`}>{text}{suffix}</span>;
   return (
-    <span className={`flex min-w-0 items-center gap-1.5 ${className}`}>
-      <span className="min-w-0 truncate">{text}</span>
+    <span className={`flex min-w-0 items-center ${wrap ? "flex-wrap gap-x-1.5 gap-y-0.5" : "gap-1.5"} ${className}`}>
+      <span className={`min-w-0 truncate ${wrap ? "max-w-full" : ""}`}>{text}</span>
       <NeutralChip />
       {suffix != null && suffix !== "" && <span className="shrink-0 whitespace-nowrap">{suffix}</span>}
     </span>

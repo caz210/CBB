@@ -41,3 +41,18 @@ export function atsSideLabel(side: string, away: string, home: string, neutral?:
   if (side === "away") return away;
   return side;
 }
+
+/**
+ * Home-line numbers (FV / Price / Open) are relative to the home-listed team. On a normal game the "Home" row says so;
+ * on a neutral site nothing is called home, so name that team next to the number: "Kansas +1.3".
+ */
+export function spreadRef(value: string, home: string, neutral?: boolean | null): string {
+  return isNeutral(neutral) ? `${home} ${value}` : value;
+}
+
+/** Slate footnote about spread notation. Accurate for home games; adds the neutral-site rule only when one is on the slate. */
+export function spreadNotationNote(anyNeutral: boolean): string {
+  return anyNeutral
+    ? "Spreads use home-line notation (−5.5 = home team favored). On neutral-site games the team the line refers to is named."
+    : "Spreads use home-line notation (−5.5 = home favored).";
+}

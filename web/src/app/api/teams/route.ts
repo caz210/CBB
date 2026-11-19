@@ -21,12 +21,16 @@ export async function GET(req: Request) {
   const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
   // team_aliases is anon-readable (1,674 rows, already normalised). PostgREST caps a page at 1,000 rows, so read two ranges.
   const aliasPage = (from: number, to: number) => sb.from("team_aliases").select("team_id,alias").order("alias").order("team_id").range(from, to);
-  const [t, g, a1, a2] = await Promise.all([
+  // neutral-site flags (slate_games has no such column): read in the same Promise.all (the whole season has only ~70 neutral games), so a failure only costs the "Neutral" tag
+  const [t, g, a1, a2, nr] = await Promise.all([
     sb.from("teams").select("id,name").eq("league", sport.league).order("name").limit(2000),
     sb.from("slate_games").select("game_id,game_date,home,away,tipoff,status,final_at").eq("sport", sport.key)
       .gte("game_date", chicagoDate(new Date(Date.now() - 24 * 3600 * 1000))).order("game_date", { ascending: true }).order("tipoff", { ascending: true, nullsFirst: false }).limit(2000),
     aliasPage(0, 999),
     aliasPage(1000, 1999),
+    // never rejects: any failure (including the timeout) becomes an error value, so it cannot take the route down
+    Promise.resolve(sb.from("games").select("id").eq("neutral", true).limit(2000).abortSignal(AbortSignal.timeout(2500)))
+      .catch((e: unknown) => ({ data: null, error: { code: "abort", message: String(e) } })),
   ]);
   if (t.error) {
     console.error(`[supabase] teams: ${t.error.code ?? ""} ${t.error.message}`);
@@ -47,14 +51,9 @@ export async function GET(req: Request) {
     aliasesById.set(id, list);
   }
 
-  // slate_games has no neutral column, so ask games for the ids that could become someone's "next game".
-  // A failed lookup just leaves those games titled as normal home games.
   const neutral = new Set<number>();
-  if (!g.error && (g.data ?? []).length) {
-    const nr = await sb.from("games").select("id").eq("neutral", true).in("id", (g.data ?? []).map((r) => Number(r.game_id)));
-    if (nr.error) console.error(`[supabase] games.neutral: ${nr.error.code ?? ""} ${nr.error.message}`);
-    for (const x of nr.data ?? []) neutral.add(Number(x.id));
-  }
+  if (nr.error) console.error(`[supabase] games.neutral: ${nr.error.code ?? ""} ${nr.error.message}`);
+  else for (const x of nr.data ?? []) neutral.add(Number(x.id));
 
   const next = new Map<string, TeamNextGame>();
   for (const r of g.error ? [] : g.data ?? []) {

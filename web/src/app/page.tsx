@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 export default async function Landing() {
   const cbb = getSport("cbb");
   const heroRes = cbb ? await loadHero(cbb) : null;
-  const recRes = cbb ? await loadResults(cbb, "season", "official") : null;
+  const recRes = cbb ? await loadResults(cbb, "season", "official", { titles: false }) : null;
   const hero = heroRes?.state === "live" ? heroRes.data : null;
   const rec = recRes?.state === "live" ? recRes.data : null;
   const g = EXAMPLE_SLATE[0];
@@ -165,7 +165,7 @@ function LiveHero({ hero }: { hero: Hero }) {
   if (hero.kind === "today") {
     const { plays } = hero;
     return (
-      <div className="card relative p-4 shadow-2xl shadow-black/50 md:p-5">
+      <div className="card relative min-w-0 p-4 shadow-2xl shadow-black/50 md:p-5">
         <div className="mb-3 flex items-center justify-between text-xs">
           <span className="font-semibold uppercase tracking-wider text-edge-400">Today&apos;s official {plays.length === 1 ? "play" : `plays · ${plays.length}`}</span>
           <Link href="/cbb/slate?sort=value" className="text-zinc-400 hover:text-court-400">Slate →</Link>
@@ -178,7 +178,7 @@ function LiveHero({ hero }: { hero: Hero }) {
               <li key={`${v.game_id}-${v.market}-${v.side}`}>
                 <Link href="/cbb/slate?sort=value" className="flex items-center justify-between gap-3 rounded-xl border border-edge-400/30 bg-edge-400/10 px-4 py-3 hover:border-edge-400/60">
                   <div className="min-w-0">
-                    <TitleLine text={gameTitle(g.away, g.home, g.neutral).text} neutral={g.neutral === true} className="text-[11px] text-zinc-400" suffix={` · ${g.tipoff ? fmtTipoff(g.tipoff) : "Tip TBD"}`} />
+                    <TitleLine text={gameTitle(g.away, g.home, g.neutral).text} neutral={g.neutral === true} className="text-[11px] text-zinc-400" wrap suffix={` · ${g.tipoff ? fmtTipoff(g.tipoff) : "Tip TBD"}`} />
                     <div className="text-[11px] font-semibold uppercase tracking-wider text-edge-400">{tier ?? "Official"} · {MARKET_LABEL[v.market]} · Edge</div>
                     <div className="truncate text-sm font-semibold">{v.side}</div>
                     {pvn && <div className="font-mono text-[11px] text-zinc-400">{pvn}</div>}

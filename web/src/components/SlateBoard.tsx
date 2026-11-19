@@ -11,7 +11,7 @@ import { ArchetypeChip, ArchetypeLegend } from "./ArchetypeChip";
 import { InfoTip, TermLabel } from "./InfoTip";
 import { NewCoachChips } from "./NewCoachBadge";
 import { NeutralChip, TitleLine } from "./NeutralChip";
-import { gameTitle, sideLabel } from "@/lib/gameTitle";
+import { gameTitle, sideLabel, spreadNotationNote } from "@/lib/gameTitle";
 import { cardHeadline, notAPlayAlso, notAPlayLine } from "@/lib/verdict";
 import { evPer100, fmtEv100 } from "@/lib/stats";
 import { betCoverProb, postedFairVsProjections, postedVsNow, totalFair } from "@/lib/posted";
@@ -173,7 +173,7 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
 
       <div className="mt-4 md:hidden"><ArchetypeLegend /></div>
       <p className="mt-3 text-xs leading-relaxed text-zinc-500">
-        Spreads use home-line notation (−5.5 = home favored). Price = Vegas consensus. Fair value = our model. Stakes are ¼-Kelly in units (1u = 1% of bankroll, capped at 2.5u). {LOCKED_NOTE}
+        {spreadNotationNote(games.some((x) => x.neutral))} Price = Vegas consensus. Fair value = our model. Stakes are ¼-Kelly in units (1u = 1% of bankroll, capped at 2.5u). {LOCKED_NOTE}
       </p>
 
       <ValueSheet sel={sel} onClose={() => setSel(null)} />
@@ -318,6 +318,7 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
       <div className="grid grid-cols-2 gap-px border-t border-ink-700/60 bg-ink-700/40 text-center">
         <MarketStat
           label="Spread"
+          refTeam={g.neutral ? g.home : undefined}
           fair={g.proj_spread == null ? "—" : fmtLine(g.proj_spread)}
           price={g.market_spread == null ? "—" : fmtLine(g.market_spread)}
         />
@@ -374,15 +375,17 @@ function finalScore(g: SlateGame): { home: number; away: number } | null {
   return { home: g.home_score, away: g.away_score };
 }
 
-function MarketStat({ label, fair, price, tag }: { label: string; fair: string; price: string; tag?: string }) {
+function MarketStat({ label, fair, price, tag, refTeam }: { label: string; fair: string; price: string; tag?: string; refTeam?: string }) {
+  // neutral-site spread: say whose line this is. The name may wrap; the number never splits from its sign.
+  const team = refTeam ? <span className="break-words font-sans font-semibold text-zinc-300">{refTeam} </span> : null;
   return (
     <div className="bg-ink-900 px-2 py-2.5">
       <div className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</div>
       <div className="font-mono text-sm font-semibold">
-        <span className="text-[10px] font-sans font-normal text-zinc-600">FV </span>{fair}
+        <span className="text-[10px] font-sans font-normal text-zinc-600">FV </span>{team}{team ? <span className="whitespace-nowrap">{fair}</span> : fair}
         {tag && <span className="ml-1 align-middle rounded px-1 py-px font-sans text-[9px] font-bold normal-case tracking-normal text-zinc-400 ring-1 ring-ink-600">{tag}</span>}
       </div>
-      <div className="font-mono text-[11px] text-zinc-500"><span className="font-sans">Price </span>{price}</div>
+      <div className="font-mono text-[11px] text-zinc-500"><span className="font-sans">Price </span>{refTeam && <span className="break-words font-sans text-zinc-400">{refTeam} </span>}{refTeam ? <span className="whitespace-nowrap">{price}</span> : price}</div>
     </div>
   );
 }

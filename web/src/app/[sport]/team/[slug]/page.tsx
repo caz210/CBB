@@ -1,5 +1,5 @@
 import { NeutralChip } from "@/components/NeutralChip";
-import { atsSideLabel, gameTitle } from "@/lib/gameTitle";
+import { atsSideLabel, gameTitle, spreadRef } from "@/lib/gameTitle";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
@@ -115,7 +115,7 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
                 {next.neutral && <NeutralChip className="ml-2" />}
               </div>
               <div className="mt-1 font-mono text-xs text-zinc-400">
-                FV {next.proj_spread == null ? "—" : fmtLine(next.proj_spread)} · Price {next.market_spread == null ? "—" : fmtLine(next.market_spread)}
+                FV {next.proj_spread == null ? "—" : spreadRef(fmtLine(next.proj_spread), next.home, next.neutral)} · Price {next.market_spread == null ? "—" : spreadRef(fmtLine(next.market_spread), next.home, next.neutral)}
                 {/* Same helper as the slate card: posted fair for an official total, else czarp-v1-totals, else "—". Never v2. */}
                 {" · Total FV "}{nextTotal!.value}
                 {nextTotal!.tag && <span className="ml-1 rounded px-1 py-px align-middle font-sans text-[9px] font-bold text-zinc-400 ring-1 ring-ink-600">{nextTotal!.tag}</span>}
@@ -257,7 +257,7 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
                         {g.neutral && <NeutralChip />}
                       </div>
                       <div className="mt-0.5 font-mono text-[11px] text-zinc-500">
-                        FV {g.model_spread == null ? "—" : fmtLine(g.model_spread)} · Price {g.vegas_spread == null ? "—" : fmtLine(g.vegas_spread)}
+                        FV {g.model_spread == null ? "—" : spreadRef(fmtLine(g.model_spread), g.home, g.neutral)} · Price {g.vegas_spread == null ? "—" : spreadRef(fmtLine(g.vegas_spread), g.home, g.neutral)}
                         {g.model_ats_side ? ` · ATS ${atsSideLabel(g.model_ats_side, g.away, g.home, g.neutral)}` : ""}
                         {g.model_ou_side ? ` · ${g.model_ou_side}` : ""}
                       </div>

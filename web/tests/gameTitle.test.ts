@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { gameTitle, retitle, sideLabel, isNeutral, atsSideLabel } from "../src/lib/gameTitle";
+import { gameTitle, retitle, sideLabel, isNeutral, atsSideLabel, spreadRef, spreadNotationNote } from "../src/lib/gameTitle";
 
 test("neutral game reads 'Away vs Home' and sets the flag", () => {
   const t = gameTitle("Houston", "Kansas", true);
@@ -55,4 +55,20 @@ test("ATS side names the team on a neutral site and is untouched otherwise", () 
   assert.equal(atsSideLabel("home", "Houston", "Kansas", false), "home");
   assert.equal(atsSideLabel("away", "Houston", "Kansas", null), "away");
   assert.equal(atsSideLabel("home", "Houston", "Kansas"), "home");
+});
+
+test("spreadRef names the home-listed team only on a neutral site", () => {
+  assert.equal(spreadRef("+1.3", "Kansas", true), "Kansas +1.3");
+  assert.equal(spreadRef("+2.5", "Kansas", true), "Kansas +2.5");
+  assert.equal(spreadRef("+1.3", "Kansas", false), "+1.3");
+  assert.equal(spreadRef("+1.3", "Kansas", null), "+1.3");
+  assert.equal(spreadRef("+1.3", "Kansas"), "+1.3");
+});
+
+test("spread footnote stays accurate for home games and adds the neutral rule only when needed", () => {
+  assert.equal(spreadNotationNote(false), "Spreads use home-line notation (−5.5 = home favored).");
+  const n = spreadNotationNote(true);
+  assert.ok(n.includes("home team favored"));
+  assert.ok(n.includes("neutral-site"));
+  assert.ok(!/v1|v2/i.test(n));
 });
