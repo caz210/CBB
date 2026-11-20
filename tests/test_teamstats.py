@@ -147,3 +147,44 @@ def test_build_team_profiles():
     other = next(r for r in rows if r["name"] == "Team01")
     assert other["new_coach"] is False and other["lock_sides_remaining"] is None
     assert other["lock_sides_games"] == 8 and other["lock_totals_games"] == 4
+
+
+def test_projection_reason_neutral_site():
+    """Neutral games must never read as a home game in projections.reason (Why:).
+
+    Fixture mirrors the 2026-11-19 Players Era title game (Houston vs Kansas
+    in Las Vegas): the live Why: line used 'at Kansas' even though the game
+    was already flagged neutral.
+    """
+    home_tags = ["Wall", "Sharp"]
+    away_tags = ["Paint First", "Crash"]
+    notes = ["Kansas: At the Line vs Wall (+0.75)", "Kansas: Fast vs Wall (+0.50)"]
+    pace = 72.0
+
+    home_game = T.projection_reason(
+        "Houston Christian", "Georgia Southern",
+        ["Sharp", "Paint First"], ["Fast", "Secure"], 71.0)
+    assert home_game == (
+        "Georgia Southern (Fast, Secure) at Houston Christian (Sharp, Paint First). "
+        "Projected pace about 71 possessions.")
+
+    # omitting neutral= stays a home-game sentence
+    defaulted = T.projection_reason(
+        "Kansas", "Houston", home_tags, away_tags, pace, matchup_notes=notes)
+    assert "Houston (Paint First, Crash) at Kansas (Wall, Sharp)." in defaulted
+    assert "on a neutral floor" not in defaulted
+
+    neutral = T.projection_reason(
+        "Kansas", "Houston", home_tags, away_tags, pace,
+        matchup_notes=notes, neutral=True)
+    assert neutral == (
+        "Houston (Paint First, Crash) vs Kansas (Wall, Sharp) on a neutral floor. "
+        "Projected pace about 72 possessions. "
+        "Matchup notes: Kansas: At the Line vs Wall; Kansas: Fast vs Wall.")
+    assert " at Kansas" not in neutral
+    assert " at " not in neutral.split(".")[0]
+    assert "home" not in neutral.lower()
+    # a true home game still uses "at"
+    assert " at Houston Christian " in home_game
+    assert "vs Houston Christian" not in home_game
+    assert "neutral floor" not in home_game
