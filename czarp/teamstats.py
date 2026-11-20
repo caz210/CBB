@@ -365,12 +365,20 @@ def upset_alert(home: str, away: str, tags: pd.DataFrame,
 def projection_reason(home: str, away: str, home_tags: list, away_tags: list,
                       pace: float | None, edge_note: str | None = None,
                       matchup_notes: list | None = None,
-                      upset: bool = False, upset_reason: str = "") -> str:
-    """1–2 plain sentences for projections.reason. No KenPom ranks."""
+                      upset: bool = False, upset_reason: str = "",
+                      neutral: bool = False) -> str:
+    """1–2 plain sentences for projections.reason. No KenPom ranks.
+
+    Neutral games use "vs" and "on a neutral floor" so the Why: line never
+    reads as a home game. Home games keep "at {home}".
+    """
     parts = []
     ht = ", ".join(home_tags) if home_tags else "no standout style tags"
     at = ", ".join(away_tags) if away_tags else "no standout style tags"
-    parts.append(f"{away} ({at}) at {home} ({ht}).")
+    if neutral:
+        parts.append(f"{away} ({at}) vs {home} ({ht}) on a neutral floor.")
+    else:
+        parts.append(f"{away} ({at}) at {home} ({ht}).")
     if pace is not None:
         parts.append(f"Projected pace about {pace:.0f} possessions.")
     if matchup_notes:

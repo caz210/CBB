@@ -549,7 +549,8 @@ def project_all(games: list[dict], data: dict) -> None:
             g["reason"] = TS.projection_reason(
                 h, a, home_names, away_names, g.get("proj_possessions"),
                 matchup_notes=g["archetype_tags"].get("notes"),
-                upset=upset, upset_reason=ureason)
+                upset=upset, upset_reason=ureason,
+                neutral=bool(g.get("neutral")))
         except Exception as e:
             g["skip"] = f"v2 failed: {e}"
             continue
