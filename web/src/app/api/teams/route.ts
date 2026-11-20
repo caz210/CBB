@@ -21,12 +21,16 @@ export async function GET(req: Request) {
   const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
   // team_aliases is anon-readable (1,674 rows, already normalised). PostgREST caps a page at 1,000 rows, so read two ranges.
   const aliasPage = (from: number, to: number) => sb.from("team_aliases").select("team_id,alias").order("alias").order("team_id").range(from, to);
-  const [t, g, a1, a2] = await Promise.all([
+  // neutral-site flags (slate_games has no such column): read in the same Promise.all (the whole season has only ~70 neutral games), so a failure only costs the "Neutral" tag
+  const [t, g, a1, a2, nr] = await Promise.all([
     sb.from("teams").select("id,name").eq("league", sport.league).order("name").limit(2000),
     sb.from("slate_games").select("game_id,game_date,home,away,tipoff,status,final_at").eq("sport", sport.key)
       .gte("game_date", chicagoDate(new Date(Date.now() - 24 * 3600 * 1000))).order("game_date", { ascending: true }).order("tipoff", { ascending: true, nullsFirst: false }).limit(2000),
     aliasPage(0, 999),
     aliasPage(1000, 1999),
+    // never rejects: any failure (including the timeout) becomes an error value, so it cannot take the route down
+    Promise.resolve(sb.from("games").select("id").eq("neutral", true).limit(2000).abortSignal(AbortSignal.timeout(2500)))
+      .catch((e: unknown) => ({ data: null, error: { code: "abort", message: String(e) } })),
   ]);
   if (t.error) {
     console.error(`[supabase] teams: ${t.error.code ?? ""} ${t.error.message}`);
@@ -47,12 +51,16 @@ export async function GET(req: Request) {
     aliasesById.set(id, list);
   }
 
+  const neutral = new Set<number>();
+  if (nr.error) console.error(`[supabase] games.neutral: ${nr.error.code ?? ""} ${nr.error.message}`);
+  else for (const x of nr.data ?? []) neutral.add(Number(x.id));
+
   const next = new Map<string, TeamNextGame>();
   for (const r of g.error ? [] : g.data ?? []) {
     // Only games that can still be watched. `status` flips to final in the morning run, so also drop anything
     // with a final_at stamp or a tip time more than ~3h ago (yesterday's rows are read so a late tip survives midnight) (see isUpcoming).
     if (["final", "postponed", "canceled"].includes(String(r.status)) || r.final_at) continue;
-    const base = { gameId: Number(r.game_id), date: String(r.game_date), tipoff: r.tipoff ? String(r.tipoff) : null };
+    const base = { gameId: Number(r.game_id), date: String(r.game_date), tipoff: r.tipoff ? String(r.tipoff) : null, neutral: neutral.has(Number(r.game_id)) };
     if (!isUpcoming(base, now)) continue;
     const home = String(r.home), away = String(r.away);
     if (!next.has(home)) next.set(home, { ...base, opponent: away, home: true });

@@ -1,3 +1,5 @@
+import { NeutralChip, TitleLine } from "@/components/NeutralChip";
+import { retitle } from "@/lib/gameTitle";
 import type { ReactNode } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
@@ -260,7 +262,7 @@ function Live({ data, range }: { data: Extract<Awaited<ReturnType<typeof loadRes
                     <ResultPill r={r.result} />
                     <div className="min-w-0 flex-1">
                       <div className="truncate font-semibold">{r.pick}</div>
-                      <div className="truncate text-xs text-zinc-500">{data.gameNames[r.game_id] ?? `Game #${r.game_id}`}</div>
+                      <TitleLine text={retitle(data.gameNames[r.game_id] ?? `Game #${r.game_id}`, data.neutralGames[r.game_id])} neutral={data.neutralGames[r.game_id] === true} className="text-xs text-zinc-500" />
                       <div className="mt-0.5 font-mono text-[11px] text-zinc-500">{fmtGameDate(r.game_date)} · {r.odds == null ? "—" : fmtOdds(r.odds)} · {stakeLabel(r)}{r.clv != null ? ` · CLV ${fmtClv(r.clv)}` : ""}</div>
                     </div>
                     <PL v={rowUnits(r)} pending={r.result == null} />
@@ -283,7 +285,11 @@ function Live({ data, range }: { data: Extract<Awaited<ReturnType<typeof loadRes
                   {rows.map((r, i) => (
                     <tr key={r.pick_hash ?? i} className="border-t border-ink-700/60 hover:bg-ink-850">
                       <td className="px-5 py-3 text-zinc-400">{fmtGameDate(r.game_date)}</td>
-                      <td className="py-3 text-zinc-300">{data.gameNames[r.game_id] ?? `Game #${r.game_id}`}</td>
+                      <td className="py-3 text-zinc-300">
+                        {data.neutralGames[r.game_id]
+                          ? <span className="flex items-center gap-1.5">{retitle(data.gameNames[r.game_id] ?? `Game #${r.game_id}`, true)}<NeutralChip /></span>
+                          : (data.gameNames[r.game_id] ?? `Game #${r.game_id}`)}
+                      </td>
                       <td className="py-3"><div className="font-semibold">{r.pick}</div><Proof r={r} tipoff={data.tipoffs[r.game_id]} inline /></td>
                       <td className="py-3 text-right font-mono text-zinc-400">{r.odds == null ? "—" : fmtOdds(r.odds)}</td>
                       <td className="py-3 text-right font-mono">{stakeLabel(r)}</td>

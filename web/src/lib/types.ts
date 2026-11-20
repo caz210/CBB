@@ -22,7 +22,9 @@ export type SlateGame = {
   home: string;
   away: string;
   tipoff: string | null; // timestamptz
-  game: string; // 'Away @ Home'
+  game: string; // 'Away @ Home' as stored; render titles with gameTitle() so neutral games read 'vs'
+  /** games.neutral. Missing or null means a normal home game. */
+  neutral?: boolean;
   // null when the default model has no projection for the game yet
   proj_home: number | null;
   proj_away: number | null;

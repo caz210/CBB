@@ -10,6 +10,8 @@ import Link from "next/link";
 import { ArchetypeChip, ArchetypeLegend } from "./ArchetypeChip";
 import { InfoTip, TermLabel } from "./InfoTip";
 import { NewCoachChips } from "./NewCoachBadge";
+import { NeutralChip, TitleLine } from "./NeutralChip";
+import { gameTitle, sideLabel, spreadNotationNote } from "@/lib/gameTitle";
 import { cardHeadline, notAPlayAlso, notAPlayLine } from "@/lib/verdict";
 import { evPer100, fmtEv100 } from "@/lib/stats";
 import { betCoverProb, postedFairVsProjections, postedVsNow, totalFair } from "@/lib/posted";
@@ -117,7 +119,7 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
                     {tier ? <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${TIER_BADGE[tier]}`}>{tier}</span> : <span className="rounded-md bg-edge-400/15 px-1.5 py-0.5 text-[10px] font-bold text-edge-400">Official</span>}
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-semibold text-white">{b.side} · {MARKET_LABEL[b.market]}</span>
-                      <span className="block truncate text-[11px] text-zinc-500">{g?.game ?? `Game #${b.game_id}`}</span>
+                      <TitleLine text={g ? gameTitle(g.away, g.home, g.neutral).text : `Game #${b.game_id}`} neutral={g?.neutral === true} className="text-[11px] text-zinc-500" />
                     </span>
                     <span className="font-mono text-lg font-black text-edge-400">{pct(b.line_edge_pct, 1)}</span>
                     <span className="font-mono text-xs text-zinc-500">{b.kelly_quarter_units == null ? "—" : `${b.kelly_quarter_units.toFixed(2)}u`}</span>
@@ -158,7 +160,7 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
                 <li key={`${b.game_id}-${b.market}-${b.side}`} className="flex items-center gap-3 py-2 text-sm text-zinc-400">
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-medium text-zinc-300">{b.side}</span>
-                    <span className="block truncate text-[11px] text-zinc-500">{g?.game ?? `Game #${b.game_id}`} · {MARKET_LABEL[b.market]} · edge {pct(b.line_edge_pct, 1)}</span>
+                    <TitleLine text={g ? gameTitle(g.away, g.home, g.neutral).text : `Game #${b.game_id}`} neutral={g?.neutral === true} className="text-[11px] text-zinc-500" suffix={` · ${MARKET_LABEL[b.market]} · edge ${pct(b.line_edge_pct, 1)}`} />
                     {proof && <span className="block text-[11px] text-zinc-600">{proof}</span>}
                   </span>
                   <span className="font-mono text-xs text-zinc-500">1u</span>
@@ -171,7 +173,7 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
 
       <div className="mt-4 md:hidden"><ArchetypeLegend /></div>
       <p className="mt-3 text-xs leading-relaxed text-zinc-500">
-        Spreads use home-line notation (−5.5 = home favored). Price = Vegas consensus. Fair value = our model. Stakes are ¼-Kelly in units (1u = 1% of bankroll, capped at 2.5u). {LOCKED_NOTE}
+        {spreadNotationNote(games.some((x) => x.neutral))} Price = Vegas consensus. Fair value = our model. Stakes are ¼-Kelly in units (1u = 1% of bankroll, capped at 2.5u). {LOCKED_NOTE}
       </p>
 
       <ValueSheet sel={sel} onClose={() => setSel(null)} />
@@ -214,8 +216,8 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
   const awayCover = g.home_cover_prob == null ? null : 1 - g.home_cover_prob;
   const final = finalScore(g);
   const rows = [
-    { side: "Away", name: g.away, proj: g.proj_away, win: awayWin, cover: awayCover, tags: g.archetypes.away, tent: g.archetypes.away_tentative, score: final?.away ?? null, won: final ? final.away > final.home : false },
-    { side: "Home", name: g.home, proj: g.proj_home, win: g.home_win_prob, cover: g.home_cover_prob, tags: g.archetypes.home, tent: g.archetypes.home_tentative, score: final?.home ?? null, won: final ? final.home > final.away : false },
+    { side: sideLabel("Away", g.neutral), name: g.away, proj: g.proj_away, win: awayWin, cover: awayCover, tags: g.archetypes.away, tent: g.archetypes.away_tentative, score: final?.away ?? null, won: final ? final.away > final.home : false },
+    { side: sideLabel("Home", g.neutral), name: g.home, proj: g.proj_home, win: g.home_win_prob, cover: g.home_cover_prob, tags: g.archetypes.home, tent: g.archetypes.home_tentative, score: final?.home ?? null, won: final ? final.home > final.away : false },
   ];
   const edge = cardHeadline(g, bets);
   const hasEdge = edge.edgePct != null;
@@ -229,18 +231,19 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
     ? `${edge.officialBet.side} · ${MARKET_LABEL[edge.officialBet.market]}`
     : edge.market
       ? `${MARKET_LABEL[edge.market]} · fair vs price`
-      : g.game;
+      : gameTitle(g.away, g.home, g.neutral).text;
   const openSingle = (e: { stopPropagation: () => void }) => { e.stopPropagation(); onOpen(single!); };
   const fair = totalFair(g, bets);
   const hasTeamProj = g.proj_home != null || g.proj_away != null;
   return (
     <article
-      role="button" tabIndex={0} aria-label={`Insights for ${g.game}`}
+      role="button" tabIndex={0} aria-label={`Insights for ${gameTitle(g.away, g.home, g.neutral).text}${g.neutral ? ", neutral site" : ""}`}
       onClick={onGame} onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onGame())}
       className={`card cursor-pointer overflow-hidden transition hover:border-ink-500 active:scale-[0.995] ${g.completed ? "opacity-70" : ""}`}>
       <header className="flex items-start gap-2 border-b border-ink-700/60 px-4 py-2.5 text-xs">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
           <span className="font-semibold text-zinc-300">{timeLabel}</span>
+          {g.neutral && <NeutralChip />}
           <VerdictChips g={g} bets={bets} />
           <NewCoachChips locks={g.coachLocks} market={edge.market} />
         </div>
@@ -315,6 +318,7 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
       <div className="grid grid-cols-2 gap-px border-t border-ink-700/60 bg-ink-700/40 text-center">
         <MarketStat
           label="Spread"
+          refTeam={g.neutral ? g.home : undefined}
           fair={g.proj_spread == null ? "—" : fmtLine(g.proj_spread)}
           price={g.market_spread == null ? "—" : fmtLine(g.market_spread)}
         />
@@ -371,15 +375,17 @@ function finalScore(g: SlateGame): { home: number; away: number } | null {
   return { home: g.home_score, away: g.away_score };
 }
 
-function MarketStat({ label, fair, price, tag }: { label: string; fair: string; price: string; tag?: string }) {
+function MarketStat({ label, fair, price, tag, refTeam }: { label: string; fair: string; price: string; tag?: string; refTeam?: string }) {
+  // neutral-site spread: say whose line this is. The name may wrap; the number never splits from its sign.
+  const team = refTeam ? <span className="break-words font-sans font-semibold text-zinc-300">{refTeam} </span> : null;
   return (
     <div className="bg-ink-900 px-2 py-2.5">
       <div className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</div>
       <div className="font-mono text-sm font-semibold">
-        <span className="text-[10px] font-sans font-normal text-zinc-600">FV </span>{fair}
+        <span className="text-[10px] font-sans font-normal text-zinc-600">FV </span>{team}{team ? <span className="whitespace-nowrap">{fair}</span> : fair}
         {tag && <span className="ml-1 align-middle rounded px-1 py-px font-sans text-[9px] font-bold normal-case tracking-normal text-zinc-400 ring-1 ring-ink-600">{tag}</span>}
       </div>
-      <div className="font-mono text-[11px] text-zinc-500"><span className="font-sans">Price </span>{price}</div>
+      <div className="font-mono text-[11px] text-zinc-500"><span className="font-sans">Price </span>{refTeam && <span className="break-words font-sans text-zinc-400">{refTeam} </span>}{refTeam ? <span className="whitespace-nowrap">{price}</span> : price}</div>
     </div>
   );
 }
@@ -424,7 +430,7 @@ function ValueSheet({ sel, onClose }: { sel: Sel; onClose: () => void }) {
       <button aria-label="Close" onClick={onClose} className="absolute inset-0 bg-black/70" />
       <div className="relative w-full max-w-lg rounded-t-3xl border border-ink-700 bg-ink-900 p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl md:rounded-3xl">
         <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-ink-600 md:hidden" />
-        <div className="text-xs text-zinc-500">{g.game}{g.tipoff ? ` · ${fmtTipoff(g.tipoff)}` : ""}</div>
+        <div className="text-xs text-zinc-500">{gameTitle(g.away, g.home, g.neutral).text}{g.tipoff ? ` · ${fmtTipoff(g.tipoff)}` : ""}{g.neutral && <NeutralChip className="ml-1.5" />}</div>
         <div className="mt-1 flex items-center justify-between gap-3">
           <h3 className="text-xl font-bold">{b.side}</h3>
           <span className="flex flex-wrap items-center justify-end gap-1.5">
@@ -487,15 +493,16 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
   const edge = cardHeadline(g, bets);
   const hasEdge = edge.edgePct != null;
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center" role="dialog" aria-modal="true" aria-label={`${g.game} insights`}>
+    <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center" role="dialog" aria-modal="true" aria-label={`${gameTitle(g.away, g.home, g.neutral).text} insights`}>
       <button aria-label="Close" onClick={onClose} className="absolute inset-0 bg-black/70" />
       <div className="relative max-h-[88dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl border border-ink-700 bg-ink-900 p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl md:rounded-3xl">
         <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-ink-600 md:hidden" />
         <div className="text-xs text-zinc-500">{g.tipoff ? fmtTipoff(g.tipoff) : "Tip-off TBD"}{g.completed ? ` · ${finalLabel(g.final_at, g.final_at_estimated, g.game_date)}` : ""}</div>
         <h3 className="mt-1 text-xl font-bold">
           <Link href={teamHref(sportKey, g.away)} onClick={(e) => e.stopPropagation()} className="hover:text-court-400">{g.away}</Link>
-          <span className="text-zinc-500"> @ </span>
+          <span className="text-zinc-500"> {gameTitle(g.away, g.home, g.neutral).sep} </span>
           <Link href={teamHref(sportKey, g.home)} onClick={(e) => e.stopPropagation()} className="hover:text-court-400">{g.home}</Link>
+          {g.neutral && <NeutralChip className="ml-2" />}
         </h3>
         {finalScore(g) && (
           <div className="mt-1 font-mono text-sm font-semibold text-zinc-200">Final: {g.away} {finalScore(g)!.away}, {g.home} {finalScore(g)!.home}</div>
@@ -569,10 +576,10 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
             </div>
           ))}
         </div>
-        <p className="mt-1 text-[10px] text-zinc-600">Home-line notation (−5.5 = {g.home} favored). Price = Vegas consensus. Fair value = our model.</p>
+        <p className="mt-1 text-[10px] text-zinc-600">{g.neutral ? "Line" : "Home-line"} notation (−5.5 = {g.home} favored). Price = Vegas consensus. Fair value = our model.</p>
 
         <div className="mt-3 grid grid-cols-2 gap-2">
-          <Big label="Home win" v={hw == null ? "—" : fmtWinProb(hw)} />
+          <Big label={g.neutral ? <span className="block truncate">{g.home} win</span> : "Home win"} v={hw == null ? "—" : fmtWinProb(hw)} />
           <Big label="Over" v={ov == null ? "—" : pct(ov)} sub={ov == null ? undefined : "CZarp total"} />
         </div>
         {(i?.proj_possessions ?? g.proj_possessions) != null && <p className="mt-2 text-xs text-zinc-400">Projected pace: <b className="font-mono text-white">{(i?.proj_possessions ?? g.proj_possessions)!.toFixed(1)}</b> possessions</p>}

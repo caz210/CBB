@@ -60,6 +60,7 @@ function toSlateGame(r: Row): SlateGame {
     away: str(r.away),
     tipoff: r.tipoff ? str(r.tipoff) : null,
     game: str(r.game) || `${str(r.away)} @ ${str(r.home)}`,
+    neutral: r.neutral === true,
     proj_home: num(r.proj_home),
     proj_away: num(r.proj_away),
     proj_spread: num(r.proj_spread),
@@ -211,6 +212,11 @@ export type SlateData = {
 export async function loadSlate(sport: Sport, date: string): Promise<Loaded<SlateData>> {
   const sb = await createSupabaseServerClient();
   if (!sb) return { state: "unconfigured" };
+  return loadSlateFrom(sb, sport, date);
+}
+
+/** The slate loader on an injected client (loadSlate wraps it), so tests can simulate failing reads. */
+export async function loadSlateFrom(sb: SB, sport: Sport, date: string): Promise<Loaded<SlateData>> {
 
   const g = await sb.from("slate_games").select("*").eq("sport", sport.key).eq("game_date", date)
     .order("tipoff", { ascending: true, nullsFirst: false }).order("game_id");
@@ -232,12 +238,16 @@ export async function loadSlate(sport: Sport, date: string): Promise<Loaded<Slat
     const all = await mergeOfficialLocked(sb, sport, ids, (b.data ?? []).map(toValueBet));
     all.sort((a, z) => z.line_edge_pct - a.line_edge_pct);
     bets = all.filter((x) => x.pick_tier === "official");
-    const [st, gr, pr, ml] = await Promise.all([
+    // neutralIds() is its own read in the same Promise.all: if it fails, only titles fall back to "@".
+    // The status query below is unchanged, so finals, scores and completed never depend on it.
+    const [st, gr, pr, ml, neutral] = await Promise.all([
       sb.from("games").select("id,status,updated_at,final_at,final_at_estimated,home,away,home_team_id,away_team_id,home_score,away_score").in("id", ids),
       sb.from("ledger").select("game_id,result").in("game_id", ids).not("result", "is", null),
       sb.from("projections").select("game_id,model_version,spread,total,over_prob,created_at").in("game_id", ids).order("created_at", { ascending: false }),
       sb.from("market_lines").select("game_id,fetched_at").in("game_id", ids).eq("source", "vegas"),
+      neutralIds(sb, ids),
     ]);
+    for (const x of games) x.neutral = neutral.has(x.game_id);
     const done = new Set<number>();
     for (const r of st.data ?? []) if (str(r.status) === "final") done.add(Number(r.id));
     for (const r of gr.data ?? []) done.add(Number(r.game_id));
@@ -275,7 +285,10 @@ export async function loadSlate(sport: Sport, date: string): Promise<Loaded<Slat
     // Past slates keep the reason that was stored with that day's projection instead.
     if (date >= todayCT()) await attachNewCoaches(sb, games, st.data ?? []);
     const ins = await loadInsights(sb, ids);
-    for (const x of games) x.insight = ins.get(x.game_id);
+    for (const x of games) {
+      x.insight = ins.get(x.game_id);
+      if (x.insight?.neutral) x.neutral = true;
+    }
     tracked = all.filter((x) => x.pick_tier === "track");
   } else {
     const [n, p] = await Promise.all([
@@ -389,6 +402,22 @@ async function attachNewCoaches(sb: SB, games: SlateGame[], gameRows: Row[]) {
 
 type SB = NonNullable<Awaited<ReturnType<typeof createSupabaseServerClient>>>;
 
+/** Which of these game ids are neutral-site games (games.neutral). slate_games has no such column. Never throws:
+ *  on any failure every game reads as a normal home game. */
+export const NEUTRAL_TIMEOUT_MS = 2500;
+
+export async function neutralIds(sb: SB, ids: number[]): Promise<Set<number>> {
+  const out = new Set<number>();
+  if (!ids.length) return out;
+  try {
+    // optional read: a short timeout keeps a hung connection from holding the page
+    const r = await sb.from("games").select("id").eq("neutral", true).in("id", ids).abortSignal(AbortSignal.timeout(NEUTRAL_TIMEOUT_MS));
+    if (r.error) console.error(`[supabase] games.neutral: ${r.error.code ?? ""} ${r.error.message}`);
+    for (const x of r.data ?? []) out.add(Number(x.id));
+  } catch { /* titles fall back to '@' */ }
+  return out;
+}
+
 /** Per-game sheet detail. `select *` on projections so reason / proj_possessions are picked up
  *  automatically once CZarp adds them, without breaking before then. Never throws. */
 async function loadInsights(sb: SB, ids: number[]): Promise<Map<number, GameInsight>> {
@@ -435,7 +464,7 @@ async function loadInsights(sb: SB, ids: number[]): Promise<Map<number, GameInsi
 // ---- landing hero -----------------------------------------------------------
 export type Hero =
   | { kind: "today"; plays: { game: SlateGame; bet: ValueBet }[] }
-  | { kind: "graded"; when: "yesterday" | "latest"; row: LedgerRow; game: string | null };
+  | { kind: "graded"; when: "yesterday" | "latest"; row: LedgerRow; game: string | null; neutral: boolean };
 
 /** Every official play today (highest posted edge first); else yesterday's top official pick with its result;
  *  else the latest graded official pick. Tracked picks are never used. */
@@ -448,7 +477,9 @@ export async function loadHero(sport: Sport): Promise<Loaded<Hero | null>> {
   const games = (g.data ?? []).map(toSlateGame);
   if (games.length) {
     const ids = games.map((x) => x.game_id);
-    const b = await sb.from("value_bets").select("*").eq("sport", sport.key).in("game_id", ids);
+    // titles only: read alongside value_bets, and a failure just leaves "@" titles
+    const [b, neutral] = await Promise.all([sb.from("value_bets").select("*").eq("sport", sport.key).in("game_id", ids), neutralIds(sb, ids)]);
+    for (const x of games) x.neutral = neutral.has(x.game_id);
     if (b.error) return fail("value_bets", b.error);
     // Same merge as the slate, so every time-stamped official play shows (not just the top value_bets row).
     const all = await mergeOfficialLocked(sb, sport, ids, (b.data ?? []).map(toValueBet));
@@ -464,7 +495,8 @@ export async function loadHero(sport: Sport): Promise<Loaded<Hero | null>> {
     const row = r.data?.[0] ? toLedgerRow(r.data[0]) : null;
     if (!row) return null;
     const n = await sb.from("slate_games").select("game").eq("game_id", row.game_id).limit(1);
-    return { kind: "graded" as const, when, row, game: n.data?.[0] ? str(n.data[0].game) : null };
+    const neutral = (await neutralIds(sb, [row.game_id])).has(row.game_id);
+    return { kind: "graded" as const, when, row, game: n.data?.[0] ? str(n.data[0].game) : null, neutral };
   };
   const y = await pick(sb.from("ledger").select("*").eq("sport", sport.key).eq("tier", "official")
     .eq("game_date", shiftDate(today, -1)).order("stake_units", { ascending: false, nullsFirst: false }).limit(1), "yesterday");
@@ -482,6 +514,8 @@ export type ResultsData = {
   tier: PickTier;
   ledger: LedgerRow[];
   gameNames: Record<number, string>;
+  /** game ids (by games.neutral) whose title should read 'vs' with a Neutral chip */
+  neutralGames: Record<number, true>;
   tipoffs: Record<number, string>;
   /** per-market season record for the selected tier (tier_record, latest season) */
   byMarket: TierRecord[];
@@ -514,7 +548,7 @@ export function marketFromPick(pick: string): Market {
   return "spread";
 }
 
-export async function loadResults(sport: Sport, range: RangeKey, tier: PickTier): Promise<Loaded<ResultsData>> {
+export async function loadResults(sport: Sport, range: RangeKey, tier: PickTier, opts: { titles?: boolean } = {}): Promise<Loaded<ResultsData>> {
   const sb = await createSupabaseServerClient();
   if (!sb) return { state: "unconfigured" };
 
@@ -532,9 +566,11 @@ export async function loadResults(sport: Sport, range: RangeKey, tier: PickTier)
 
   const ids = [...new Set(ledger.slice(0, NAME_LOOKUP_LIMIT).map((r) => r.game_id))];
   const gameNames: Record<number, string> = {};
+  const neutralGames: Record<number, true> = {};
   const tipoffs: Record<number, string> = {};
   if (ids.length) {
-    const n = await sb.from("slate_games").select("game_id, game, tipoff").in("game_id", ids);
+    const [n, neutral] = await Promise.all([sb.from("slate_games").select("game_id, game, tipoff").in("game_id", ids), opts.titles === false ? Promise.resolve(new Set<number>()) : neutralIds(sb, ids)]);
+    for (const id of neutral) neutralGames[id] = true;
     for (const r of n.data ?? []) {
       gameNames[Number(r.game_id)] = str(r.game);
       if (r.tipoff) tipoffs[Number(r.game_id)] = str(r.tipoff);
@@ -583,7 +619,7 @@ export async function loadResults(sport: Sport, range: RangeKey, tier: PickTier)
   return {
     state: "live",
     data: {
-      tier, ledger, gameNames, tipoffs, byMarket, season, cumulativeUnits, byMarketUnits,
+      tier, ledger, gameNames, neutralGames, tipoffs, byMarket, season, cumulativeUnits, byMarketUnits,
       risk: portfolioRisk(ledger),
       summary: {
         record: `${wins}-${losses}-${pushes}`, wins, losses, pushes, pending, graded: wins + losses + pushes,
@@ -744,6 +780,10 @@ export async function loadTeam(sport: Sport, slug: string): Promise<Loaded<TeamP
   const profile = pr.data?.[0] ? toProfile(pr.data[0] as Row) : null;
   const record = rec.data?.[0] ? toRecord(rec.data[0] as Row) : null;
   const grades = (gr.data ?? []).map((r) => toGrade(r as Row));
+  const nextRowRaw = (nx.data ?? []).find((r) => str(r.home) === teamName || str(r.away) === teamName);
+  // games.neutral for the game log and the next game (neither source view carries it)
+  // started now, awaited after the next-game reads below, so it adds no round trip; failure only affects titles
+  const neutralP = neutralIds(sb, [...grades.map((x) => x.game_id), ...(nextRowRaw ? [Number(nextRowRaw.game_id)] : [])]);
   const tags = parseTagList(profile?.tags ?? [], profile?.tentative ?? false);
 
   let next: TeamPageData["next"] = null;
@@ -767,8 +807,11 @@ export async function loadTeam(sport: Sport, slug: string): Promise<Loaded<TeamP
         g.over_prob_v1 = num(v1.data[0].over_prob);
       }
     } catch { /* Total FV is hidden without v1 */ }
+    g.neutral = (await neutralP).has(g.game_id);
     next = { ...g, officialBets };
   }
+  const neutral = await neutralP;
+  for (const x of grades) x.neutral = neutral.has(x.game_id);
 
   return { state: "live", data: { profile, record, grades, next, tags } };
 }

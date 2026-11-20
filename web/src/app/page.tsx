@@ -7,6 +7,8 @@ import { SPORTS, getSport } from "@/lib/sports";
 import { loadHero, loadResults, type Hero } from "@/lib/data";
 import { RESULT_LABEL, fmtGameDate, fmtPostedStamp } from "@/lib/labels";
 import { postedVsNow } from "@/lib/posted";
+import { TitleLine } from "@/components/NeutralChip";
+import { gameTitle, retitle } from "@/lib/gameTitle";
 
 // Hero shows today's top official play, so render per request.
 export const dynamic = "force-dynamic";
@@ -14,7 +16,7 @@ export const dynamic = "force-dynamic";
 export default async function Landing() {
   const cbb = getSport("cbb");
   const heroRes = cbb ? await loadHero(cbb) : null;
-  const recRes = cbb ? await loadResults(cbb, "season", "official") : null;
+  const recRes = cbb ? await loadResults(cbb, "season", "official", { titles: false }) : null;
   const hero = heroRes?.state === "live" ? heroRes.data : null;
   const rec = recRes?.state === "live" ? recRes.data : null;
   const g = EXAMPLE_SLATE[0];
@@ -163,7 +165,7 @@ function LiveHero({ hero }: { hero: Hero }) {
   if (hero.kind === "today") {
     const { plays } = hero;
     return (
-      <div className="card relative p-4 shadow-2xl shadow-black/50 md:p-5">
+      <div className="card relative min-w-0 p-4 shadow-2xl shadow-black/50 md:p-5">
         <div className="mb-3 flex items-center justify-between text-xs">
           <span className="font-semibold uppercase tracking-wider text-edge-400">Today&apos;s official {plays.length === 1 ? "play" : `plays · ${plays.length}`}</span>
           <Link href="/cbb/slate?sort=value" className="text-zinc-400 hover:text-court-400">Slate →</Link>
@@ -176,7 +178,7 @@ function LiveHero({ hero }: { hero: Hero }) {
               <li key={`${v.game_id}-${v.market}-${v.side}`}>
                 <Link href="/cbb/slate?sort=value" className="flex items-center justify-between gap-3 rounded-xl border border-edge-400/30 bg-edge-400/10 px-4 py-3 hover:border-edge-400/60">
                   <div className="min-w-0">
-                    <div className="truncate text-[11px] text-zinc-400">{g.game} · {g.tipoff ? fmtTipoff(g.tipoff) : "Tip TBD"}</div>
+                    <TitleLine text={gameTitle(g.away, g.home, g.neutral).text} neutral={g.neutral === true} className="text-[11px] text-zinc-400" wrap suffix={` · ${g.tipoff ? fmtTipoff(g.tipoff) : "Tip TBD"}`} />
                     <div className="text-[11px] font-semibold uppercase tracking-wider text-edge-400">{tier ?? "Official"} · {MARKET_LABEL[v.market]} · Edge</div>
                     <div className="truncate text-sm font-semibold">{v.side}</div>
                     {pvn && <div className="font-mono text-[11px] text-zinc-400">{pvn}</div>}
@@ -200,7 +202,9 @@ function LiveHero({ hero }: { hero: Hero }) {
         <span className="font-semibold uppercase tracking-wider text-zinc-400">{hero.when === "yesterday" ? "Yesterday's top play" : "Latest graded play"}</span>
         <span className="text-zinc-500">{fmtGameDate(r.game_date)}</span>
       </div>
-      {hero.game && <div className="text-sm text-zinc-400">{hero.game}</div>}
+      {hero.game && (hero.neutral
+        ? <TitleLine text={retitle(hero.game, true)} neutral className="text-sm text-zinc-400" />
+        : <div className="text-sm text-zinc-400">{hero.game}</div>)}
       <div className="mt-1 text-xl font-bold">{r.pick}{r.line != null ? ` ${fmtLine(r.line)}` : ""}</div>
       <div className="mt-4 grid grid-cols-3 gap-2 text-center">
         <Mini label="Result" value={r.result ? RESULT_LABEL[r.result] : "Pending"} />

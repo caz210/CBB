@@ -8,6 +8,8 @@ export type TeamNextGame = {
   date: string;
   opponent: string;
   home: boolean;
+  /** games.neutral: no home team, so the label reads "vs" and carries a Neutral tag */
+  neutral?: boolean;
   tipoff: string | null;
 };
 
