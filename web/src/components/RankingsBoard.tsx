@@ -27,7 +27,7 @@ export function RankingsBoard({
   const updated = data.as_of ? updatedLabel(data.as_of) : null;
 
   return (
-    <div>
+    <div className="max-w-3xl">
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm text-zinc-400">
         <span className="font-medium text-zinc-200">{week}</span>
         {updated && (
@@ -47,7 +47,7 @@ export function RankingsBoard({
         )}
       </div>
 
-      <div className="card mt-4 md:mt-6">
+      <div className="card mt-4 max-w-full overflow-hidden md:mt-6">
         <RankTable rows={top} sportKey={sportKey} caption="CZarp Top 25" />
       </div>
 
@@ -57,7 +57,7 @@ export function RankingsBoard({
             <span className="group-open:hidden">Show all {data.rows.length}</span>
             <span className="hidden group-open:inline">Show Top {TOP_N}</span>
           </summary>
-          <div className="card mt-3">
+          <div className="card mt-3 max-w-full overflow-hidden">
             <RankTable rows={rest} sportKey={sportKey} caption={`Ranks ${TOP_N + 1}–${data.rows.length}`} />
           </div>
         </details>
@@ -76,17 +76,24 @@ function RankTable({
   caption: string;
 }) {
   return (
-    <table className="w-full text-sm">
+    <table className="w-full table-fixed text-sm">
       <caption className="sr-only">{caption}</caption>
+      <colgroup>
+        <col className="w-8 sm:w-10" />
+        <col className="w-11 sm:w-12" />
+        <col />
+        <col className="w-[4.25rem] sm:w-20" />
+        <col className="w-14 sm:w-16" />
+      </colgroup>
       <thead className="bg-ink-850 text-left text-[11px] font-bold uppercase tracking-normal text-zinc-500 sm:tracking-wider">
         <tr>
-          <th scope="col" className="w-8 py-2.5 pl-2 pr-1 sm:w-10 sm:pl-4">
+          <th scope="col" className="py-2.5 pl-2 pr-1 sm:pl-4">
             <span className="sr-only">Rank</span>#
           </th>
-          <th scope="col" className="w-8 py-2.5 pr-1 sm:w-10">
+          <th scope="col" className="py-2.5 pr-1">
             <span className="sr-only">Movement</span>
           </th>
-          <th scope="col" className="py-2.5 pr-2">
+          <th scope="col" className="min-w-0 max-w-0 py-2.5 pr-2">
             Team
           </th>
           <th scope="col" className="whitespace-nowrap py-2.5 pr-2 text-right">
@@ -94,7 +101,7 @@ function RankTable({
               Rating
             </TermLabel>
           </th>
-          <th scope="col" className="whitespace-nowrap py-2.5 pl-2 pr-2 text-right sm:pr-4">
+          <th scope="col" className="whitespace-nowrap py-2.5 pl-1 pr-2 text-right sm:pr-4">
             Record
           </th>
         </tr>
@@ -108,9 +115,11 @@ function RankTable({
             <td className="whitespace-nowrap py-2.5 pr-1 sm:py-3">
               <MoveBadge m={r.movement} />
             </td>
-            <td className="min-w-0 py-2.5 pr-2 sm:py-3">
+            <td className="min-w-0 max-w-0 w-full py-2.5 pr-2 sm:py-3">
               <Link
                 href={teamHref(sportKey, r.team)}
+                title={r.team}
+                aria-label={r.team}
                 className="block truncate font-semibold text-white hover:text-court-400"
               >
                 {r.team}
@@ -119,7 +128,7 @@ function RankTable({
             <td className="whitespace-nowrap py-2.5 pr-2 text-right font-mono text-sm tabular-nums text-zinc-200 sm:py-3">
               {fmtRating(r.rating)}
             </td>
-            <td className="whitespace-nowrap py-2.5 pl-2 pr-2 text-right font-mono text-sm tabular-nums text-zinc-400 sm:py-3 sm:pr-4">
+            <td className="whitespace-nowrap py-2.5 pl-1 pr-2 text-right font-mono text-sm tabular-nums text-zinc-400 sm:py-3 sm:pr-4">
               {fmtRecord(r.di_wins, r.di_losses)}
             </td>
           </tr>
@@ -133,7 +142,7 @@ function MoveBadge({ m }: { m: Movement }) {
   const label = movementLabel(m);
   if (m.kind === "none") {
     return (
-      <span className="inline-block w-7 text-center text-zinc-600" title={label} aria-label={label}>
+      <span className="inline-block w-full text-center text-zinc-600" title={label} aria-label={label}>
         —
       </span>
     );
@@ -141,7 +150,7 @@ function MoveBadge({ m }: { m: Movement }) {
   if (m.kind === "new") {
     return (
       <span
-        className="inline-block rounded px-1 text-[10px] font-bold uppercase tracking-wide text-court-400"
+        className="inline-block rounded px-0.5 text-[10px] font-bold uppercase tracking-wide text-court-400"
         title={label}
         aria-label={label}
       >
@@ -151,15 +160,15 @@ function MoveBadge({ m }: { m: Movement }) {
   }
   if (m.kind === "same") {
     return (
-      <span className="inline-block w-7 text-center text-zinc-500" title={label} aria-label={label}>
-        –
+      <span className="inline-block w-full text-center font-medium text-zinc-400" title={label} aria-label={label}>
+        =
       </span>
     );
   }
   const up = m.kind === "up";
   return (
     <span
-      className={`inline-flex min-w-7 items-center gap-0.5 font-mono text-[11px] tabular-nums ${up ? "text-edge-400" : "text-fade-400"}`}
+      className={`inline-flex items-center gap-0.5 font-mono text-[11px] tabular-nums ${up ? "text-edge-400" : "text-fade-400"}`}
       title={label}
       aria-label={label}
     >

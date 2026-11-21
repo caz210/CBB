@@ -155,6 +155,51 @@ export function movementLabel(m: Movement): string {
   }
 }
 
+/** Visible mark. '=' means no change; '—' is reserved for no previous poll. */
+export function movementMark(m: Movement): string {
+  switch (m.kind) {
+    case "up":
+      return `▲${m.delta}`;
+    case "down":
+      return `▼${m.delta}`;
+    case "same":
+      return "=";
+    case "new":
+      return "New";
+    default:
+      return "—";
+  }
+}
+
+export type RankingsErrorReason = "unreachable" | "unavailable";
+
+/** Map a loader failure to a customer-safe reason. Never put codes or schema text in the UI. */
+export function rankingsErrorKind(error: { message?: string; code?: string } | null | undefined): RankingsErrorReason {
+  const code = String(error?.code ?? "").trim();
+  const msg = String(error?.message ?? "").toLowerCase();
+  if (/fetch failed|failed to fetch|networkerror|network request|econnrefused|econnreset|enotfound|etimedout|timeout|aborted|abort/.test(msg)) {
+    return "unreachable";
+  }
+  if (/^(ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT|ABORT_ERR|UND_ERR)$/i.test(code)) {
+    return "unreachable";
+  }
+  if (code || msg) return "unavailable";
+  return "unreachable";
+}
+
+export function rankingsErrorCopy(reason: RankingsErrorReason = "unreachable"): { title: string; body: string } {
+  if (reason === "unavailable") {
+    return {
+      title: "Rankings are temporarily unavailable",
+      body: "Please refresh in a minute.",
+    };
+  }
+  return {
+    title: "Couldn't load the rankings",
+    body: "The request didn't get a response. Please refresh in a minute.",
+  };
+}
+
 /** Fixture used only when RANKINGS_QA=1 for screenshots of movement arrows. */
 export function movementDemoRows(): RankingRow[] {
   const base: Array<{ team_id: number; team: string; rank: number; prev: number | null; rating: number; w: number; l: number }> = [
@@ -179,4 +224,25 @@ export function movementDemoRows(): RankingRow[] {
       .filter((x) => x.prev != null)
       .map((x) => ({ team_id: x.team_id, rank: x.prev as number })),
   );
+}
+
+/** QA fixture: long names in the Top 25 so truncate can be checked at 320px. */
+export function longNameDemoRows(): RankingRow[] {
+  const names = [
+    "Texas A&M-Corpus Christi",
+    "Cal State Northridge",
+    "Southern Illinois Edwardsville",
+    "Maryland Eastern Shore",
+    "St. Thomas Aquinas Saints",
+  ];
+  const current = names.map((team, i) => ({
+    team_id: i + 1,
+    team,
+    rank: i + 1,
+    prev_rank: null as number | null,
+    rating: 20 - i,
+    di_wins: 4,
+    di_losses: 1,
+  }));
+  return withMovement(current, []);
 }

@@ -7,9 +7,13 @@ import {
   fmtRating,
   fmtRecord,
   isEarlySeason,
+  longNameDemoRows,
   movementDemoRows,
   movementLabel,
+  movementMark,
   rankMovement,
+  rankingsErrorCopy,
+  rankingsErrorKind,
   sortRankings,
   updatedLabel,
   weekLabel,
@@ -137,6 +141,40 @@ test("movement demo rows cover up, down, same, and New", () => {
   assert.deepEqual(kinds, ["up", "down", "same", "new", "up"]);
 });
 
+test("no change and no previous poll use distinct marks and aria labels", () => {
+  const same = rankMovement(3, 3);
+  const none = { kind: "none" as const, delta: 0 };
+  assert.equal(movementMark(same), "=");
+  assert.equal(movementLabel(same), "No change");
+  assert.equal(movementMark(none), "—");
+  assert.equal(movementLabel(none), "No previous poll");
+  assert.notEqual(movementMark(same), movementMark(none));
+});
+
+test("long-name Top 25 fixture includes Texas A&M-Corpus Christi and stays dashed (no prior poll)", () => {
+  const rows = longNameDemoRows();
+  assert.ok(rows.some((r) => r.team === "Texas A&M-Corpus Christi" && r.rank <= TOP_N));
+  assert.ok(rows.every((r) => r.movement.kind === "none"));
+});
+
+test("rankingsErrorKind maps network failures vs data/schema errors, and copy never leaks schema details", () => {
+  assert.equal(rankingsErrorKind({ message: "fetch failed" }), "unreachable");
+  assert.equal(rankingsErrorKind({ message: "Failed to fetch", code: "" }), "unreachable");
+  assert.equal(rankingsErrorKind({ code: "ETIMEDOUT", message: "connect timeout" }), "unreachable");
+  assert.equal(rankingsErrorKind({ code: "42703", message: "column ranking_snapshots.foo does not exist" }), "unavailable");
+  assert.equal(rankingsErrorKind({ code: "PGRST204", message: "Could not find the 'rating' column" }), "unavailable");
+  assert.equal(rankingsErrorKind({ message: "boom", code: "500" }), "unavailable");
+  assert.equal(rankingsErrorKind(null), "unreachable");
+  const down = rankingsErrorCopy("unreachable");
+  const bad = rankingsErrorCopy("unavailable");
+  assert.equal(down.title, "Couldn't load the rankings");
+  assert.match(down.body, /didn't get a response/i);
+  assert.equal(bad.title, "Rankings are temporarily unavailable");
+  for (const text of [down.title, down.body, bad.title, bad.body]) {
+    assert.equal(/schema|column|postgres|postgrest|42703|kp_/i.test(text), false);
+  }
+});
+
 type Call = { table: string; cols: string; eq: Record<string, unknown>; lt?: Record<string, unknown> };
 
 function fakeRankingsClient(opts: {
@@ -259,6 +297,13 @@ test("loadRankingsFrom: query error is an error state; 0 rows is a live empty po
     sport,
   );
   assert.equal(err.state, "error");
+  if (err.state === "error") assert.equal(err.reason, "unavailable");
+  const net = await loadRankingsFrom(
+    fakeRankingsClient({ latestError: { message: "fetch failed" } }) as never,
+    sport,
+  );
+  assert.equal(net.state, "error");
+  if (net.state === "error") assert.equal(net.reason, "unreachable");
 
   const empty = await loadRankingsFrom(fakeRankingsClient({ latest: [] }) as never, sport);
   assert.equal(empty.state, "live");

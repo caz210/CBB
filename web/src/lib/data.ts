@@ -10,6 +10,7 @@ import { parseTagList, type ArchetypeTag } from "./archetypes";
 import { teamSlug, type ModelGrade, type TeamModelRecord, type TeamProfile } from "./teams";
 import {
   RANKING_SNAPSHOT_COLUMNS,
+  rankingsErrorKind,
   sortRankings,
   withMovement,
   type RankingRow,
@@ -23,7 +24,7 @@ import { parseVerdict } from "./verdict";
 export type Loaded<T> =
   | { state: "live"; data: T }
   | { state: "unconfigured" }
-  | { state: "error" };
+  | { state: "error"; reason?: "unreachable" | "unavailable" };
 
 type Row = Record<string, unknown>;
 
@@ -845,8 +846,14 @@ function teamNameOf(r: Row): string {
 /** Latest official poll for this league, plus movement vs the previous week_of.
  *  A failed or missing prior-week read never fails the page: we fall back to
  *  stored prev_rank, then to a dash. 0 rows is a live empty payload, not an error. */
+function rankingsFail(error: { message: string; code?: string }): { state: "error"; reason: "unreachable" | "unavailable" } {
+  fail("ranking_snapshots", error);
+  return { state: "error", reason: rankingsErrorKind(error) };
+}
+
 export async function loadRankingsFrom(sb: SB | null, sport: Sport): Promise<Loaded<RankingsData>> {
   if (!sb) return { state: "unconfigured" };
+  try {
   const latest = await sb
     .from("ranking_snapshots")
     .select("week_of,as_of")
@@ -854,7 +861,7 @@ export async function loadRankingsFrom(sb: SB | null, sport: Sport): Promise<Loa
     .order("week_of", { ascending: false })
     .order("as_of", { ascending: false })
     .limit(1);
-  if (latest.error) return fail("ranking_snapshots", latest.error);
+  if (latest.error) return rankingsFail(latest.error);
   const head = (latest.data ?? [])[0] as Row | undefined;
   const weekOf = head?.week_of ? str(head.week_of) : "";
   if (!weekOf) {
@@ -868,7 +875,7 @@ export async function loadRankingsFrom(sb: SB | null, sport: Sport): Promise<Loa
     .eq("week_of", weekOf)
     .order("rank")
     .range(0, 999);
-  if (snap.error) return fail("ranking_snapshots", snap.error);
+  if (snap.error) return rankingsFail(snap.error);
 
   const raw = (snap.data ?? []) as Row[];
   const asOf = raw[0]?.as_of ? str(raw[0].as_of) : (head?.as_of ? str(head.as_of) : "");
@@ -929,4 +936,8 @@ export async function loadRankingsFrom(sb: SB | null, sport: Sport): Promise<Loa
 
   const rows: RankingRow[] = sortRankings(withMovement(current, previous));
   return { state: "live", data: { week_of: weekOf, as_of: asOf, season, rows } };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "fetch failed";
+    return rankingsFail({ message });
+  }
 }

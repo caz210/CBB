@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getSport } from "@/lib/sports";
 import { loadRankings } from "@/lib/data";
-import { movementDemoRows, type RankingsData } from "@/lib/rankings";
+import { rankingsErrorCopy } from "@/lib/rankings";
 import { ComingSoon } from "@/components/ComingSoon";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
@@ -32,25 +32,17 @@ export default async function RankingsPage({
   if (!sport) notFound();
   if (sport.status !== "live") return <ComingSoon sport={sport} />;
 
-  const qa = process.env.RANKINGS_QA === "1";
-  const sp = qa ? await searchParams : { demo: undefined };
-  let res: Awaited<ReturnType<typeof loadRankings>>;
-  if (qa && sp.demo === "empty") {
-    res = { state: "live", data: { week_of: "", as_of: "", season: null, rows: [] } };
-  } else if (qa && sp.demo === "error") {
-    res = { state: "error" };
-  } else if (qa && sp.demo === "movement") {
-    const rows = movementDemoRows();
-    const data: RankingsData = {
-      week_of: "2026-11-23",
-      as_of: "2026-11-23",
-      season: 2027,
-      rows,
-    };
-    res = { state: "live", data };
-  } else {
-    res = await loadRankings(sport);
+  // NODE_ENV is inlined at `next build`, so this whole branch is stripped from
+  // a production build. `next start` cannot turn fixtures on, even if RANKINGS_QA=1.
+  let res: Awaited<ReturnType<typeof loadRankings>> | undefined;
+  if (process.env.NODE_ENV !== "production") {
+    const { tryRankingsDemo } = await import("@/lib/rankingsQa");
+    const demo = await tryRankingsDemo(searchParams);
+    if (demo) res = demo;
   }
+  if (!res) res = await loadRankings(sport);
+
+  const err = res.state === "error" ? rankingsErrorCopy(res.reason ?? "unreachable") : null;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-5 md:px-6 md:py-10">
@@ -67,22 +59,22 @@ export default async function RankingsPage({
             title="Live data isn't connected yet"
             body="This deployment is missing its Supabase settings, so there's no poll to show. Once they're added, the CZarp Top 25 appears here automatically."
           />
-        ) : res.state === "error" ? (
+        ) : res.state === "error" && err ? (
           <EmptyState
             tone="warn"
-            title="Couldn't load the rankings"
-            body="The data service didn't respond. Please refresh in a minute."
+            title={err.title}
+            body={err.body}
             actions={[{ href: `/${sport.key}/rankings`, label: "Try again" }]}
           />
-        ) : res.data.rows.length === 0 ? (
+        ) : res.state === "live" && res.data.rows.length === 0 ? (
           <EmptyState
             title="No rankings yet"
             body="The first CZarp poll hasn't been published for this league, or this week's snapshot isn't available yet. New polls go out Monday mornings."
             actions={[{ href: `/${sport.key}/slate`, label: "Back to the slate" }]}
           />
-        ) : (
+        ) : res.state === "live" ? (
           <RankingsBoard data={res.data} sportKey={sport.key} />
-        )}
+        ) : null}
       </div>
     </div>
   );
