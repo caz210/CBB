@@ -16,7 +16,7 @@ daily_run.py — fully automated daily PAPER-trading pipeline (no real bets are 
 Steps
   (a) refresh KenPom ratings / prior / per-team HCA (cached) and scrape FanMatch (KenPom predictions)
   (b) prices: DraftKings open + current lines from ESPN's free odds feed (primary); The Odds API
-      as a fallback whenever any D-I game lacks a DK line, budget-aware (max ODDS_API_MAX_CALLS_PER_DAY calls/day, never below
+      as a fallback whenever any D-I game lacks a DK line, budget-aware (max ODDS_API_MAX_CALLS_PER_DAY calls/day across jobs, ODDS_API_JOB_SLOTS per job, never below
       ODDS_API_RESERVE credits); Kalshi board prices recorded as a reference
   (c) project every game with v2 (sides) and the original v1 formula (totals)
   (d) flag plays with the rules below; quarter-Kelly paper stakes on a notional bankroll
@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import contextlib
 import json
 import math
 import os
@@ -185,7 +186,8 @@ def apply_pace_fix(games, today: str, data_dir: str = "data") -> int:
     return n
 
 
-ODDS_API_MAX_CALLS_PER_DAY = 1
+ODDS_API_MAX_CALLS_PER_DAY = 2   # hard cap per America/Chicago day, across ALL jobs and processes
+ODDS_API_JOB_SLOTS = {"daily": 1, "pretip": 1}   # per-job share: the 7 AM run can never use the pre-tip slot
 ODDS_API_RESERVE = 100
 ODDS_API_MIN_MISSING = 0.0      # use the Odds API whenever ANY D-I game lacks an ESPN/DK line (0 = any);
                                 # the per-day call cap and the credit reserve still apply
@@ -311,13 +313,76 @@ def espn_dk_lines(event_id: str) -> dict:
 def _usage() -> dict:
     try:
         with open(USAGE) as fh:
-            return json.load(fh)
+            u = json.load(fh)
     except Exception:
-        return {"calls": {}, "remaining": None}
+        u = {}
+    u.setdefault("calls", {})
+    u.setdefault("remaining", None)
+    return u
 
 
-def odds_api_fallback(games: list[dict], today: str, allow: bool) -> int:
-    """Fill missing DK lines from The Odds API, at most N calls/day and never below the reserve."""
+def _write_usage(u: dict) -> None:
+    os.makedirs(os.path.dirname(USAGE) or ".", exist_ok=True)
+    tmp = f"{USAGE}.tmp{os.getpid()}"
+    with open(tmp, "w") as fh:
+        json.dump(u, fh, indent=1)
+    os.replace(tmp, USAGE)
+
+
+@contextlib.contextmanager
+def _usage_lock():
+    """Exclusive lock on the shared usage counter, so the cap holds across concurrent processes."""
+    import fcntl
+    os.makedirs(os.path.dirname(USAGE) or ".", exist_ok=True)
+    with open(USAGE + ".lock", "a") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+
+
+def _job_calls(u: dict, today: str) -> dict:
+    """Calls per job today. Calls counted before per-job tracking (single counter) belong to the 7 AM job."""
+    by = {k: int(v) for k, v in ((u.get("calls_by_job") or {}).get(today) or {}).items()}
+    legacy = int(u["calls"].get(today, 0)) - sum(by.values())
+    if legacy > 0:
+        by["daily"] = by.get("daily", 0) + legacy
+    return by
+
+
+def odds_api_claim(today: str, job: str) -> tuple[bool, str]:
+    """Atomically claim one Odds API call for `job` today: refused when the day's total cap, the job's own slot
+    or the credit reserve says no. A claimed call counts even if the request then fails."""
+    with _usage_lock():
+        u = _usage()
+        total, by = int(u["calls"].get(today, 0)), _job_calls(u, today)
+        slot, used = ODDS_API_JOB_SLOTS.get(job, 0), by.get(job, 0)
+        if total >= ODDS_API_MAX_CALLS_PER_DAY:
+            return False, f"daily budget used ({total}/{ODDS_API_MAX_CALLS_PER_DAY} across all jobs)"
+        if used >= slot:
+            return False, f"{job} slot used ({used}/{slot}; the other slot is reserved)"
+        if u.get("remaining") is not None and float(u["remaining"]) < ODDS_API_RESERVE:
+            return False, f"{u['remaining']} credits left (< reserve {ODDS_API_RESERVE})"
+        u["calls"][today] = total + 1
+        by[job] = used + 1
+        u.setdefault("calls_by_job", {})[today] = by
+        _write_usage(u)
+        return True, ""
+
+
+def _odds_api_record(remaining) -> None:
+    with _usage_lock():
+        u = _usage()
+        if remaining is not None:
+            u["remaining"] = remaining
+        u["last_call_ct"] = now_ct().isoformat(timespec="seconds")
+        _write_usage(u)
+
+
+def odds_api_fallback(games: list[dict], today: str, allow: bool, job: str = "daily") -> int:
+    """Fill missing DK lines from The Odds API: at most ODDS_API_MAX_CALLS_PER_DAY calls a day across all jobs,
+    at most ODDS_API_JOB_SLOTS[job] for this job, never below the credit reserve."""
     missing = [g for g in games if g.get("current_home_spread") is None or g.get("current_total") is None]
     if not games or not missing:
         if games:
@@ -330,28 +395,26 @@ def odds_api_fallback(games: list[dict], today: str, allow: bool) -> int:
     if frac < ODDS_API_MIN_MISSING:
         log(f"  Odds API: skipped — ESPN covers {1 - frac:.0%} of games (saving credits)")
         return 0
-    u = _usage()
-    used_today = u["calls"].get(today, 0)
-    if used_today >= ODDS_API_MAX_CALLS_PER_DAY:
-        log(f"  Odds API: skipped — daily budget used ({used_today}/{ODDS_API_MAX_CALLS_PER_DAY})")
-        return 0
-    if u.get("remaining") is not None and float(u["remaining"]) < ODDS_API_RESERVE:
-        log(f"  Odds API: skipped — {u['remaining']} credits left (< reserve {ODDS_API_RESERVE})")
-        return 0
     try:
         import odds_fetcher as of
-        if not of.ODDS_API_KEY:
-            log("  Odds API: no ODDS_API_KEY — skipped")
-            return 0
+    except Exception as e:
+        log(f"  Odds API: unavailable ({type(e).__name__})")
+        return 0
+    if not of.ODDS_API_KEY:
+        log("  Odds API: no ODDS_API_KEY — skipped")
+        return 0
+    ok, why = odds_api_claim(today, job)
+    if not ok:
+        log(f"  Odds API: skipped — {why}")
+        return 0
+    try:
         df = of.fetch_vegas_lines()
-        u["calls"][today] = used_today + 1
-        u["remaining"] = of._odds_credits_remaining
-        u["last_call_ct"] = now_ct().isoformat(timespec="seconds")
-        with open(USAGE, "w") as fh:
-            json.dump(u, fh, indent=1)
     except Exception as e:
         log(f"  Odds API: failed ({type(e).__name__}: {e})")
         return 0
+    finally:
+        _odds_api_record(getattr(of, "_odds_credits_remaining", None))
+    u = _usage()
     if df is None or df.empty:
         return 0
     filled = 0

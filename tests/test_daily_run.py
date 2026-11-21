@@ -223,6 +223,7 @@ def test_resync_never_grades_logs_picks_or_writes_ledger(monkeypatch, tmp_path):
     def boom(*a, **k):
         raise AssertionError("must not run under --resync")
 
+    monkeypatch.chdir(tmp_path)          # cwd-relative writes (data/ledger/big_moves) land in tmp, not the repo
     monkeypatch.setenv("SUPABASE_URL", "http://example.invalid")
     monkeypatch.setenv("SUPABASE_SERVICE_KEY", "x")
     monkeypatch.setattr(dr, "OUT_DIR", str(tmp_path))

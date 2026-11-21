@@ -42,3 +42,11 @@ def league():
 def _no_info_extras_network(monkeypatch):
     """Daily-run info extras (points so far / HTU tracker) hit ESPN and data/ledger; off in tests."""
     monkeypatch.setenv("CZARP_NO_INFO_EXTRAS", "1")
+
+
+@pytest.fixture(autouse=True)
+def _no_live_credentials(monkeypatch):
+    """Tests never reach live Supabase or The Odds API, even when a .env is loaded (daily_run calls
+    load_dotenv on import). A test that needs a value sets it itself with monkeypatch.setenv."""
+    for k in ("SUPABASE_URL", "SUPABASE_SERVICE_KEY", "SUPABASE_REST_URL", "ODDS_API_KEY"):
+        monkeypatch.delenv(k, raising=False)

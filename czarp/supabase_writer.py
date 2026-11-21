@@ -441,6 +441,60 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
             + (f", {n_locks} picks lock-filled" if n_locks else ""))
 
 
+LINE_PRICE_KEYS = ("home_spread_price", "away_spread_price", "over_price", "under_price")
+
+
+def newest_vegas_current(rows: list[dict]) -> dict[int, dict]:
+    """game_id -> newest source='vegas', line_type='current' market_lines row (what slate_games shows)."""
+    out: dict[int, dict] = {}
+    for r in rows:
+        if r.get("source", "vegas") != "vegas" or r.get("line_type", "current") != "current":
+            continue
+        k = int(r["game_id"])
+        if k not in out or str(r.get("fetched_at") or "") > str(out[k].get("fetched_at") or ""):
+            out[k] = r
+    return out
+
+
+def missing_line_fill_rows(newest: dict[int, dict], fills: dict[int, dict], ts: str) -> list[dict]:
+    """New 'current' vegas rows that fill ONLY what is missing.
+
+    `fills` maps game_id -> fresh lines (current_home_spread / current_total / current_*_price / price_source).
+    A game is filled only when its newest current row lacks a spread or a total (or it has none). The new row
+    carries the existing spread/total/prices unchanged and adds only the missing value(s), so slate_games (newest
+    row wins) never loses a line. Existing rows are never updated or deleted; games with nothing new are skipped."""
+    out = []
+    for k, f in fills.items():
+        old = newest.get(int(k)) or {}
+        osp, otot = _clean(old.get("spread")), _clean(old.get("total"))
+        if osp is not None and otot is not None:
+            continue                                     # nothing missing: never touch it
+        nsp, ntot = _clean(f.get("current_home_spread")), _clean(f.get("current_total"))
+        add_sp, add_tot = osp is None and nsp is not None, otot is None and ntot is not None
+        if not (add_sp or add_tot):
+            continue
+        prices = dict(old.get("prices") or {})
+        for x in LINE_PRICE_KEYS:
+            fresh = _clean(f.get(f"current_{x}"))
+            if fresh is not None and ((add_sp and "spread" in x) or (add_tot and x in ("over_price", "under_price"))):
+                prices[x] = fresh
+        out.append({"game_id": int(k), "source": "vegas", "line_type": "current",
+                    "book": (f.get("price_source") or old.get("book") or "espn:DraftKings").split(":")[-1],
+                    "spread": float(osp) if osp is not None else (float(nsp) if add_sp else None),
+                    "total": float(otot) if otot is not None else (float(ntot) if add_tot else None),
+                    "prices": _row(prices), "fetched_at": ts})
+    return out
+
+
+def insert_missing_lines(c: "Client", newest: dict[int, dict], fills: dict[int, dict], ts: str, log=print) -> int:
+    """Insert-only write of missing_line_fill_rows (no upsert/update/delete; never touches picks)."""
+    rows = missing_line_fill_rows(newest, fills, ts)
+    if rows:
+        c.insert("market_lines", rows)
+    log(f"  market_lines: filled {len(rows)} game(s) missing a Vegas line")
+    return len(rows)
+
+
 def fill_pick_locks(c: Client, log=print) -> int:
     """Fill NULL post-time lock columns on published picks from the official_picks_locked view.
 

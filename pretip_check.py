@@ -1,8 +1,8 @@
 """pretip_check.py — pre-tip line check for today's open paper plays.
 
 Re-pulls the current DraftKings line (ESPN's free feed; The Odds API only for plays ESPN has no line
-for, and only within the daily_run budget in data/ledger/odds_api_usage.json) for every open ledger play
-that has not tipped yet, and reports a play when
+for, using the pre-tip job's reserved slot of the shared daily budget in data/ledger/odds_api_usage.json)
+for every open ledger play that has not tipped yet, and reports a play when
   * its line moved >= --move pts AGAINST us since the pick (negative CLV so far), or
   * its edge% vs the current line dropped below the rule threshold (or flipped sides).
 It also reports BIG MOVES (DK total moved >= 4 pts or spread >= 3 pts open -> now, either direction)
@@ -10,6 +10,10 @@ on ANY game tipping within --big-within minutes (default 90), not only our plays
 Prints a short text summary; prints NOTHING when there is nothing to flag (exit 0 either way).
 It never changes prices, stakes or graded results: the only ledger write is the 'pretip_flag' column
 of open, not-yet-started plays (skipped with --dry-run).
+MISSING LINES: today's not-started games whose newest Vegas line in Supabase market_lines lacks a spread or a
+total get the missing value(s) filled (ESPN/DK first, then the reserved Odds API call, official plays first,
+then by tip time) as new insert-only market_lines rows. Existing lines, picks, grading and the ledger are never
+touched. Skipped with --dry-run; --no-odds-api still fills from ESPN.
 
     python pretip_check.py                 # today's slate (America/Chicago), annotate ledger
     python pretip_check.py --dry-run       # report only, no ledger write, no Odds API call
@@ -20,6 +24,8 @@ of open, not-yet-started plays (skipped with --dry-run).
 from __future__ import annotations
 
 import argparse
+import contextlib
+import os
 import sys
 from datetime import timedelta
 
@@ -120,19 +126,87 @@ def check_play(row, ln: dict, move_pts: float = MOVE_PTS) -> list[str]:
     return out
 
 
+def _run_odds_api(games: list[dict], today: str, log) -> None:
+    """daily_run.odds_api_fallback under the 'pretip' slot. Its prints go to stderr: stdout is the alert text."""
+    try:
+        dr.log_lines.clear()
+        _out, dr.log = dr.log, log
+        with contextlib.redirect_stdout(sys.stderr):
+            dr.odds_api_fallback(games, today, allow=True, job="pretip")
+    finally:
+        dr.log = _out
+
+
 def _odds_api_lines(rows, today, allow, log) -> dict:
     """Odds API lines for plays ESPN has no line for, via daily_run's budget-aware fallback."""
     if not allow or not rows:
         return {}
     games = [{"event_id": str(r.event_id), "home_full": r.home, "away_full": r.away,
               "current_home_spread": None, "current_total": None} for r in rows]
-    try:
-        dr.log_lines.clear()
-        _out, dr.log = dr.log, log
-        dr.odds_api_fallback(games, today, allow=True)
-    finally:
-        dr.log = _out
+    _run_odds_api(games, today, log)
     return {g["event_id"]: g for g in games if g.get("current_home_spread") is not None or g.get("current_total") is not None}
+
+
+def fill_missing_lines(today: str, now, led: pd.DataFrame, allow_api: bool, log=lambda m: None,
+                       client=None, lines=None) -> dict:
+    """Fill today's not-started games whose newest Vegas line in market_lines lacks a spread or total.
+
+    Order: official open plays first, then by tip time. ESPN/DK (free) first; the reserved pre-tip Odds API call
+    only if something is still missing. Writes insert-only market_lines rows via czarp.supabase_writer (missing
+    values only; existing lines kept). Returns {event_id: fresh lines} for every game it found lines for, so the
+    play checks below can use them. Never touches picks, grading or the ledger."""
+    from czarp import supabase_writer as sw
+    if client is None:
+        if not (os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_SERVICE_KEY")):
+            log("  missing lines: no Supabase credentials — skipped")
+            return {}
+        client = sw.Client()
+    lines = lines or dr.espn_dk_lines
+    utc_now = pd.Timestamp(now).tz_convert("UTC")
+    games = [g for g in client.get("games", select="id,external_id,home,away,tipoff,status", date=f"eq.{today}")
+             if g.get("status") != "final" and g.get("tipoff") and pd.Timestamp(g["tipoff"]) > utc_now]
+    if not games:
+        return {}
+    ids = ",".join(str(int(g["id"])) for g in games)
+    newest = sw.newest_vegas_current(client.get(
+        "market_lines", select="game_id,source,line_type,book,spread,total,prices,fetched_at",
+        game_id=f"in.({ids})", source="eq.vegas", line_type="eq.current"))
+    gaps = [g for g in games if sw._clean((newest.get(int(g["id"])) or {}).get("spread")) is None
+            or sw._clean((newest.get(int(g["id"])) or {}).get("total")) is None]
+    if not gaps:
+        log("  missing lines: none — 0 Odds API credits used")
+        return {}
+    off = set()
+    if len(led):
+        o = led[(led.status == "open") & (led.tier != "track") & (led.game_date.astype(str) == today)]
+        off = set(o.event_id.astype(str))
+    gaps.sort(key=lambda g: (str(g["external_id"]) not in off, str(g["tipoff"])))
+    snap = _snapshot(today)
+    work = []
+    for g in gaps:
+        old = newest.get(int(g["id"])) or {}
+        s = snap.get(str(g["external_id"]), {})
+        w = {"game_id": int(g["id"]), "event_id": str(g["external_id"]),
+             "home_full": s.get("home_full") or g["home"], "away_full": s.get("away_full") or g["away"],
+             "current_home_spread": sw._clean(old.get("spread")), "current_total": sw._clean(old.get("total"))}
+        fresh = lines(w["event_id"]) or {}
+        for key in ("current_home_spread", "current_total"):
+            if w[key] is None and fresh.get(key) is not None:
+                w[key] = fresh[key]
+                pfx = ("current_home_spread_price", "current_away_spread_price") if key == "current_home_spread" \
+                    else ("current_over_price", "current_under_price")
+                for x in pfx:
+                    w[x] = fresh.get(x)
+                w["price_source"] = f"espn:{fresh.get('book') or 'DraftKings'}"
+        work.append(w)
+    still = [w for w in work if w["current_home_spread"] is None or w["current_total"] is None]
+    log(f"  missing lines: {len(gaps)} game(s); {len(gaps) - len(still)} filled from ESPN/DK, {len(still)} left")
+    if still and allow_api:
+        _run_odds_api(still, today, log)
+    fills = {w["game_id"]: w for w in work}
+    sw.insert_missing_lines(client, newest, fills, now.isoformat(timespec="seconds"), log=log)
+    return {w["event_id"]: w for w in work
+            if w["current_home_spread"] is not None or w["current_total"] is not None}
 
 
 def main(argv=None) -> int:
@@ -169,11 +243,19 @@ def main(argv=None) -> int:
         print(f"Big moves {today} {now:%H:%M} CT — games tipping within {a.big_within:g} min (info only, not plays):")
         for ln in BM.pretip_lines(big):
             print(ln)
+    filled = {}
+    if not a.dry_run:
+        try:
+            filled = fill_missing_lines(today, now, led, allow_api=not a.no_odds_api, log=log)
+        except Exception as e:
+            log(f"  missing-line fill failed ({type(e).__name__}: {e})")
     if todo.empty:
         return 0
     lines, missing = {}, []
     for i, r in todo.iterrows():
         ln = dr.espn_dk_lines(str(r.event_id))
+        f = filled.get(str(r.event_id)) or {}
+        ln = {**{k: v for k, v in f.items() if k.startswith("current_") and v is not None}, **{k: v for k, v in ln.items() if v is not None}}
         if (r.market == "spread" and ln.get("current_home_spread") is None) or \
                 (r.market == "total" and ln.get("current_total") is None):
             missing.append(r)
