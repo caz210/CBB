@@ -50,3 +50,33 @@ test("Live badge is hidden when the date has no games or is in the future", () =
   assert.equal(showSlateLiveBadge("future", 0), false);
   assert.equal(showSlateLiveBadge("future", 8), false);
 });
+
+test("today with nothing on the schedule gets a plain no-games line, not the 7:15 promise", async () => {
+  const m = await import("../src/lib/slateEmpty");
+  assert.equal(m.slateEmptyBody("today", false), "No games are scheduled today.");
+  assert.doesNotMatch(m.slateEmptyBody("today", false), /7:15/);
+  assert.equal(m.slateMatchupCtaLabel("today", false), "Run a matchup → Matchup maker");
+  assert.equal(m.showSlateMatchupCta("today"), true);
+  // Games are scheduled (or we couldn't tell): the slate may just be late, keep the 7:15 copy.
+  for (const known of [true, null, undefined]) {
+    assert.equal(m.slateEmptyBody("today", known), m.SLATE_UNPOSTED_EMPTY_BODY);
+    assert.equal(m.slateMatchupCtaLabel("today", known), m.SLATE_MATCHUP_CTA_LABEL);
+  }
+  // Future and past ignore the flag.
+  assert.equal(m.slateEmptyBody("future", false), m.SLATE_UNPOSTED_EMPTY_BODY);
+  assert.equal(m.slateEmptyBody("past", false), m.SLATE_PAST_EMPTY_BODY);
+});
+
+test("an empty games table only confirms 'no games' after the 7:15 AM CT morning run", async () => {
+  const m = await import("../src/lib/slateEmpty");
+  // 2026-11-21 is CST (UTC-6): 13:00Z = 7:00 AM CT, 13:20Z = 7:20 AM CT.
+  const early = new Date("2026-11-21T13:00:00Z");
+  const after = new Date("2026-11-21T13:20:00Z");
+  assert.equal(m.minutesCT(early), 7 * 60);
+  assert.equal(m.confirmedSchedule(false, early), null);
+  assert.equal(m.slateEmptyBody("today", m.confirmedSchedule(false, early)), m.SLATE_UNPOSTED_EMPTY_BODY);
+  assert.equal(m.confirmedSchedule(false, after), false);
+  assert.equal(m.slateEmptyBody("today", m.confirmedSchedule(false, after)), "No games are scheduled today.");
+  assert.equal(m.confirmedSchedule(true, after), true);
+  assert.equal(m.confirmedSchedule(null, after), null);
+});

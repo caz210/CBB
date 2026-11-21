@@ -14,7 +14,7 @@ import { NeutralChip, TitleLine } from "./NeutralChip";
 import { SlateSearch } from "./SlateSearch";
 import { TvRatingChip } from "./TvRatingChip";
 import { compareTvRating, tvHighlightIds, type SlateSort } from "@/lib/tvRating";
-import { ALIAS_INDEX_TIMEOUT_MS, aliasByNameFromIndex, echoSlateQuery, filterSlateGames, isEmptySlateQuery, isSlateAliasSearchPending, slateGameMatches } from "@/lib/slateSearch";
+import { ALIAS_INDEX_TIMEOUT_MS, aliasByNameFromIndex, aliasByNameFromRecord, echoSlateQuery, filterSlateGames, isEmptySlateQuery, isSlateAliasSearchPending, slateGameMatches } from "@/lib/slateSearch";
 import { useTeamIndex } from "@/lib/useTeamIndex";
 import { SHOW_TRACKED_TIER } from "@/lib/pickTier";
 import { gameTitle, sideLabel, spreadNotationNote } from "@/lib/gameTitle";
@@ -25,8 +25,10 @@ import { POSTED_TOTAL_NOTE, betCoverProb, postedFairVsProjections, postedVsNow, 
 
 type Sel = { game: SlateGame; bet: ValueBet } | null;
 
-export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = false, sportKey = "cbb" }: {
+export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = false, sportKey = "cbb", slateAliases }: {
   games: SlateGame[]; bets: ValueBet[]; tracked?: ValueBet[]; sort?: SlateSort; hide?: boolean; sportKey?: string;
+  /** team_aliases for this slate's teams, sent with the page; null/undefined if that read failed */
+  slateAliases?: Record<string, string[]> | null;
 }) {
   const [sel, setSel] = useState<Sel>(null);
   const [gameSel, setGameSel] = useState<SlateGame | null>(null);
@@ -48,7 +50,8 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
   // Reuse the header's cached /api/teams index (1,674 team_aliases). If it hasn't loaded
   // or the request fails, matching falls back to localAliases only — same as before.
   const teamLoad = useTeamIndex(sportKey, true);
-  const aliases = teamLoad.state === "ready" ? aliasByNameFromIndex(teamLoad.index) : undefined;
+  // The page already carries this slate's aliases, so ualbany works on first paint; the index is the fallback.
+  const aliases = aliasByNameFromRecord(slateAliases) ?? (teamLoad.state === "ready" ? aliasByNameFromIndex(teamLoad.index) : undefined);
   // Don't flash "No games match" for an alias-only query (ualbany) while /api/teams is in flight.
   const [aliasTimedOut, setAliasTimedOut] = useState(false);
   useEffect(() => {
@@ -105,7 +108,7 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
   });
 
   const searchingAliases = isSlateAliasSearchPending({
-    query, matchCount: matched.length, load: teamLoad.state, timedOut: aliasTimedOut,
+    query, matchCount: matched.length, load: teamLoad.state, timedOut: aliasTimedOut, slateAliasesKnown: slateAliases != null,
   });
 
   return (
@@ -566,7 +569,7 @@ function GameSheet({ g, sportKey, bets, tvHot, onClose }: { g: SlateGame | null;
   const openT = i?.open_total ?? null, curT = i?.cur_total ?? g.market_total;
   const move = (o: number | null, c: number | null) => (o == null || c == null ? "—" : c === o ? "No move" : `${c > o ? "+" : "−"}${Math.abs(c - o).toFixed(1)}`);
   // Over probability from the official totals model (v1), never the default model's.
-  const hw = i?.home_win_prob ?? g.home_win_prob, ov = g.over_prob_v1 ?? null;
+  const hw = i?.home_win_prob ?? g.home_win_prob, ov = g.czarp_over_prob ?? null;
   const edge = cardHeadline(g, bets);
   const hasEdge = edge.edgePct != null;
   return (

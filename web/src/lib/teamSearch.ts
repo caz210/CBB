@@ -122,14 +122,17 @@ export function buildIndex(teams: SearchTeam[], aliasesFor: AliasLookup = teamAl
 /** Ranks, lower is better:
  *  0 exact · 1 prefix · 2 words in order · 3 substring · 4 words in any order (names only).
  *  Prefix and in-order word matches (1 and 2) that only come from an alias sit half a rank lower, so a plain
- *  "state" lists every X St. team before LSU ("Louisiana State") and "saint" lists the Saint schools before
- *  Siena ("Saints"). Exact alias hits (unc, uconn) keep full rank. */
-function scoreForms(forms: string[], qForms: string[], qTokens: string[], anyOrder: boolean): { r: number; word: boolean } | null {
-  let best: { r: number; word: boolean } | null = null;
-  const take = (r: number, word = false) => { if (!best || r < best.r) best = { r, word }; };
+ *  "state" lists every X St. team before LSU ("Louisiana State"). An alias prefix that stops mid-word (Siena's
+ *  "saints" for "saint") ranks 2.5, below in-order name matches like "Mount St. Mary's". Exact alias hits
+ *  (unc, uconn) keep full rank. */
+function scoreForms(forms: string[], qForms: string[], qTokens: string[], anyOrder: boolean): { r: number; word: boolean; part?: boolean } | null {
+  let best: { r: number; word: boolean; part?: boolean } | null = null;
+  const take = (r: number, word = false, part = false) => { if (!best || r < best.r || (r === best.r && best.part && !part)) best = { r, word, part }; };
   for (const q of qForms) {
     if (forms.includes(q)) take(0);
-    else if (forms.some((f) => f.startsWith(q))) take(1);
+    else if (forms.some((f) => f.startsWith(q + " "))) take(1);
+    // Prefix that stops mid-word ("saint" in "saints", "mich" in "michigan"). score() demotes these on aliases.
+    else if (forms.some((f) => f.startsWith(q))) take(1, false, true);
   }
   if (best && (best as { r: number }).r <= 1) return best;
   // A typed "st" only stands for st/state/saint, not every word starting with "st".
@@ -168,7 +171,9 @@ function scoreForms(forms: string[], qForms: string[], qTokens: string[], anyOrd
 function score(e: TeamIndexEntry, qForms: string[], qTokens: string[]): number | null {
   const n = scoreForms(e.nameForms, qForms, qTokens, true);
   const a = e.aliasForms.length ? scoreForms(e.aliasForms, qForms, qTokens, false) : null;
-  const sa = a ? a.r + (a.word || a.r === 1 ? 0.5 : 0) : null;
+  // Alias-only hits rank half a step below the same name hit. A mid-word alias prefix (a mascot: "saint" in
+  // Siena's "saints") drops below every in-order name match, so it can't push "Mount St. Mary's" out of the top 8.
+  const sa = a ? (a.part ? 2.5 : a.r + (a.word || a.r === 1 ? 0.5 : 0)) : null;
   if (!n) return sa;
   return sa == null ? n.r : Math.min(n.r, sa);
 }

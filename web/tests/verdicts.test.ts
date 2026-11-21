@@ -5,7 +5,7 @@ import { HOLD_CODES, NO_LINE_TIP, VERDICT_LADDER, VERDICT_RANK, holdCodes, ladde
 import { cardHeadline, marketVerdict, notAPlayLine } from "../src/lib/verdict";
 import { EXPLAINERS } from "../src/lib/explainers";
 import { POSTED_TOTAL_NOTE, totalFair } from "../src/lib/posted";
-import { fmtEdgeVsBar } from "../src/lib/labels";
+import { fmtEdgeVsBar, fmtPlayPct, fmtPostedVsNow } from "../src/lib/labels";
 import { knownSkipCodeLabel } from "../src/lib/verdict";
 import { pickStatusTags } from "../src/lib/statusTags";
 import type { SlateGame, ValueBet } from "../src/lib/types";
@@ -158,10 +158,10 @@ test("verdict InfoTips come from the shared ladder", () => {
 
 test("posted-total sentence applies only to an official total with a posted fair", () => {
   assert.equal(POSTED_TOTAL_NOTE, "Total shown is CZarp's number when this play was posted.");
-  assert.equal(totalFair(game({ proj_total_v1: 150 }), [bet({ fair_at_post: 147.5 })]).tag, "posted");
-  assert.equal(totalFair(game({ proj_total_v1: 150 }), [bet({ fair_at_post: 147.5, pick_tier: "track" })]).tag, undefined);
-  assert.equal(totalFair(game({ proj_total_v1: 150 }), [bet({ market: "spread", fair_at_post: 3 })]).tag, undefined);
-  assert.equal(totalFair(game({ proj_total_v1: 150 }), []).tag, undefined);
+  assert.equal(totalFair(game({ czarp_total: 150 }), [bet({ fair_at_post: 147.5 })]).tag, "posted");
+  assert.equal(totalFair(game({ czarp_total: 150 }), [bet({ fair_at_post: 147.5, pick_tier: "track" })]).tag, undefined);
+  assert.equal(totalFair(game({ czarp_total: 150 }), [bet({ market: "spread", fair_at_post: 3 })]).tag, undefined);
+  assert.equal(totalFair(game({ czarp_total: 150 }), []).tag, undefined);
 });
 
 test("Drexel @ Maine 11-14 card: Favor chip, subtitle and footer agree", () => {
@@ -185,8 +185,8 @@ test("near-bar edges never display as meeting the bar", () => {
   assert.equal(fmtEdgeVsBar(0.0399, "spread"), "3.9%");
   assert.equal(fmtEdgeVsBar(0.0295, "total"), "2.9%");
   assert.equal(fmtEdgeVsBar(0, "spread"), "0.0%");
-  assert.equal(fmtEdgeVsBar(0.03, "total"), "3%");
-  assert.equal(fmtEdgeVsBar(0.04, "spread"), "4%");
+  assert.equal(fmtEdgeVsBar(0.03, "total"), "3.0%");
+  assert.equal(fmtEdgeVsBar(0.04, "spread"), "4.0%");
   assert.equal(fmtEdgeVsBar(0.0476, "total"), "4.8%");
   // Toss Up spread at 3.99%: headline and subtitle both read 3.9%.
   const g = game({ edge_now_pct_spread: 0.0399, edge_vs_open_pct_spread: 0.0399, edge_now_pct_total: 0.001, edge_vs_open_pct_total: 0.001, skip_reasons_total: [] });
@@ -214,4 +214,20 @@ test("line-move wording is one string everywhere", () => {
   assert.equal(knownSkipCodeLabel("line_moved_against", "3%"), HOLD_CODES.line_moved_against);
   assert.equal(knownSkipCodeLabel("kelly_too_small", "3%"), HOLD_CODES.kelly_too_small);
   for (const d of VERDICT_LADDER) assert.doesNotMatch(d.short, /total moved/);
+});
+
+test("one decimal style for every edge: posted, vs now, vs open, headline", () => {
+  assert.equal(fmtPlayPct(0.02), "2.0%");
+  assert.equal(fmtPlayPct(0.045), "4.5%");
+  // Posted 2% · vs now 2.0% used to mix styles.
+  const g = game({ edge_now_pct_total: 0.02, edge_vs_open_pct_total: 0.035, skip_reasons_total: [] });
+  const h = cardHeadline(g, [bet({ edge_at_post_pct: 0.02, line_edge_pct: 0.02 })]);
+  assert.equal(h.subtitle, "Posted 2.0% · vs now 2.0%");
+  assert.equal(h.edgeLabel, "2.0%");
+  assert.equal(
+    fmtPostedVsNow({ fair: 142, edge: 0.0173, line: 144.5, now: 144.5, vsOpen: 0.0373, market: "total" }),
+    "Posted 142.0 · 1.7% (line 144.5) → Now 144.5 · 3.7% vs open",
+  );
+  assert.equal(fmtPostedVsNow({ vsOpen: 0.0299, market: "total" }), "· 2.9% vs open");
+  for (const s of [h.subtitle!, h.edgeLabel!]) assert.doesNotMatch(s, /(?<![\d.])\d+%/);
 });

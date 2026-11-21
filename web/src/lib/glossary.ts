@@ -1,13 +1,14 @@
-/** Customer-facing definitions for game chips and style tags that are live on the site.
+/** Customer-facing definitions for verdicts, game chips and style tags that are live on the site.
  *
- *  Do not add verdict-ladder names here until that ladder is approved and
- *  shipping on chips. A parallel PR (web-verdict-ladder) will add those
- *  definitions from lib/verdicts.ts later.
+ *  Verdict entries are built from VERDICT_LADDER (lib/verdicts.ts), the single source for
+ *  their labels and copy; nothing is restated here.
  *
  *  Style-tag wording is adapted from ARCHETYPE_HINT until CZarp sends final copy.
  *  Soft Glass and Open Arc are hidden signals and are not listed here.
  */
-export type GlossaryGroup = "chip" | "style";
+import { VERDICT_LADDER, type VerdictLevel } from "./verdicts";
+
+export type GlossaryGroup = "verdict" | "chip" | "style";
 
 export type GlossaryEntry = {
   /** Stable id used by InfoTip and tests (kebab-case, or the style-tag name). */
@@ -20,7 +21,18 @@ export type GlossaryEntry = {
 export const GLOSSARY_ANCHOR = "glossary";
 export const GLOSSARY_HREF = `/methodology#${GLOSSARY_ANCHOR}`;
 
+const VERDICT_ID: Record<VerdictLevel, string> = { toss_up: "toss-up", lean: "lean", favor: "favor", official: "official-play" };
+
+/** Verdict ladder, weakest to strongest, straight from VERDICT_LADDER. */
+const VERDICT_ENTRIES: readonly GlossaryEntry[] = VERDICT_LADDER.map((d) => ({
+  id: VERDICT_ID[d.level],
+  title: d.label,
+  body: d.short,
+  group: "verdict" as const,
+}));
+
 export const GLOSSARY_ENTRIES: readonly GlossaryEntry[] = [
+  ...VERDICT_ENTRIES,
 
   // --- Game chips ---
   {
@@ -151,7 +163,7 @@ export const GLOSSARY_ENTRIES: readonly GlossaryEntry[] = [
     body: "This team's defense limits how often opponents shoot threes.",
     group: "style",
   },
-] as const;
+];
 
 export type GlossaryId = (typeof GLOSSARY_ENTRIES)[number]["id"];
 

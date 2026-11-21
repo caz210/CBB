@@ -6,7 +6,7 @@ import { createSupabaseServerClient } from "./supabase/server";
 import type { Sport } from "./sports";
 import type { Archetypes, GameInsight, LedgerRow, SlateGame, TierRecord, ValueBet } from "./types";
 import { portfolioRisk, computedLineEdge, type PortfolioRisk } from "./portfolio";
-import { parseTagList, visibleCopy, visibleTags, type ArchetypeTag } from "./archetypes";
+import { parseTagList, visibleCopy, visibleNotes, visibleTags, type ArchetypeTag } from "./archetypes";
 import { teamSlug, type ModelGrade, type TeamModelRecord, type TeamProfile } from "./teams";
 import {
   RANKING_SNAPSHOT_COLUMNS,
@@ -65,7 +65,8 @@ function toArchetypes(v: unknown): Archetypes {
     home_tentative: homeTent,
     away_tentative: awayTent,
     tentative: Boolean(a.tentative),
-    notes: strs(a.notes),
+    // Hidden-tag names (Soft Glass, Open Arc) never leave the server.
+    notes: visibleNotes(strs(a.notes)),
   };
 }
 
@@ -91,7 +92,7 @@ function toSlateGame(r: Row): SlateGame {
     market_spread: num(r.market_spread),
     market_total: num(r.market_total),
     market_source: (r.market_source ? str(r.market_source).toLowerCase() : null) as MarketSource | null,
-    reason: typeof r.reason === "string" && r.reason.trim() ? r.reason.trim() : null,
+    reason: visibleCopy(typeof r.reason === "string" ? r.reason : "") || null,
     proj_possessions: num(r.proj_possessions),
     upset_alert: r.upset_alert === true,
     upset_reason: visibleCopy(typeof r.upset_reason === "string" ? r.upset_reason : "") || null,
@@ -131,7 +132,6 @@ function toValueBet(r: Row): ValueBet {
     kelly_quarter_units: num(r.kelly_quarter_units),
     pick_tier: isPickTier(r.tier) ? r.tier : "official",
     logged_at: postedAt,
-    model_version: r.model_name ? str(r.model_name) : r.model_version ? str(r.model_version) : null,
     posted_line: line,
     posted_odds: num(r.price) ?? num(r.posted_odds),
     pick_hash: r.pick_hash ? str(r.pick_hash) : null,
@@ -148,7 +148,6 @@ function toValueBet(r: Row): ValueBet {
 
 function applyLocked(v: ValueBet, r: Row) {
   if (r.pick_id) v.pick_id = str(r.pick_id);
-  if (r.model_name) v.model_version = str(r.model_name);
   v.fair_at_post = num(r.fair_at_post);
   v.line_at_post = num(r.line_at_post) ?? v.line_at_post;
   v.total_at_post = num(r.total_at_post);
@@ -224,6 +223,11 @@ export type SlateData = {
   updatedAt: string | null;
   /** Every game is completed (final or graded). */
   finished: boolean;
+  /** Slate team name → team_aliases spellings (normalised), so the slate search matches aliases on first paint.
+   *  null when the read failed; the board then falls back to the /api/teams index. */
+  aliases?: Record<string, string[]> | null;
+  /** Empty slate only: does the games table list anything for this date? null = not checked / read failed. */
+  hasScheduledGames?: boolean | null;
   /** max(final_at) on a finished slate; null if none of the games have a stamp. */
   finalAt: string | null;
   finalAtEstimated: boolean;
@@ -251,6 +255,8 @@ export async function loadSlateFrom(sb: SB, sport: Sport, date: string): Promise
   let finished = false;
   let finalAt: string | null = null;
   let finalAtEstimated = false;
+  let hasScheduledGames: boolean | null = null;
+  let aliases: Record<string, string[]> | null = null;
   if (games.length) {
     const b = await sb.from("value_bets").select("*").eq("sport", sport.key).in("game_id", games.map((x) => x.game_id));
     if (b.error) return fail("value_bets", b.error);
@@ -305,6 +311,7 @@ export async function loadSlateFrom(sb: SB, sport: Sport, date: string): Promise
     // Past slates keep the reason that was stored with that day's projection instead.
     if (date >= todayCT()) await attachNewCoaches(sb, games, st.data ?? []);
     await attachTeamTags(sb, games, st.data ?? []);
+    aliases = await loadSlateAliases(sb, games, (st.data ?? []) as Row[]);
     const ins = await loadInsights(sb, ids);
     for (const x of games) {
       x.insight = ins.get(x.game_id);
@@ -312,25 +319,23 @@ export async function loadSlateFrom(sb: SB, sport: Sport, date: string): Promise
     }
     tracked = all.filter((x) => x.pick_tier === "track");
   } else {
-    const [n, p] = await Promise.all([
+    const [n, p, sched] = await Promise.all([
       sb.from("slate_games").select("game_date").eq("sport", sport.key).gt("game_date", date).order("game_date").limit(1),
       sb.from("slate_games").select("game_date").eq("sport", sport.key).lt("game_date", date).order("game_date", { ascending: false }).limit(1),
+      // Tells "no games today" apart from "today's slate hasn't posted yet". A failed read stays null.
+      Promise.resolve(sb.from("games").select("id").eq("league", sport.league).eq("date", date).limit(1))
+        .then((r) => (r.error ? null : (r.data ?? []).length > 0), () => null),
     ]);
+    hasScheduledGames = sched;
     nextDate = n.data?.[0] ? str(n.data[0].game_date) : null;
     prevDate = p.data?.[0] ? str(p.data[0].game_date) : null;
   }
-  return { state: "live", data: { date, games, bets, tracked, prevDate, nextDate, updatedAt, finished, finalAt, finalAtEstimated } };
+  return { state: "live", data: { date, games, bets, tracked, prevDate, nextDate, updatedAt, finished, finalAt, finalAtEstimated, hasScheduledGames, aliases } };
 }
 
 
 const V2 = "czarp-v2";
 const V1_TOTALS = "czarp-v1-totals";
-
-function modelLabel(v: string) {
-  if (v === V1_TOTALS) return "czarp-v1-totals";
-  if (v === V2) return "czarp-v2";
-  return v;
-}
 
 /** Latest projection row per game + model_version. */
 function latestByModel(rows: Row[]) {
@@ -351,21 +356,20 @@ function attachRawEdges(games: SlateGame[], projRows: Row[]) {
     const spread = num(v2?.spread) ?? g.proj_spread;
     const totalV2 = num(v2?.total) ?? g.proj_total;
     const totalV1 = num(v1?.total);
-    g.proj_total_v2 = totalV2;
-    g.proj_total_v1 = totalV1;
-    g.over_prob_v1 = num(v1?.over_prob);
+    // Model names and the second-look total stay on the server; only CZarp's official total ships.
+    g.czarp_total = totalV1;
+    g.czarp_over_prob = num(v1?.over_prob);
     const vegasT = g.market_total ?? totalV2 ?? totalV1;
     const spreadE = computedLineEdge(spread, g.market_spread, vegasT);
     const totV2E = computedLineEdge(totalV2, g.market_total, g.market_total ?? vegasT);
     const totV1E = computedLineEdge(totalV1, g.market_total, g.market_total ?? vegasT);
-    const cands: { pct: number; market: "spread" | "total"; model: string }[] = [];
-    if (spreadE != null) cands.push({ pct: spreadE, market: "spread", model: V2 });
-    if (totV1E != null) cands.push({ pct: totV1E, market: "total", model: V1_TOTALS });
-    if (totV2E != null) cands.push({ pct: totV2E, market: "total", model: V2 });
+    const cands: { pct: number; market: "spread" | "total" }[] = [];
+    if (spreadE != null) cands.push({ pct: spreadE, market: "spread" });
+    if (totV1E != null) cands.push({ pct: totV1E, market: "total" });
+    if (totV2E != null) cands.push({ pct: totV2E, market: "total" });
     const best = cands.sort((a, z) => z.pct - a.pct)[0];
     g.rawEdge = best?.pct ?? null;
     g.rawEdgeMarket = best?.market ?? null;
-    g.rawEdgeModel = best ? modelLabel(best.model) : null;
   }
 }
 
@@ -424,6 +428,38 @@ async function attachNewCoaches(sb: SB, games: SlateGame[], gameRows: Row[]) {
 
 /** Replace each team's capped slate tags with every fired public tag from team_profile_latest.tags_all.
  *  The stored top-2 list is kept as homeTop/awayTop for the 320px compact card. Failures are non-fatal. */
+/** team_aliases for the teams on this slate, keyed by the slate's team name. Never throws; null on failure. */
+async function loadSlateAliases(sb: SB, games: SlateGame[], gameRows: Row[]): Promise<Record<string, string[]> | null> {
+  const nameById = new Map<number, Set<string>>();
+  const add = (id: number | null, name: string) => {
+    if (!id || !name) return;
+    const set = nameById.get(id) ?? new Set<string>();
+    set.add(name);
+    nameById.set(id, set);
+  };
+  const rowById = new Map(gameRows.map((r) => [Number(r.id), r]));
+  for (const g of games) {
+    const r = rowById.get(g.game_id);
+    if (!r) continue;
+    add(num(r.home_team_id), g.home);
+    add(num(r.away_team_id), g.away);
+  }
+  if (!nameById.size) return {};
+  try {
+    const q = await sb.from("team_aliases").select("team_id,alias").in("team_id", [...nameById.keys()]).limit(5000);
+    if (q.error) return null;
+    const out: Record<string, string[]> = {};
+    for (const r of (q.data ?? []) as Row[]) {
+      const alias = str(r.alias);
+      if (!alias) continue;
+      for (const name of nameById.get(Number(r.team_id)) ?? []) (out[name] ??= []).push(alias);
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
 async function attachTeamTags(sb: SB, games: SlateGame[], gameRows: Row[]) {
   const idByGame = new Map<number, { home?: number | null; away?: number | null }>();
   for (const r of gameRows) {
@@ -528,7 +564,7 @@ async function loadInsights(sb: SB, ids: number[]): Promise<Map<number, GameInsi
         home_win_prob: num(p.home_win_prob), home_cover_prob: num(p.home_cover_prob), over_prob: num(p.over_prob),
         neutral: neutral.get(id) ?? false,
         open_spread: num(o?.spread), cur_spread: num(c?.spread), open_total: num(o?.total), cur_total: num(c?.total),
-        reason: typeof p.reason === "string" && p.reason.trim() ? p.reason.trim() : null,
+        reason: visibleCopy(typeof p.reason === "string" ? p.reason : "") || null,
         proj_possessions: num(p.proj_possessions),
         upset_alert: p.upset_alert === true,
         upset_reason: visibleCopy(typeof p.upset_reason === "string" ? p.upset_reason : "") || null,
@@ -901,8 +937,8 @@ export async function loadTeam(sport: Sport, slug: string): Promise<Loaded<TeamP
       const v1 = await sb.from("projections").select("total,over_prob").eq("game_id", g.game_id)
         .eq("model_version", V1_TOTALS).order("created_at", { ascending: false }).limit(1);
       if (!v1.error && v1.data?.[0]) {
-        g.proj_total_v1 = num(v1.data[0].total);
-        g.over_prob_v1 = num(v1.data[0].over_prob);
+        g.czarp_total = num(v1.data[0].total);
+        g.czarp_over_prob = num(v1.data[0].over_prob);
       }
     } catch { /* Total FV is hidden without v1 */ }
     g.neutral = (await neutralP).has(g.game_id);

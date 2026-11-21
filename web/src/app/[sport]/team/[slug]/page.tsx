@@ -8,7 +8,9 @@ import { loadTeam } from "@/lib/data";
 import {
   czarpAtsLine,
   czarpTotalLine,
+  NO_OFFICIAL_PICKS_YET,
   officialMarketDisplay,
+  officialOverallDisplay,
   teamSubtitleParts,
   type TeamSubtitlePart,
 } from "@/lib/teamPage";
@@ -217,14 +219,18 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
                 { l: "O/U", v: `${r.model_ou_wins}-${r.model_ou_losses}-${r.model_ou_pushes}` },
               ]}
             />
-            <RecordCard
-              title="Official picks"
-              rows={[
-                { l: "Overall", v: `${r.official_wins}-${r.official_losses}-${r.official_pushes}` },
-                officialMarketRow("ATS", r.official_ats_wins, r.official_ats_losses),
-                officialMarketRow("O/U", r.official_ou_wins, r.official_ou_losses),
-              ]}
-            />
+            {officialOverallDisplay(r.official_wins, r.official_losses, r.official_pushes) == null ? (
+              <RecordCard title="Official picks" rows={[]} empty={NO_OFFICIAL_PICKS_YET} />
+            ) : (
+              <RecordCard
+                title="Official picks"
+                rows={[
+                  { l: "Overall", v: officialOverallDisplay(r.official_wins, r.official_losses, r.official_pushes)! },
+                  officialMarketRow("ATS", r.official_ats_wins, r.official_ats_losses),
+                  officialMarketRow("O/U", r.official_ou_wins, r.official_ou_losses),
+                ]}
+              />
+            )}
           </div>
         )}
       </section>
@@ -314,10 +320,11 @@ function officialMarketRow(label: string, wins: number, losses: number) {
   return { l: label, v: d.value ?? "", hint: d.hint, quiet: d.quiet };
 }
 
-function RecordCard({ title, rows }: { title: string; rows: { l: string; v: string; hint?: string; quiet?: boolean }[] }) {
+function RecordCard({ title, rows, empty }: { title: string; rows: { l: string; v: string; hint?: string; quiet?: boolean }[]; empty?: string }) {
   return (
     <div className="rounded-xl border border-ink-700 bg-ink-850 p-3">
       <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">{title}</div>
+      {empty && <p className="text-sm text-zinc-500">{empty}</p>}
       <div className="space-y-1.5">
         {rows.map((x) => (
           <div key={x.l} className="flex items-center justify-between gap-2 text-sm">

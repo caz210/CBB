@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { H, LegalPage } from "@/components/LegalPage";
 import { SHOW_METHODOLOGY_PLACEHOLDERS, visibleMethodologySections } from "@/lib/methodology";
-import { GLOSSARY_ANCHOR, glossaryEntriesIn } from "@/lib/glossary";
+import { GLOSSARY_ANCHOR, glossaryEntriesIn, type GlossaryGroup } from "@/lib/glossary";
 
 export const metadata: Metadata = { title: "Methodology" };
 
@@ -14,7 +14,7 @@ function Placeholder({ children }: { children: React.ReactNode }) {
   );
 }
 
-function GlossaryBlock({ title, group }: { title: string; group: "chip" | "style" }) {
+function GlossaryBlock({ title, group }: { title: string; group: GlossaryGroup }) {
   const entries = glossaryEntriesIn(group);
   return (
     <div className="mt-4">
@@ -38,7 +38,7 @@ export default function MethodologyPage() {
       eyebrow="How it works"
       title="Methodology"
     >
-      <p>This page will explain how CZarp builds projections, measures edge, and grades the public book.</p>
+      <p>How CZarp labels each game, and what every chip on the site means. Fuller notes on how CZarp builds projections and grades the public book are on the way.</p>
       {sections.map((s) => (
         <div key={s.title}>
           <H>{s.title}</H>
@@ -47,7 +47,8 @@ export default function MethodologyPage() {
       ))}
       <section id={GLOSSARY_ANCHOR} className="scroll-mt-24">
         <H>Glossary</H>
-        <p>Tap any chip on the site for the same definition. Style tags describe how a team plays relative to the rest of D-I; a dashed chip marked “· tent.” means the sample is still early.</p>
+        <p>Tap the ⓘ on any verdict, game chip or style tag on the site for its definition. Each game gets one verdict for its headline market, from weakest to strongest. Style tags describe how a team plays relative to the rest of D-I; a dashed chip marked “· tent.” means the sample is still early.</p>
+        <GlossaryBlock title="Verdicts" group="verdict" />
         <GlossaryBlock title="Game chips" group="chip" />
         <GlossaryBlock title="Style tags" group="style" />
       </section>

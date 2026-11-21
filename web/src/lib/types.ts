@@ -60,14 +60,11 @@ export type SlateGame = {
   /** Raw |fair − price| ÷ Vegas total (not official-pick sort). */
   rawEdge?: number | null;
   rawEdgeMarket?: Market | null;
-  /** Model that produced the total (or spread) used for rawEdge. */
-  rawEdgeModel?: string | null;
-  /** czarp-v1-totals: the official totals model. Every total number on a card comes from here. */
-  proj_total_v1?: number | null;
-  /** czarp-v1-totals over probability (insight.over_prob is the default model's). */
-  over_prob_v1?: number | null;
-  /** czarp-v2 total (team scores added up): a second look, never shown as CZarp's total. */
-  proj_total_v2?: number | null;
+  /** CZarp's official total (the totals model). Every total number on a card comes from here.
+   *  Model names and the team-score-sum total are not shipped to the client. */
+  czarp_total?: number | null;
+  /** Over probability from the same official totals model (insight.over_prob is the default model's). */
+  czarp_over_prob?: number | null;
   coachLocks?: import("./coach").NewCoachLock[];
   skip_reasons_spread?: string[] | null;
   skip_reasons_total?: string[] | null;
@@ -114,7 +111,6 @@ export type ValueBet = {
   kelly_quarter_units: number | null; // 1u = 1% of bankroll
   pick_tier?: PickTier; // 'official' (staked) or 'track' (paper-only 1u)
   logged_at?: string | null; // timestamptz the pick was posted
-  model_version?: string | null;
   /** Market line at post (picks.line_or_price). */
   posted_line?: number | null;
   /** American odds at post (picks.price). */

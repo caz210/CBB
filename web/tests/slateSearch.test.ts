@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildIndex, type SearchTeam } from "../src/lib/teamSearch";
 import {
-  aliasByNameFromIndex, echoSlateQuery, filterSlateGames, isEmptySlateQuery,
+  aliasByNameFromIndex, aliasByNameFromRecord, echoSlateQuery, filterSlateGames, isEmptySlateQuery,
   isSlateAliasSearchPending, slateDateHref, slateGameMatches, teamMatchesQuery,
 } from "../src/lib/slateSearch";
 
@@ -174,4 +174,18 @@ test("alias-only queries stay in Searching… until the index loads, then show t
   assert.equal(pending({ timedOut: true }), false);
   assert.equal(pending({ query: "" }), false);
   assert.equal(pending({ query: "   " }), false);
+});
+
+test("Searching… only while an alias-only lookup is possible: not once the page carries the slate's aliases", () => {
+  const base = { query: "zzzz", matchCount: 0, load: "loading" as const, timedOut: false };
+  // Page shipped this slate's team_aliases: a no-match is a real no-match, no Searching… flash.
+  assert.equal(isSlateAliasSearchPending({ ...base, slateAliasesKnown: true }), false);
+  assert.equal(isSlateAliasSearchPending({ ...base, query: "ualbany", slateAliasesKnown: true }), false);
+  // Slate aliases failed to load: fall back to waiting on /api/teams.
+  assert.equal(isSlateAliasSearchPending({ ...base, query: "ualbany", slateAliasesKnown: false }), true);
+  // And the server aliases match on first paint, before /api/teams answers.
+  const aliases = aliasByNameFromRecord({ Albany: ["ualbany", "great danes"] });
+  assert.equal(slateGameMatches({ away: "Albany", home: "Duke" }, "ualbany", aliases), true);
+  assert.equal(slateGameMatches({ away: "Albany", home: "Duke" }, "zzzz", aliases), false);
+  assert.equal(aliasByNameFromRecord(null), undefined);
 });
