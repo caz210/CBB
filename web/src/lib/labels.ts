@@ -124,6 +124,14 @@ export function fmtPlayPct(x: number) {
   return `${(x * 100).toFixed(1).replace(/\.0$/, "")}%`;
 }
 
+/** Edge % next to the play bar. At or above the bar: same as fmtPlayPct. Below it: floored to one
+ *  decimal, so a near-miss never reads as meeting the bar (0.0297 → "2.9%", never "3%"). */
+export function fmtEdgeVsBar(x: number, market: Market) {
+  if (x >= PLAY_THRESHOLD[market]) return fmtPlayPct(x);
+  const floored = Math.floor(x * 1000 + 1e-9) / 10;
+  return `${Math.max(0, floored).toFixed(1)}%`;
+}
+
 /** Threshold as a whole percent for copy: 0.04 → "4%". */
 export function fmtThresholdPct(market: Market) {
   return `${Math.round(PLAY_THRESHOLD[market] * 100)}%`;

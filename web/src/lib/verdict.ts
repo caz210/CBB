@@ -4,10 +4,10 @@
  *  lives in lib/verdicts.ts. If the edge columns are missing/null, the vs-open / vs-now line is
  *  hidden and the market reads Toss Up unless it has a posted official pick.
  */
-import { fmtPlayPct, fmtThresholdPct, type Market } from "./labels";
+import { fmtEdgeVsBar, fmtPlayPct, fmtThresholdPct, type Market } from "./labels";
 import type { SlateGame, ValueBet } from "./types";
 import { marketPauseText } from "./coach";
-import { ladderLevel, VERDICT_RANK, type HoldCode, type VerdictLevel } from "./verdicts";
+import { HOLD_CODES, ladderLevel, VERDICT_RANK, type HoldCode, type VerdictLevel } from "./verdicts";
 
 /** The pipeline's stored verdict_* column (not the customer ladder). */
 export type StoredVerdict = "official" | "low_value";
@@ -65,6 +65,10 @@ export type CardHeadline = {
   holds: HoldCode[];
   /** Posted edge for official plays; stored edge_now otherwise. Null if we don't have it. */
   edgePct: number | null;
+  /** edgePct formatted for display; below the bar it is floored so it never reads as meeting it. */
+  edgeLabel: string | null;
+  /** No stored edge for either market (no line yet). */
+  noLine: boolean;
   officialBet: ValueBet | null;
   edgeNow: number | null;
   edgeVsOpen: number | null;
@@ -93,13 +97,15 @@ export function cardHeadline(g: SlateGame, officialBets: ValueBet[]): CardHeadli
     const edgeVsOpen = marketEdgeVsOpen(g, market);
     const postedLabel = FINITE(posted) ? fmtPlayPct(posted) : null;
     const subtitle = postedLabel && edgeNow != null
-      ? `Posted ${postedLabel} · vs now ${fmtPlayPct(edgeNow)}`
+      ? `Posted ${postedLabel} · vs now ${fmtEdgeVsBar(edgeNow, market)}`
       : null;
     return {
       market,
       verdict: "official",
       holds: [],
       edgePct: FINITE(posted) ? posted : null,
+      edgeLabel: postedLabel,
+      noLine: false,
       officialBet,
       edgeNow,
       edgeVsOpen,
@@ -107,15 +113,15 @@ export function cardHeadline(g: SlateGame, officialBets: ValueBet[]): CardHeadli
     };
   }
 
-  // No posted pick: rank both markets on the ladder.
+  // No posted pick: rank both markets on the ladder. A market counts once it has any stored edge
+  // (totals are judged on the open edge, so an open-only total can still headline).
   const spreadNow = marketEdgeNow(g, "spread");
   const totalNow = marketEdgeNow(g, "total");
+  const has = (m: Market) => marketEdgeNow(g, m) != null || marketEdgeVsOpen(g, m) != null;
   let market: Market | null = null;
-  if (spreadNow != null || totalNow != null) {
-    const s = marketVerdict(g, [], "spread");
-    const t = marketVerdict(g, [], "total");
-    const rs = spreadNow == null ? -1 : VERDICT_RANK[s.level];
-    const rt = totalNow == null ? -1 : VERDICT_RANK[t.level];
+  if (has("spread") || has("total")) {
+    const rs = has("spread") ? VERDICT_RANK[marketVerdict(g, [], "spread").level] : -1;
+    const rt = has("total") ? VERDICT_RANK[marketVerdict(g, [], "total").level] : -1;
     market = rs !== rt ? (rs > rt ? "spread" : "total") : (spreadNow ?? -1) >= (totalNow ?? -1) ? "spread" : "total";
   }
 
@@ -127,6 +133,8 @@ export function cardHeadline(g: SlateGame, officialBets: ValueBet[]): CardHeadli
     verdict: v.level,
     holds: v.holds,
     edgePct: edgeNow,
+    edgeLabel: market && edgeNow != null ? fmtEdgeVsBar(edgeNow, market) : null,
+    noLine: market == null,
     officialBet: null,
     edgeNow,
     edgeVsOpen,
@@ -137,13 +145,13 @@ export function cardHeadline(g: SlateGame, officialBets: ValueBet[]): CardHeadli
 function notPostedSubtitle(market: Market | null, edgeNow: number | null, edgeVsOpen: number | null): string | null {
   if (!market) return null;
   const parts: string[] = [];
-  if (edgeVsOpen != null) parts.push(`vs open ${fmtPlayPct(edgeVsOpen)} (needs ${fmtThresholdPct(market)})`);
-  if (edgeNow != null) parts.push(`vs now ${fmtPlayPct(edgeNow)}`);
+  if (edgeVsOpen != null) parts.push(`vs open ${fmtEdgeVsBar(edgeVsOpen, market)} (needs ${fmtThresholdPct(market)})`);
+  if (edgeNow != null) parts.push(`vs now ${fmtEdgeVsBar(edgeNow, market)}`);
   return parts.length ? parts.join(" · ") : null;
 }
 
 const COACH_SKIP = "new_coach_lock";
-const LINE_MOVED_LABEL = "market moved 3+ pts away from CZarp since open";
+const LINE_MOVED_LABEL: string = HOLD_CODES.line_moved_against;
 
 /** Label for a known skip code; null for the coach code and for codes we don't know. */
 export function knownSkipCodeLabel(code: string, thresholdPct: string): string | null {
@@ -154,7 +162,7 @@ export function knownSkipCodeLabel(code: string, thresholdPct: string): string |
     case "no_opening_line": return "no opening line yet";
     case "no_current_line": return "no current line";
     case "game_started": return "game already started";
-    case "kelly_too_small": return "stake under $1";
+    case "kelly_too_small": return HOLD_CODES.kelly_too_small;
     default: return null;
   }
 }

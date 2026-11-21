@@ -21,7 +21,7 @@ export type VerdictDef = {
 /** Hold rules that keep a both-bars edge from posting. Keys are the pipeline's skip codes. */
 export const HOLD_CODES = {
   new_coach_lock: "new-coach pause",
-  line_moved_against: "total moved 3+ pts away from CZarp's number since the open",
+  line_moved_against: "market moved 3+ pts away from CZarp since open",
   kelly_too_small: "stake under $1",
 } as const;
 export type HoldCode = keyof typeof HOLD_CODES;
@@ -31,7 +31,7 @@ export const VERDICT_LADDER: readonly VerdictDef[] = [
   {
     level: "toss_up",
     label: "Toss Up",
-    short: "The edge at today's line is below our play bar (4% sides, 3% totals). Not a play.",
+    short: "The edge is below our play bar (4% sides, 3% totals), so it's not a play.",
   },
   {
     level: "lean",
@@ -41,14 +41,17 @@ export const VERDICT_LADDER: readonly VerdictDef[] = [
   {
     level: "favor",
     label: "Favor",
-    short: "The edge clears our bar at the open and now, but a hold rule kept it from posting: a new-coach pause, a total that moved 3+ pts away from CZarp since the open, or a stake under $1.",
+    short: "The edge clears our bar vs the opening line (sides need today's line too), but a hold rule kept it from posting: a new-coach pause, a market that moved 3+ pts away from CZarp since open, or a stake under $1.",
   },
   {
     level: "official",
     label: "Official Play",
-    short: "Posted, time-stamped, and graded in the public record.",
+    short: "A posted pick. Official Plays are time-stamped and graded in the public record.",
   },
 ] as const;
+
+/** Tip for a card with no line yet: no edge to grade, so nothing about the bar. */
+export const NO_LINE_TIP = { title: "Toss Up", body: "No line yet, so there's no edge to grade. Not a play." } as const;
 
 export const VERDICT_RANK: Record<VerdictLevel, number> = { toss_up: 0, lean: 1, favor: 2, official: 3 };
 
@@ -81,15 +84,28 @@ export function holdCodes(codes: readonly string[] | null | undefined): HoldCode
 
 /** Map one market to its ladder level.
  *  - Official Play: posted pick.
- *  - Toss Up: edge now below the bar (or no stored edge).
- *  - Favor: edge clears the bar now AND vs the open, and a hold code blocked it.
- *  - Lean: edge clears the bar now otherwise (not vs the open; or, on rows from before skip codes
- *    were stored, both bars with no recorded hold, which we can't call Favor). */
+ *  - Sides (spread/moneyline): the pipeline needs both bars.
+ *      Toss Up: edge now below the bar (or no stored edge).
+ *      Favor: edge now AND edge vs open clear the bar, and a hold code blocked it.
+ *      Lean: edge now clears, otherwise (open doesn't clear; or a pre-skip-code row).
+ *  - Totals: the pipeline judges the open bar only (no current-line rule; posted totals can
+ *    have an edge now under 3%), so the open edge decides:
+ *      Favor: edge vs open clears the bar and a hold code blocked it (edge now doesn't matter).
+ *      Lean: edge now clears but the open doesn't; or the open clears with no recorded hold
+ *        (only rows from before skip codes were stored, 11-05..11-09).
+ *      Toss Up: neither edge clears the bar (or no stored edge). */
 export function ladderLevel(x: LadderInput): LadderResult {
   if (x.official) return { level: "official", holds: [] };
   const bar = PLAY_THRESHOLD[x.market];
-  if (!finite(x.edgeNow) || x.edgeNow < bar) return { level: "toss_up", holds: [] };
+  const nowClears = finite(x.edgeNow) && x.edgeNow >= bar;
+  const openClears = finite(x.edgeVsOpen) && x.edgeVsOpen >= bar;
   const holds = holdCodes(x.skipCodes);
-  if (finite(x.edgeVsOpen) && x.edgeVsOpen >= bar && holds.length) return { level: "favor", holds };
+  if (x.market === "total") {
+    if (openClears && holds.length) return { level: "favor", holds };
+    if (nowClears || openClears) return { level: "lean", holds: [] };
+    return { level: "toss_up", holds: [] };
+  }
+  if (!nowClears) return { level: "toss_up", holds: [] };
+  if (openClears && holds.length) return { level: "favor", holds };
   return { level: "lean", holds: [] };
 }

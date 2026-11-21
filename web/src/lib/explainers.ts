@@ -1,5 +1,5 @@
 /** Short tap-to-learn copy. No promises of winning — buy at value, small samples prove nothing. */
-import { verdictDef } from "./verdicts";
+import { NO_LINE_TIP, verdictDef } from "./verdicts";
 
 /** Verdict ladder tips come from the shared ladder definitions (lib/verdicts.ts). */
 const ladderTip = (level: Parameters<typeof verdictDef>[0]) => ({ title: verdictDef(level).label, body: verdictDef(level).short });
@@ -7,7 +7,7 @@ const ladderTip = (level: Parameters<typeof verdictDef>[0]) => ({ title: verdict
 export const EXPLAINERS = {
   tossUp: ladderTip("toss_up"),
   favor: ladderTip("favor"),
-  officialPlay: ladderTip("official"),
+  noLine: NO_LINE_TIP,
   edge: {
     title: "Edge",
     body: "The gap between our number and the Vegas price, as a share of the expected total score. Example: we like a team by 4.5 more points than Vegas, and the total is 154.5 → edge ≈ 2.9%. Bigger edge means a better price — not a guaranteed win. One bet, or a few dozen, proves nothing.",
@@ -36,6 +36,8 @@ export const EXPLAINERS = {
     title: "Lean",
     body: ladderTip("lean").body,
   },
+  /** Same key #61 (web-style-tags) reads; derived from lib/verdicts.ts so there is one source. */
+  officialPlay: ladderTip("official"),
   openLineRule: {
     title: "Why we use the opening line",
     body: "We only play edges that were there at the open, so we're never chasing line moves. A number that looks good vs the current price is only a Lean if it wasn't there when the market opened.",

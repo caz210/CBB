@@ -24,10 +24,11 @@ const VERDICT_TIP: Record<VerdictLevel, ExplainerKey> = {
   toss_up: "tossUp",
 };
 
-/** One verdict chip (Toss Up / Lean / Favor / Official Play). Tap for the definition. */
-export function VerdictChip({ level, className = "" }: { level: VerdictLevel; className?: string }) {
+/** One verdict chip (Toss Up / Lean / Favor / Official Play). Tap for the definition.
+ *  noLine: a card with no line yet gets a neutral tip, never "below the bar". */
+export function VerdictChip({ level, noLine = false, className = "" }: { level: VerdictLevel; noLine?: boolean; className?: string }) {
   return (
-    <InfoTip term={VERDICT_TIP[level]} triggerClassName={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${VERDICT_STYLE[level]} ${CHIP} ${className}`}>
+    <InfoTip term={noLine && level === "toss_up" ? "noLine" : VERDICT_TIP[level]} triggerClassName={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${VERDICT_STYLE[level]} ${CHIP} ${className}`}>
       {verdictLabel(level)}
     </InfoTip>
   );
@@ -37,7 +38,7 @@ function StatusTagView({ tag }: { tag: StatusTag }) {
   if (tag.kind === "pause") {
     return <NewCoachChip locks={tag.locks} market={tag.market} className={CHIP} />;
   }
-  return <VerdictChip level={tag.verdict} />;
+  return <VerdictChip level={tag.verdict} noLine={tag.noLine} />;
 }
 
 /** Up to STATUS_TAG_MAX status tags. Verdict first; Neutral and TV are not rendered here. */

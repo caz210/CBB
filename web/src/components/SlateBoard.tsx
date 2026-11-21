@@ -2,7 +2,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { SlateGame, ValueBet } from "@/lib/types";
-import { LOCKED_NOTE, MARKET_LABEL, finalLabel, fmtLine, fmtPostedStamp, fmtPlayPct, fmtWinProb, fmtTipoff, pct, signedPct } from "@/lib/labels";
+import { LOCKED_NOTE, MARKET_LABEL, finalLabel, fmtLine, fmtPostedStamp, fmtWinProb, fmtTipoff, pct, signedPct } from "@/lib/labels";
 import { useWatchlist } from "@/lib/watchlist";
 import { weaknessesOnly } from "@/lib/archetypes";
 import { teamHref } from "@/lib/teams";
@@ -299,11 +299,11 @@ function GameCard({ g, sportKey, bets, watched, tvHot, onWatch, onOpen, onGame }
       {single ? (
         <button type="button" onClick={openSingle} aria-label={`Open ${single.side} details`}
           className="flex w-full items-end justify-between gap-3 border-b border-ink-700/40 px-4 py-3 text-left hover:bg-ink-850/60">
-          <HeadlineBody headline={headline} subtitle={edge.subtitle} hasEdge={hasEdge} verdict={edge.verdict} edgePct={edge.edgePct} />
+          <HeadlineBody headline={headline} subtitle={edge.subtitle} hasEdge={hasEdge} verdict={edge.verdict} edgeLabel={edge.edgeLabel} />
         </button>
       ) : (
         <div className="flex items-end justify-between gap-3 border-b border-ink-700/40 px-4 py-3">
-          <HeadlineBody headline={headline} subtitle={edge.subtitle} hasEdge={hasEdge} verdict={edge.verdict} edgePct={edge.edgePct} />
+          <HeadlineBody headline={headline} subtitle={edge.subtitle} hasEdge={hasEdge} verdict={edge.verdict} edgeLabel={edge.edgeLabel} />
         </div>
       )}
 
@@ -421,8 +421,8 @@ function MarketStat({ label, fair, price, refTeam }: { label: string; fair: stri
   );
 }
 
-function HeadlineBody({ headline, subtitle, hasEdge, verdict, edgePct }: {
-  headline: string; subtitle?: string | null; hasEdge: boolean; verdict: VerdictLevel; edgePct: number | null;
+function HeadlineBody({ headline, subtitle, hasEdge, verdict, edgeLabel }: {
+  headline: string; subtitle?: string | null; hasEdge: boolean; verdict: VerdictLevel; edgeLabel: string | null;
 }) {
   return (
     <>
@@ -439,7 +439,7 @@ function HeadlineBody({ headline, subtitle, hasEdge, verdict, edgePct }: {
         )}
       </div>
       <div className={`shrink-0 font-mono text-4xl font-black leading-none ${edgeNumberClass(hasEdge, verdict)}`}>
-        {hasEdge && edgePct != null ? fmtPlayPct(edgePct) : "—"}
+        {hasEdge && edgeLabel ? edgeLabel : "—"}
       </div>
     </>
   );
@@ -561,7 +561,7 @@ function GameSheet({ g, sportKey, bets, tvHot, onClose }: { g: SlateGame | null;
             )}
           </div>
           <div className={`shrink-0 font-mono text-4xl font-black ${edgeNumberClass(hasEdge, edge.verdict)}`}>
-            {hasEdge && edge.edgePct != null ? fmtPlayPct(edge.edgePct) : "—"}
+            {hasEdge && edge.edgeLabel ? edge.edgeLabel : "—"}
           </div>
         </div>
         <SheetSecondary g={g} bets={bets} />

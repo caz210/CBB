@@ -7,7 +7,7 @@ import { getSport } from "@/lib/sports";
 import { loadTeam } from "@/lib/data";
 import { teamHref } from "@/lib/teams";
 import { matchupHref } from "@/lib/matchup";
-import { GAME_STATUS_LABEL, finalLabel, fmtGameDate, fmtLine, fmtPlayPct, fmtTipoff } from "@/lib/labels";
+import { GAME_STATUS_LABEL, finalLabel, fmtGameDate, fmtLine, fmtTipoff } from "@/lib/labels";
 import { ComingSoon } from "@/components/ComingSoon";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
@@ -136,7 +136,7 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
                 <StatusChips g={next} bets={next.officialBets ?? []} />
               </div>
               <div className={`font-mono text-4xl font-black ${nextEdge?.edgePct == null ? "text-zinc-700" : nextEdge.verdict === "official" ? "text-edge-400" : "text-zinc-500"}`}>
-                {nextEdge?.edgePct == null ? "—" : fmtPlayPct(nextEdge.edgePct)}
+                {nextEdge?.edgeLabel ?? "—"}
               </div>
               <div className="text-[11px] text-zinc-500">{nextEdge?.subtitle ?? (nextEdge?.market ?? "fair vs price")}</div>
             </div>

@@ -23,7 +23,7 @@ export type StatusTagKind = (typeof STATUS_TAG_PRIORITY)[number];
 
 export type StatusTag =
   | { kind: "pause"; locks: NewCoachLock[]; market: Market | null }
-  | { kind: "verdict"; verdict: VerdictLevel; holds: HoldCode[] };
+  | { kind: "verdict"; verdict: VerdictLevel; holds: HoldCode[]; noLine: boolean };
 
 /** Stable labels for tests and debugging. */
 export function statusTagLabel(t: StatusTag): string {
@@ -36,7 +36,7 @@ export function pickStatusTags(g: SlateGame, bets: ValueBet[]): StatusTag[] {
   const locks = lockedCoachLocks(g.coachLocks);
 
   const byKind: Record<StatusTagKind, StatusTag[]> = {
-    verdict: [{ kind: "verdict", verdict: h.verdict, holds: h.holds }],
+    verdict: [{ kind: "verdict", verdict: h.verdict, holds: h.holds, noLine: h.noLine }],
     pause: locks.length ? [{ kind: "pause", locks, market: h.market }] : [],
     value: [],
   };

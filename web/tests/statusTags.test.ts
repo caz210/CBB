@@ -41,7 +41,7 @@ test("STATUS_TAG_PRIORITY is verdict first, then pause, then value; cap is 2", (
   assert.equal(STATUS_TAG_MAX, 2);
 });
 
-test("both teams paused plus an official total gives Official play and one merged pause chip", () => {
+test("both teams paused plus an official total gives Official Play and one merged pause chip", () => {
   const g = game({
     lean_total: false,
     coachLocks: [
