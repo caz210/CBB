@@ -80,7 +80,7 @@ export type SlateGame = {
   edge_vs_open_pct_total?: number | null;
   verdict_spread?: "official" | "low_value" | null;
   verdict_total?: "official" | "low_value" | null;
-  /** Stored booleans; only true means show the gray Lean chip. Missing/null = don't show, don't compute. */
+  /** Stored booleans from the pipeline. The ladder (lib/verdicts.ts) reads the stored edges instead. */
   lean_spread?: boolean | null;
   lean_total?: boolean | null;
 };
@@ -110,7 +110,7 @@ export type ValueBet = {
   model_prob: number | null;
   market_prob: number; // implied by price taken (incl. vig)
   prob_edge: number; // model_prob - market_prob
-  line_edge_pct: number; // |CZarp line - Vegas line| / Vegas line; drives VALUE/EDGE/HOT tiers
+  line_edge_pct: number; // |fair − price| ÷ Vegas total (fraction); the headline Edge %
   kelly_quarter_units: number | null; // 1u = 1% of bankroll
   pick_tier?: PickTier; // 'official' (staked) or 'track' (paper-only 1u)
   logged_at?: string | null; // timestamptz the pick was posted

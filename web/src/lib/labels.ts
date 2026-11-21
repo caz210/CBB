@@ -83,22 +83,9 @@ export const fmtWinProb = (p: number) => (p < 0.01 ? "<1%" : p > 0.99 ? ">99%" :
 export const fmtOdds = (o: number) => (o > 0 ? `+${o}` : `${o}`);
 export const fmtUnits = (u: number, dp = 2) => `${u > 0 ? "+" : u < 0 ? "−" : ""}${Math.abs(u).toFixed(dp)}u`;
 
-/** CZarp bet tiers on line edge % (value_bets.line_edge_pct, 0.05 = 5%).
- *  Play threshold: sides (spread/moneyline) 4%, totals 3%. VALUE at threshold, EDGE >= 5%, HOT >= 7%. */
-export type EdgeTier = "HOT" | "EDGE" | "VALUE";
+/** Play bar on line edge % (fractions, 0.04 = 4%): sides (spread/moneyline) 4%, totals 3%.
+ *  The verdict ladder that uses it lives in lib/verdicts.ts. */
 export const PLAY_THRESHOLD: Record<Market, number> = { spread: 0.04, moneyline: 0.04, total: 0.03 };
-export function edgeTier(lineEdgePct: number, market: Market): EdgeTier | null {
-  if (lineEdgePct >= 0.07) return "HOT";
-  if (lineEdgePct >= 0.05) return "EDGE";
-  if (lineEdgePct >= PLAY_THRESHOLD[market]) return "VALUE";
-  return null;
-}
-/** Badge classes per tier; HOT gets the strongest color. */
-export const TIER_BADGE: Record<EdgeTier, string> = {
-  HOT: "bg-orange-500 text-ink-950",
-  EDGE: "bg-edge-400/25 text-edge-400 ring-1 ring-edge-400/40",
-  VALUE: "bg-edge-400/10 text-edge-400",
-};
 
 /** "Posted 3:12 PM CT · 4h 18m before tip" from logged_at vs tipoff. Kept for callers that still want the tip gap. */
 export function fmtPostedProof(loggedAt: string | null | undefined, tipoff: string | null | undefined) {
@@ -135,6 +122,14 @@ const isFiniteNum = (n: unknown): n is number => typeof n === "number" && Number
 /** Fraction → display percent with 1 decimal, trailing .0 dropped (0.045 → "4.5%", 0.04 → "4%"). */
 export function fmtPlayPct(x: number) {
   return `${(x * 100).toFixed(1).replace(/\.0$/, "")}%`;
+}
+
+/** Edge % next to the play bar. At or above the bar: same as fmtPlayPct. Below it: floored to one
+ *  decimal, so a near-miss never reads as meeting the bar (0.0297 → "2.9%", never "3%"). */
+export function fmtEdgeVsBar(x: number, market: Market) {
+  if (x >= PLAY_THRESHOLD[market]) return fmtPlayPct(x);
+  const floored = Math.floor(x * 1000 + 1e-9) / 10;
+  return `${Math.max(0, floored).toFixed(1)}%`;
 }
 
 /** Threshold as a whole percent for copy: 0.04 → "4%". */

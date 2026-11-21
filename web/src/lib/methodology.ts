@@ -21,7 +21,7 @@ export const METHODOLOGY_SECTIONS: MethodologySection[] = [
   {
     title: "Fair value, price, and edge",
     placeholder: true,
-    body: "Edge is the gap between our number and the Vegas price, as a share of the expected total score: |fair − price| ÷ Vegas total, for both sides and totals. Play thresholds: sides 4%, totals 3%; EDGE at 5%+, HOT at 7%+.",
+    body: "Edge is the gap between our number and the Vegas price, as a share of the expected total score: |fair − price| ÷ Vegas total, for both sides and totals. Play bar: sides 4%, totals 3%. Each game's headline market gets one verdict: Toss Up, Lean, Favor, or Official Play.",
   },
   {
     title: "Official vs tracked",

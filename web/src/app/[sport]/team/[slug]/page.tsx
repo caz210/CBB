@@ -14,7 +14,7 @@ import {
 } from "@/lib/teamPage";
 import { teamHref } from "@/lib/teams";
 import { matchupHref } from "@/lib/matchup";
-import { GAME_STATUS_LABEL, finalLabel, fmtGameDate, fmtLine, fmtPlayPct, fmtTipoff } from "@/lib/labels";
+import { GAME_STATUS_LABEL, finalLabel, fmtGameDate, fmtLine, fmtTipoff } from "@/lib/labels";
 import { ComingSoon } from "@/components/ComingSoon";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
@@ -135,7 +135,6 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
                 FV {next.proj_spread == null ? "—" : spreadRef(fmtLine(next.proj_spread), next.home, next.neutral)} · Price {next.market_spread == null ? "—" : spreadRef(fmtLine(next.market_spread), next.home, next.neutral)}
                 {/* Same helper as the slate card: posted fair for an official total, else czarp-v1-totals, else "—". Never v2. */}
                 {" · Total FV "}{nextTotal!.value}
-                {nextTotal!.tag && <span className="ml-1 rounded px-1 py-px align-middle font-sans text-[9px] font-bold text-zinc-400 ring-1 ring-ink-600">{nextTotal!.tag}</span>}
                 {" / "}{next.market_total == null ? "—" : next.market_total.toFixed(1)}
               </div>
               {next.upset_alert && (
@@ -154,7 +153,7 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
                 <StatusChips g={next} bets={next.officialBets ?? []} />
               </div>
               <div className={`font-mono text-4xl font-black ${nextEdge?.edgePct == null ? "text-zinc-700" : nextEdge.verdict === "official" ? "text-edge-400" : "text-zinc-500"}`}>
-                {nextEdge?.edgePct == null ? "—" : fmtPlayPct(nextEdge.edgePct)}
+                {nextEdge?.edgeLabel ?? "—"}
               </div>
               <div className="text-[11px] text-zinc-500">{nextEdge?.subtitle ?? (nextEdge?.market ?? "fair vs price")}</div>
             </div>

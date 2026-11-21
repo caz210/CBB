@@ -119,9 +119,9 @@ export function NewCoachChips({ locks, name, market, className = "" }: { locks?:
 export const SKIP_LABELS: Record<string, string> = {
   below_open_threshold: "edge vs open below threshold",
   below_current_threshold: "edge now below threshold",
-  line_moved_against: "market moved 3+ pts away from CZarp since open",
+  line_moved_against: "market moved 3+ pts away from CZarp since open", // = HOLD_CODES.line_moved_against
   new_coach_lock: "new coach",
-  kelly_too_small: "stake too small to post",
+  kelly_too_small: "stake under $1",
   game_started: "game already started",
   no_current_line: "no current line",
   no_opening_line: "no opening line yet",

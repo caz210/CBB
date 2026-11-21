@@ -3,11 +3,12 @@ import { ExampleBadge, ExampleBanner } from "@/components/ExampleBadge";
 import { ArchetypeChip } from "@/components/ArchetypeChip";
 import { visibleTags } from "@/lib/archetypes";
 import { EXAMPLE_SLATE, EXAMPLE_VALUE_BETS } from "@/lib/example-data";
-import { MARKET_LABEL, edgeTier, fmtLine, fmtTipoff, pct, signedPct, fmtUnits } from "@/lib/labels";
+import { MARKET_LABEL, fmtLine, fmtTipoff, pct, signedPct, fmtUnits } from "@/lib/labels";
 import { SPORTS, getSport } from "@/lib/sports";
 import { loadHero, loadResults, type Hero } from "@/lib/data";
 import { RESULT_LABEL, fmtGameDate, fmtPostedStamp } from "@/lib/labels";
 import { postedVsNow } from "@/lib/posted";
+import { verdictLabel } from "@/lib/verdicts";
 import { TitleLine } from "@/components/NeutralChip";
 import { gameTitle, retitle } from "@/lib/gameTitle";
 
@@ -76,7 +77,7 @@ export default async function Landing() {
             </div>
             <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-edge-400/30 bg-edge-400/10 px-4 py-3">
               <div className="min-w-0">
-                <div className="text-[11px] font-semibold uppercase tracking-wider text-edge-400">{edgeTier(v.line_edge_pct, v.market) ?? "No label"} · {MARKET_LABEL[v.market]} · Edge</div>
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-edge-400">{verdictLabel("official")} · {MARKET_LABEL[v.market]} · Edge</div>
                 <div className="truncate text-sm font-semibold">{v.side}</div>
                 <div className="mt-0.5 text-[11px] text-zinc-500">prob {signedPct(v.prob_edge)} · ¼-Kelly {v.kelly_quarter_units!.toFixed(1)}u</div>
               </div>
@@ -168,25 +169,24 @@ function LiveHero({ hero }: { hero: Hero }) {
     return (
       <div className="card relative min-w-0 p-4 shadow-2xl shadow-black/50 md:p-5">
         <div className="mb-3 flex items-center justify-between text-xs">
-          <span className="font-semibold uppercase tracking-wider text-edge-400">Today&apos;s official {plays.length === 1 ? "play" : `plays · ${plays.length}`}</span>
+          <span className="font-semibold uppercase tracking-wider text-edge-400">Today&apos;s Official {plays.length === 1 ? "Play" : `Plays · ${plays.length}`}</span>
           <Link href="/cbb/slate?sort=value" className="text-zinc-400 hover:text-court-400">Slate →</Link>
         </div>
         <ul className="space-y-2.5">
           {plays.map(({ game: g, bet: v }) => {
-            const tier = edgeTier(v.line_edge_pct, v.market);
             const pvn = postedVsNow(v, g);
             return (
               <li key={`${v.game_id}-${v.market}-${v.side}`}>
                 <Link href="/cbb/slate?sort=value" className="flex items-center justify-between gap-3 rounded-xl border border-edge-400/30 bg-edge-400/10 px-4 py-3 hover:border-edge-400/60">
                   <div className="min-w-0">
                     <TitleLine text={gameTitle(g.away, g.home, g.neutral).text} neutral={g.neutral === true} className="text-[11px] text-zinc-400" wrap suffix={` · ${g.tipoff ? fmtTipoff(g.tipoff) : "Tip TBD"}`} />
-                    <div className="text-[11px] font-semibold uppercase tracking-wider text-edge-400">{tier ?? "Official"} · {MARKET_LABEL[v.market]} · Edge</div>
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-edge-400">{verdictLabel("official")} · {MARKET_LABEL[v.market]} · Edge</div>
                     <div className="truncate text-sm font-semibold">{v.side}</div>
                     {pvn && <div className="font-mono text-[11px] text-zinc-400">{pvn}</div>}
                     {v.logged_at && <div className="text-[10px] text-zinc-500">{fmtPostedStamp(v.logged_at)}</div>}
                     <div className="mt-0.5 text-[11px] text-zinc-500">¼-Kelly {v.kelly_quarter_units == null ? "—" : `${v.kelly_quarter_units.toFixed(2)}u`}</div>
                   </div>
-                  <div className={`shrink-0 font-mono text-4xl font-black leading-none ${tier ? "text-edge-400" : "text-zinc-400"}`}>{pct(v.line_edge_pct, 1)}</div>
+                  <div className={`shrink-0 font-mono text-4xl font-black leading-none text-edge-400`}>{pct(v.line_edge_pct, 1)}</div>
                 </Link>
               </li>
             );
