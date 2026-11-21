@@ -65,6 +65,24 @@ export function officialPicksCue(wins: number | null | undefined, losses: number
   return n === 1 ? "1 pick" : `${n} picks`;
 }
 
+export const NO_OFFICIAL_PICKS_YET = "No official picks yet";
+
+export type OfficialMarketDisplay = {
+  value: string | null;
+  hint: string;
+  quiet: boolean;
+};
+
+/** ATS / O/U official rows. Zero picks is a quiet note, not "0-0 / 0 picks". */
+export function officialMarketDisplay(
+  wins: number | null | undefined,
+  losses: number | null | undefined,
+): OfficialMarketDisplay {
+  const n = officialPickCount(wins, losses);
+  if (n === 0) return { value: null, hint: NO_OFFICIAL_PICKS_YET, quiet: true };
+  return { value: `${wins}-${losses}`, hint: officialPicksCue(wins, losses), quiet: false };
+}
+
 /** W / L / P (or win / loss / push) → Win / Loss / Push. */
 export function fmtPickResult(result: string | null | undefined): string | null {
   if (!result) return null;

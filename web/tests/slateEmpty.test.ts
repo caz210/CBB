@@ -20,19 +20,18 @@ test("slateDateRelation compares YYYY-MM-DD in America/Chicago calendar order", 
   assert.equal(slateDateRelation("2026-11-22", TODAY), "future");
 });
 
-test("future empty slate uses the 7:15 AM CT copy; past wording is unchanged", () => {
-  assert.equal(slateEmptyBody("future"), "This slate posts by 7:15 AM CT on game day.");
+test("today and future empty slates use the 7:15 AM CT copy; past wording is unchanged", () => {
+  const unposted = "This slate posts by 7:15 AM CT on game day.";
+  assert.equal(slateEmptyBody("future"), unposted);
+  assert.equal(slateEmptyBody("today"), unposted);
   assert.equal(slateEmptyBody("future"), SLATE_FUTURE_EMPTY_BODY);
+  assert.equal(slateEmptyBody("today"), SLATE_TODAY_EMPTY_BODY);
   assert.equal(
     slateEmptyBody("past"),
     "We don't have a stored slate for this date.",
   );
   assert.equal(slateEmptyBody("past"), SLATE_PAST_EMPTY_BODY);
-  assert.equal(
-    slateEmptyBody("today"),
-    "Nothing has been posted for this date yet. The model publishes each morning, so check back later.",
-  );
-  assert.equal(slateEmptyBody("today"), SLATE_TODAY_EMPTY_BODY);
+  assert.notEqual(slateEmptyBody("past"), unposted);
 });
 
 test("matchup CTA is on future and today empty slates, not on past dates", () => {

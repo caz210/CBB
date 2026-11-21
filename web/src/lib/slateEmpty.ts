@@ -1,9 +1,10 @@
 /** Copy and date rules for an empty slate. Dates are YYYY-MM-DD in America/Chicago. */
 
 export const SLATE_PAST_EMPTY_BODY = "We don't have a stored slate for this date.";
-export const SLATE_TODAY_EMPTY_BODY =
-  "Nothing has been posted for this date yet. The model publishes each morning, so check back later.";
-export const SLATE_FUTURE_EMPTY_BODY = "This slate posts by 7:15 AM CT on game day.";
+/** Today before the slate posts, and future dates. */
+export const SLATE_UNPOSTED_EMPTY_BODY = "This slate posts by 7:15 AM CT on game day.";
+export const SLATE_FUTURE_EMPTY_BODY = SLATE_UNPOSTED_EMPTY_BODY;
+export const SLATE_TODAY_EMPTY_BODY = SLATE_UNPOSTED_EMPTY_BODY;
 export const SLATE_MATCHUP_CTA_LABEL = "Get an early line → Matchup maker";
 
 export type SlateDateRelation = "past" | "today" | "future";
@@ -17,8 +18,7 @@ export function slateDateRelation(date: string, today: string): SlateDateRelatio
 
 export function slateEmptyBody(relation: SlateDateRelation): string {
   if (relation === "past") return SLATE_PAST_EMPTY_BODY;
-  if (relation === "future") return SLATE_FUTURE_EMPTY_BODY;
-  return SLATE_TODAY_EMPTY_BODY;
+  return SLATE_UNPOSTED_EMPTY_BODY;
 }
 
 /** Early-line CTA on dates that have not posted yet (future, and today before the slate lands). */

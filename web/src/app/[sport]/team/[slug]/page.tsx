@@ -8,7 +8,7 @@ import { loadTeam } from "@/lib/data";
 import {
   czarpAtsLine,
   czarpTotalLine,
-  officialPicksCue,
+  officialMarketDisplay,
   teamSubtitleParts,
   type TeamSubtitlePart,
 } from "@/lib/teamPage";
@@ -213,8 +213,8 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
               title="Official picks"
               rows={[
                 { l: "Overall", v: `${r.official_wins}-${r.official_losses}-${r.official_pushes}` },
-                { l: "ATS", v: `${r.official_ats_wins}-${r.official_ats_losses}`, hint: officialPicksCue(r.official_ats_wins, r.official_ats_losses) },
-                { l: "O/U", v: `${r.official_ou_wins}-${r.official_ou_losses}`, hint: officialPicksCue(r.official_ou_wins, r.official_ou_losses) },
+                officialMarketRow("ATS", r.official_ats_wins, r.official_ats_losses),
+                officialMarketRow("O/U", r.official_ou_wins, r.official_ou_losses),
               ]}
             />
           </div>
@@ -301,7 +301,12 @@ function Mini({ label, value, hint }: { label: string; value: string; hint?: str
   );
 }
 
-function RecordCard({ title, rows }: { title: string; rows: { l: string; v: string; hint?: string }[] }) {
+function officialMarketRow(label: string, wins: number, losses: number) {
+  const d = officialMarketDisplay(wins, losses);
+  return { l: label, v: d.value ?? "", hint: d.hint, quiet: d.quiet };
+}
+
+function RecordCard({ title, rows }: { title: string; rows: { l: string; v: string; hint?: string; quiet?: boolean }[] }) {
   return (
     <div className="rounded-xl border border-ink-700 bg-ink-850 p-3">
       <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">{title}</div>
@@ -309,10 +314,14 @@ function RecordCard({ title, rows }: { title: string; rows: { l: string; v: stri
         {rows.map((x) => (
           <div key={x.l} className="flex items-center justify-between gap-2 text-sm">
             <span className="text-zinc-400">{x.l}</span>
-            <span className="inline-flex items-baseline gap-1.5">
-              <span className="font-mono font-semibold">{x.v}</span>
-              {x.hint && <span className="text-[10px] font-medium text-zinc-500">{x.hint}</span>}
-            </span>
+            {x.quiet ? (
+              <span className="text-xs text-zinc-500">{x.hint}</span>
+            ) : (
+              <span className="inline-flex items-baseline gap-1.5">
+                <span className="font-mono font-semibold">{x.v}</span>
+                {x.hint && <span className="text-[10px] font-medium text-zinc-500">{x.hint}</span>}
+              </span>
+            )}
           </div>
         ))}
       </div>

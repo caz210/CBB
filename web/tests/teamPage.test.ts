@@ -7,6 +7,8 @@ import {
   czarpAtsLine,
   czarpTotalLine,
   formatTeamSubtitle,
+  NO_OFFICIAL_PICKS_YET,
+  officialMarketDisplay,
   officialPicksCue,
   parseTeamRanking,
   teamSubtitleParts,
@@ -127,7 +129,13 @@ test("ranking select list is the requested columns and never asks for KenPom W-L
 test("official picks cue is a pick count", () => {
   assert.equal(officialPicksCue(12, 8), "20 picks");
   assert.equal(officialPicksCue(1, 0), "1 pick");
-  assert.equal(officialPicksCue(0, 0), "0 picks");
+});
+
+test("official markets with no picks show a quiet note, not 0-0 / 0 picks", () => {
+  assert.deepEqual(officialMarketDisplay(0, 0), { value: null, hint: "No official picks yet", quiet: true });
+  assert.equal(officialMarketDisplay(0, 0).hint, NO_OFFICIAL_PICKS_YET);
+  assert.deepEqual(officialMarketDisplay(12, 8), { value: "12-8", hint: "20 picks", quiet: false });
+  assert.deepEqual(officialMarketDisplay(1, 0), { value: "1-0", hint: "1 pick", quiet: false });
 });
 
 test("customer surface does not mention KenPom", async () => {
