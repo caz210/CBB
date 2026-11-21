@@ -21,7 +21,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { ArchetypeChip } from "@/components/ArchetypeChip";
 import { InfoTip } from "@/components/InfoTip";
 import { GLOSSARY_HREF } from "@/lib/glossary";
-import { visibleTags } from "@/lib/archetypes";
+import { visibleCopy, visibleTags } from "@/lib/archetypes";
 import { TermLabel } from "@/components/InfoTip";
 import { StatusChips } from "@/components/StatusChips";
 import { NewCoachBadge } from "@/components/NewCoachBadge";
@@ -141,7 +141,7 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
               {next.upset_alert && (
                 <div className="mt-2 inline-block rounded-md border border-amber-400/40 bg-amber-400/10 px-2 py-1 text-[11px] text-amber-200">
                   <InfoTip term="upset-alert" triggerClassName="text-[11px] text-amber-200">Upset alert</InfoTip>
-                  {next.upset_reason ? `: ${next.upset_reason}` : ""}
+                  {visibleCopy(next.upset_reason) ? `: ${visibleCopy(next.upset_reason)}` : ""}
                 </div>
               )}
               {nextWhy && (

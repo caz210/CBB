@@ -1,13 +1,13 @@
-/** Customer-facing definitions for verdicts, game chips, and style tags.
+/** Customer-facing definitions for game chips and style tags that are live on the site.
  *
- *  This file is self-contained. A parallel PR (web-verdict-ladder) introduces
- *  the verdict ladder and may add lib/verdicts.ts; whichever PR lands second
- *  should reconcile so there is one source for verdict copy.
+ *  Do not add verdict-ladder names here until that ladder is approved and
+ *  shipping on chips. A parallel PR (web-verdict-ladder) will add those
+ *  definitions from lib/verdicts.ts later.
  *
  *  Style-tag wording is adapted from ARCHETYPE_HINT until CZarp sends final copy.
  *  Soft Glass and Open Arc are hidden signals and are not listed here.
  */
-export type GlossaryGroup = "verdict" | "chip" | "style";
+export type GlossaryGroup = "chip" | "style";
 
 export type GlossaryEntry = {
   /** Stable id used by InfoTip and tests (kebab-case, or the style-tag name). */
@@ -21,31 +21,6 @@ export const GLOSSARY_ANCHOR = "glossary";
 export const GLOSSARY_HREF = `/methodology#${GLOSSARY_ANCHOR}`;
 
 export const GLOSSARY_ENTRIES: readonly GlossaryEntry[] = [
-  // --- Verdicts (new ladder, weakest to strongest) ---
-  {
-    id: "toss-up",
-    title: "Toss Up",
-    body: "The edge at today's line is below our play bar (4% for sides, 3% for totals). Not a play.",
-    group: "verdict",
-  },
-  {
-    id: "lean",
-    title: "Lean",
-    body: "The edge at today's line clears our play bar, but the edge versus the opening line does not, so it is not an official play. Bars: 4% sides, 3% totals.",
-    group: "verdict",
-  },
-  {
-    id: "favor",
-    title: "Favor",
-    body: "The edge clears our play bar both at the open and at today's line, but a hold rule kept it from posting: a new-coach pause, a total that moved 3 or more points away from CZarp's number, or a stake under $1.",
-    group: "verdict",
-  },
-  {
-    id: "official-play",
-    title: "Official Play",
-    body: "A posted pick. Official plays are time-stamped and graded in the public record.",
-    group: "verdict",
-  },
 
   // --- Game chips ---
   {
@@ -183,7 +158,7 @@ export type GlossaryId = (typeof GLOSSARY_ENTRIES)[number]["id"];
 const BY_ID = new Map<string, GlossaryEntry>(GLOSSARY_ENTRIES.map((e) => [e.id, e]));
 const BY_TITLE = new Map<string, GlossaryEntry>(GLOSSARY_ENTRIES.map((e) => [e.title.toLowerCase(), e]));
 
-/** Look up a glossary entry by id or visible title (e.g. "Official Play"). */
+/** Look up a glossary entry by id or visible title (e.g. "TV Rating"). */
 export function glossaryEntry(idOrTitle: string): GlossaryEntry | undefined {
   return BY_ID.get(idOrTitle) ?? BY_TITLE.get(idOrTitle.toLowerCase());
 }

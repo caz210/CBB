@@ -171,11 +171,53 @@ export function compactSlateTags(tags: ArchetypeTag[], top: ArchetypeTag[] = [],
 
 const HIDDEN_MENTION = new RegExp(`\\b(?:${HIDDEN_TAGS.map((n) => n.replace(/ /g, "\\s+")).join("|")})\\b`, "i");
 
-/** Drop clauses that name a hidden signal so they never appear in notes or reason copy. */
+/** "[Team: ]Tag vs Open Arc / Soft Glass [(+0.50)]", with an optional trailing period. */
+const HIDDEN_PHRASE = new RegExp(
+  String.raw`(?:[A-Za-z][A-Za-z0-9.'&\- ]{0,40}:\s*)?[A-Za-z0-9][A-Za-z0-9 ']{0,40}?\s+vs\s+(?:Open\s+Arc|Soft\s+Glass)(?:\s*\([^)]*\))?\.?`,
+  "gi",
+);
+
+function stripHiddenPhrases(part: string): string {
+  let s = part.replace(HIDDEN_PHRASE, " ").replace(/\s{2,}/g, " ").trim();
+  s = s.replace(/^(?:Matchup notes:\s*)+\.?$/i, "").trim();
+  s = s.replace(/[;·,:]\s*$/g, "").trim();
+  s = s.replace(/^\s*[;·,:]\s*/g, "").trim();
+  return s;
+}
+
+function cleanClauseList(text: string, joiner: string): string {
+  const kept = text.split(/\s*[;·]\s*/)
+    .map((c) => stripHiddenPhrases(c))
+    .filter((c) => c && !HIDDEN_MENTION.test(c));
+  return kept.join(joiner).trim();
+}
+
+function cleanSentence(sentence: string): string {
+  const s = sentence.trim();
+  if (!s) return "";
+  if (!HIDDEN_MENTION.test(s)) return s;
+
+  const matchup = /^(Matchup notes:\s*)([\s\S]*)$/i.exec(s);
+  if (matchup) {
+    const body = cleanClauseList(matchup[2], "; ");
+    if (!body) return "";
+    const ended = /\.$/.test(s);
+    const withStop = ended && !/\.$/.test(body) ? `${body}.` : body;
+    return `${matchup[1]}${withStop}`.replace(/\s{2,}/g, " ").trim();
+  }
+
+  if (/[;·]/.test(s)) return cleanClauseList(s, " · ");
+
+  const stripped = stripHiddenPhrases(s);
+  if (!stripped || HIDDEN_MENTION.test(stripped)) return "";
+  return stripped;
+}
+
+/** Hide Soft Glass / Open Arc mentions without dropping the surrounding Why or pace sentence. */
 export function visibleCopy(text: string | null | undefined): string {
   if (!text) return "";
-  const kept = text.split(/\s*[;·]\s*/).filter((c) => c.trim() && !HIDDEN_MENTION.test(c));
-  return kept.join(" · ").replace(/\s{2,}/g, " ").trim();
+  const kept = text.split(/(?<=\.)\s+/).map(cleanSentence).filter(Boolean);
+  return kept.join(" ").replace(/\s{2,}/g, " ").trim();
 }
 
 export function visibleNotes(notes: string[]): string[] {

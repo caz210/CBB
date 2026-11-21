@@ -14,7 +14,7 @@ function Placeholder({ children }: { children: React.ReactNode }) {
   );
 }
 
-function GlossaryBlock({ title, group }: { title: string; group: "verdict" | "chip" | "style" }) {
+function GlossaryBlock({ title, group }: { title: string; group: "chip" | "style" }) {
   const entries = glossaryEntriesIn(group);
   return (
     <div className="mt-4">
@@ -48,7 +48,6 @@ export default function MethodologyPage() {
       <section id={GLOSSARY_ANCHOR} className="scroll-mt-24">
         <H>Glossary</H>
         <p>Tap any chip on the site for the same definition. Style tags describe how a team plays relative to the rest of D-I; a dashed chip marked “· tent.” means the sample is still early.</p>
-        <GlossaryBlock title="Verdicts" group="verdict" />
         <GlossaryBlock title="Game chips" group="chip" />
         <GlossaryBlock title="Style tags" group="style" />
       </section>

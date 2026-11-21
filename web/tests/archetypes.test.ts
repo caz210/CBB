@@ -124,7 +124,36 @@ test("visibleCopy strips Soft Glass and Open Arc mentions from notes and reason 
   const reason = "Eastern Illinois (Soft D, Careless) at Illinois (Fast, Crash). Projected pace about 74 possessions. Matchup notes: Illinois: Fast vs Soft D; Illinois: Volume 3s vs Open Arc.";
   const cleaned = visibleCopy(reason);
   assert.match(cleaned, /Soft D/);
+  assert.match(cleaned, /Projected pace about 74 possessions/);
+  assert.match(cleaned, /Matchup notes: Illinois: Fast vs Soft D/);
   assert.doesNotMatch(cleaned, /Open Arc|Soft Glass/i);
   assert.deepEqual(visibleNotes(["Illinois: Volume 3s vs Open Arc (+0.50)", "Illinois: Fast vs Soft D (+0.25)"]), ["Illinois: Fast vs Soft D (+0.25)"]);
-  assert.equal(visibleCopy("Soft Glass on the boards"), "");
+});
+
+test("visibleCopy keeps the Why / pace sentence when a reason names a hidden tag with no ';' or '·'", () => {
+  // Real slate_games.reason values (Houston @ California, 2026-11-08; Fairleigh Dickinson @ East Texas A&M, 2026-11-11).
+  const houston = "Houston (Wall, Slow) at California (Volume 3s, Sharp). Projected pace about 69 possessions. Matchup notes: California: Volume 3s vs Open Arc.";
+  const houstonOut = visibleCopy(houston);
+  assert.equal(houstonOut, "Houston (Wall, Slow) at California (Volume 3s, Sharp). Projected pace about 69 possessions.");
+  assert.doesNotMatch(houstonOut, /Open Arc|Soft Glass/i);
+
+  const etamu = "Fairleigh Dickinson (Soft D, Cold) at East Texas A&M (Crash). Projected pace about 68 possessions. Matchup notes: East Texas A&M: Crash vs Soft Glass.";
+  const etamuOut = visibleCopy(etamu);
+  assert.equal(etamuOut, "Fairleigh Dickinson (Soft D, Cold) at East Texas A&M (Crash). Projected pace about 68 possessions.");
+  assert.doesNotMatch(etamuOut, /Open Arc|Soft Glass/i);
+
+  // Mixed matchup-notes clauses: drop only the hidden one, keep the public one.
+  const mixed = "Loyola Chicago (Wall, Crash) at Air Force (Cold, At the Line). Projected pace about 70 possessions. Matchup notes: Crash vs Soft Glass; Air Force: At the Line vs Wall.";
+  const mixedOut = visibleCopy(mixed);
+  assert.equal(mixedOut, "Loyola Chicago (Wall, Crash) at Air Force (Cold, At the Line). Projected pace about 70 possessions. Matchup notes: Air Force: At the Line vs Wall.");
+  assert.doesNotMatch(mixedOut, /Open Arc|Soft Glass/i);
+});
+
+test("visibleCopy filters hidden names out of upset_reason without dropping the rest", () => {
+  const clean = "California Volume 3s vs Houston soft 3-point defense; California Sharp vs Houston soft 3-point defense";
+  assert.equal(visibleCopy(clean), clean);
+  assert.equal(
+    visibleCopy("California Volume 3s vs Houston Open Arc; California Sharp vs Houston soft 3-point defense"),
+    "California Sharp vs Houston soft 3-point defense",
+  );
 });

@@ -6,7 +6,7 @@ import { createSupabaseServerClient } from "./supabase/server";
 import type { Sport } from "./sports";
 import type { Archetypes, GameInsight, LedgerRow, SlateGame, TierRecord, ValueBet } from "./types";
 import { portfolioRisk, computedLineEdge, type PortfolioRisk } from "./portfolio";
-import { parseTagList, visibleTags, type ArchetypeTag } from "./archetypes";
+import { parseTagList, visibleCopy, visibleTags, type ArchetypeTag } from "./archetypes";
 import { teamSlug, type ModelGrade, type TeamModelRecord, type TeamProfile } from "./teams";
 import {
   RANKING_SNAPSHOT_COLUMNS,
@@ -94,7 +94,7 @@ function toSlateGame(r: Row): SlateGame {
     reason: typeof r.reason === "string" && r.reason.trim() ? r.reason.trim() : null,
     proj_possessions: num(r.proj_possessions),
     upset_alert: r.upset_alert === true,
-    upset_reason: typeof r.upset_reason === "string" && r.upset_reason.trim() ? r.upset_reason.trim() : null,
+    upset_reason: visibleCopy(typeof r.upset_reason === "string" ? r.upset_reason : "") || null,
     status: r.status ? str(r.status) : null,
     final_at: r.final_at ? str(r.final_at) : null,
     final_at_estimated: r.final_at_estimated === true,
@@ -531,7 +531,7 @@ async function loadInsights(sb: SB, ids: number[]): Promise<Map<number, GameInsi
         reason: typeof p.reason === "string" && p.reason.trim() ? p.reason.trim() : null,
         proj_possessions: num(p.proj_possessions),
         upset_alert: p.upset_alert === true,
-        upset_reason: typeof p.upset_reason === "string" && p.upset_reason.trim() ? String(p.upset_reason).trim() : null,
+        upset_reason: visibleCopy(typeof p.upset_reason === "string" ? p.upset_reason : "") || null,
       });
     }
   } catch { /* sheet just shows less */ }

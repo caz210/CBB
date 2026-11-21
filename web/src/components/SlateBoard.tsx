@@ -598,7 +598,7 @@ function GameSheet({ g, sportKey, bets, tvHot, onClose }: { g: SlateGame | null;
             <div className="text-[10px] font-bold uppercase tracking-wider text-amber-300">
               <InfoTip term="upset-alert" triggerClassName="font-bold uppercase tracking-wider text-amber-300">Upset alert</InfoTip>
             </div>
-            <div className="mt-0.5 text-[13px] text-amber-50/90">{i?.upset_reason || g.upset_reason || "Underdog style matchup flagged by the model."}</div>
+            <div className="mt-0.5 text-[13px] text-amber-50/90">{visibleCopy(i?.upset_reason || g.upset_reason) || "Underdog style matchup flagged by the model."}</div>
           </div>
         )}
         {i?.neutral && <div className="mt-2 inline-block rounded-md border border-ink-600 px-2 py-0.5 text-[11px] text-zinc-400">Neutral site: no home-court edge applied</div>}
