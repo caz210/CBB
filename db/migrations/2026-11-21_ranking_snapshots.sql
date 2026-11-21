@@ -13,7 +13,7 @@ create table if not exists ranking_snapshots (
     week_of         date not null,                 -- Monday of the official poll week
     season          int not null,
     league          text not null references leagues(code),
-    team_id         bigint not null references teams(id) on delete cascade,
+    team_id         bigint not null references teams(id) on delete restrict,
     rank            int not null check (rank >= 1),
     prev_rank       int,                           -- rank in the previous official week; null = unranked / first poll
     rating          numeric(6,2) not null,         -- projected margin vs an average D-I team, neutral floor
@@ -54,6 +54,21 @@ begin
   ) then
     alter table ranking_snapshots
       add constraint ranking_snapshots_league_week_of_team_id_key unique (league, week_of, team_id);
+  end if;
+  -- An earlier draft used ON DELETE CASCADE, which would wipe poll history if a team was removed.
+  if exists (
+    select 1
+      from pg_constraint c
+      join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any (c.conkey)
+     where c.conrelid = 'public.ranking_snapshots'::regclass
+       and c.contype = 'f'
+       and a.attname = 'team_id'
+       and pg_get_constraintdef(c.oid) ilike '%on delete cascade%'
+  ) then
+    alter table ranking_snapshots drop constraint ranking_snapshots_team_id_fkey;
+    alter table ranking_snapshots
+      add constraint ranking_snapshots_team_id_fkey
+      foreign key (team_id) references teams(id) on delete restrict;
   end if;
 end $$;
 

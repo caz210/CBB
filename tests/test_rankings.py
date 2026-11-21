@@ -220,22 +220,58 @@ def test_previous_snapshot_uses_week_of_not_as_of():
     assert {r["team_id"]: r["rank"] for r in prev} == {1: 4, 2: 1}
 
 
-def test_failed_upsert_rolls_back_the_week():
-    db = FakeDB(fail_upsert=True)
-    poll = [
+def _poll_rows():
+    return [
         {"as_of": "2026-11-23", "week_of": "2026-11-23", "league": "ncaam",
          "team_id": 1, "name": "Alpha", "rank": 1, "rating": 10.0},
         {"as_of": "2026-11-23", "week_of": "2026-11-23", "league": "ncaam",
          "team_id": 2, "name": "Beta", "rank": 2, "rating": 1.0},
     ]
+
+
+def test_failed_first_publish_does_not_delete():
+    """A failed first write is all-or-nothing; do not DELETE a week that was never stored."""
+    db = FakeDB(fail_upsert=True)
     try:
-        WR.write_week(db, poll, date(2026, 11, 23))
+        WR.write_week(db, _poll_rows(), date(2026, 11, 23))
     except RuntimeError:
         pass
     else:
         raise AssertionError("write_week should re-raise")
-    assert db.deletes and db.deletes[0][1] == "2026-11-23"
+    assert db.deletes == []
     assert "2026-11-23" not in db.weeks
+
+
+def test_failed_force_rerun_does_not_wipe_a_published_week():
+    """--force (or a raced second run) must not delete a good published poll if the upsert fails."""
+    published = [
+        {"id": 1, "team_id": 1, "rank": 1, "week_of": "2026-11-23", "as_of": "2026-11-23"},
+        {"id": 2, "team_id": 2, "rank": 2, "week_of": "2026-11-23", "as_of": "2026-11-23"},
+    ]
+    db = FakeDB(weeks={"2026-11-23": list(published)}, fail_upsert=True)
+    try:
+        WR.write_week(db, _poll_rows(), date(2026, 11, 23))
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("write_week should re-raise")
+    assert db.deletes == []
+    assert db.weeks["2026-11-23"] == published
+
+
+def test_missing_table_is_skipped_quietly():
+    """Migration not applied yet: log and return, do not raise (no daily-report note)."""
+    err = RuntimeError(
+        'ranking_snapshots: HTTP 404 {"code":"PGRST205",'
+        ' "message":"Could not find the table public.ranking_snapshots in the schema cache"}'
+    )
+    db = FakeDB(raise_on_get=err)
+    mon = datetime(2026, 11, 23, 7, 0, tzinfo=CT)
+    logs = []
+    assert WR.maybe_publish(mon, log=logs.append, client=db) is None
+    assert db.upserts == []
+    assert any("table not ready" in str(x) for x in logs)
+
 
 
 def test_ratings_csv_is_resolved_from_the_module_not_a_hardcoded_box_path():
@@ -264,7 +300,10 @@ def test_migration_select_only_week_key_and_no_public_kenpom():
     assert "unique (league, week_of, team_id)" in sql
     create = sql.split("do $$")[0]
     assert "unique (as_of, team_id)" not in create
+    assert "on delete restrict" in create
+    assert "on delete cascade" not in create
     assert "drop constraint ranking_snapshots_as_of_team_id_key" in sql
+    assert "on delete restrict" in sql
     assert "enable row level security" in sql
     assert "grant select on table ranking_snapshots to anon, authenticated" in sql
     assert "revoke all on table ranking_snapshots from anon, authenticated" in sql

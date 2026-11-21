@@ -90,22 +90,18 @@ def _payload(poll: list[dict]) -> list[dict]:
 
 
 def write_week(c: Client, poll: list[dict], week_of: date, league: str = "ncaam") -> None:
-    """Upsert the whole week in one request. On failure, delete the week's rows so
-    a later run can retry and the week is never marked published from a partial write."""
+    """Upsert the whole week in one request.
+
+    A full D-I poll (~365 teams) fits in a single PostgREST body (client chunk
+    is 500), so the write is all-or-nothing. Do not delete the week's rows on
+    failure: that would wipe a good published poll on a --force rerun or if a
+    second run raced with a successful one.
+    """
     payload = _payload(poll)
     if not payload:
         return
-    try:
-        # Client upserts in groups of 500; a full D-I poll (~365) is one request.
-        c.upsert("ranking_snapshots", payload, on_conflict="league,week_of,team_id",
-                 returning=False)
-    except Exception:
-        try:
-            c.delete("ranking_snapshots", league=f"eq.{league}",
-                     week_of=f"eq.{week_of.isoformat()}")
-        except Exception:
-            pass
-        raise
+    c.upsert("ranking_snapshots", payload, on_conflict="league,week_of,team_id",
+             returning=False)
 
 
 def run(as_of=None, apply: bool = False, force: bool = False, log=print,
@@ -164,7 +160,11 @@ def maybe_publish(now, log=print, apply: bool = True, client: Client | None = No
     try:
         existing = week_rows(c, week)
     except Exception as e:
-        log(f"  rankings: table not ready ({type(e).__name__}: {e})")
+        # Missing table (migration not applied yet): log and move on, no report note.
+        msg = str(e)
+        if "PGRST205" in msg or "HTTP 404" in msg or "does not exist" in msg.lower() or "schema cache" in msg.lower():
+            log(f"  rankings: table not ready ({type(e).__name__}: {e})")
+            return None
         raise
     if existing:
         log(f"  rankings: already published for week of {week}")
