@@ -1,9 +1,11 @@
 """Odds API daily cap shared across jobs (7 AM run + pre-tip) and pre-tip filling of missing market_lines."""
 import json
 import multiprocessing as mp
+import os
+import subprocess
 import sys
 import types
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pandas as pd
 import pytest
@@ -15,10 +17,15 @@ from czarp import supabase_writer as sw
 TODAY = "2026-11-21"
 
 
+CLOCK = {"now": datetime(2026, 11, 21, 10, 0, tzinfo=dr.CENTRAL)}
+
+
 @pytest.fixture
 def odds(monkeypatch, tmp_path):
-    """Fake odds_fetcher + a temp usage file; returns (calls list, usage path, board rows)."""
+    """Fake odds_fetcher + a temp usage file + a fixed CT clock; returns (calls list, usage path, board rows)."""
     calls, board = [], []
+    CLOCK["now"] = datetime(2026, 11, 21, 10, 0, tzinfo=dr.CENTRAL)
+    monkeypatch.setattr(dr, "now_ct", lambda: CLOCK["now"])
     fake = types.ModuleType("odds_fetcher")
     fake.ODDS_API_KEY = "test-key"
     fake._odds_credits_remaining = 400
@@ -56,8 +63,9 @@ def test_cap_two_per_day_daily_cannot_take_pretip_slot_third_refused(odds):
     assert len(calls) == 2
     u = json.loads(usage.read_text())
     assert u["calls"][TODAY] == 2 and u["calls_by_job"][TODAY] == {"daily": 1, "pretip": 1}
-    assert dr.odds_api_claim(TODAY, "pretip") == (False, "daily budget used (2/2 across all jobs)")
-    # a new CT day starts fresh
+    assert dr.odds_api_claim("pretip") == (False, "daily budget used (2/2 across all jobs)")
+    # a new CT day (real clock) starts fresh
+    CLOCK["now"] += timedelta(days=1)
     dr.odds_api_fallback(_missing(), "2026-11-22", allow=True, job="pretip")
     assert len(calls) == 3
     # --no-odds-api still wins
@@ -100,7 +108,7 @@ def test_no_call_when_nothing_missing(odds):
 def _claim(args):
     usage, job = args
     dr.USAGE = usage
-    return dr.odds_api_claim(TODAY, job)[0]
+    return dr.odds_api_claim(job)[0]
 
 
 def test_cap_holds_across_processes(odds):
@@ -111,6 +119,118 @@ def test_cap_holds_across_processes(odds):
     assert sum(got) == 2
     u = json.loads(usage.read_text())
     assert u["calls"][TODAY] == 2 and u["calls_by_job"][TODAY] == {"daily": 1, "pretip": 1}
+
+
+# ── fail closed: missing / truncated / malformed counter ─────────────────────────
+@pytest.mark.parametrize("content", [
+    '{"calls": {"2026-11-21": 2}, "rema',                                   # truncated mid-write
+    "",                                                                     # empty file
+    "not json at all",
+    "[]",                                                                   # wrong top-level type
+    '{"remaining": 500}',                                                   # no calls
+    '{"calls": {"2026-11-21": "2"}, "remaining": 500}',                     # count not an int
+    '{"calls": {"tomorrow": 1}}',                                           # bad day key
+    '{"calls": {"2026-11-21": -1}}',                                        # negative
+    '{"calls": {"2026-11-21": 1}, "calls_by_job": {"2026-11-21": {"daily": 1, "pretip": 1}}}',  # jobs > total
+    '{"calls": {}, "remaining": "lots"}',                                   # remaining not numeric
+])
+def test_corrupt_counter_refuses_and_is_left_unchanged(odds, content):
+    calls, usage, _ = odds
+    usage.write_text(content)
+    for job in ("daily", "pretip"):
+        dr.odds_api_fallback(_missing(), TODAY, allow=True, job=job)
+        ok, why = dr.odds_api_claim(job)
+        assert not ok and "fail closed" in why
+    assert calls == [] and usage.read_text() == content
+    assert sorted(os.listdir(usage.parent)) == ["odds_api_usage.json", "odds_api_usage.json.lock"]   # no tmp/new file
+
+
+def test_deleted_counter_refuses_and_is_not_recreated(odds):
+    calls, usage, _ = odds
+    usage.unlink()
+    for job in ("daily", "pretip"):
+        dr.odds_api_fallback(_missing(), TODAY, allow=True, job=job)
+    assert calls == [] and not usage.exists()
+
+
+def test_missing_ledger_dir_refuses_without_creating_it(odds, monkeypatch, tmp_path):
+    calls, _, _ = odds
+    gone = tmp_path / "nope" / "ledger" / "odds_api_usage.json"
+    monkeypatch.setattr(dr, "USAGE", str(gone))
+    ok, why = dr.odds_api_claim("daily")
+    assert not ok and "fail closed" in why and not (tmp_path / "nope").exists()
+
+
+def test_counter_corrupted_after_two_calls_still_refuses(odds):
+    """Scantron's repro: 2 calls today, then the file is truncated -> no 3rd/4th call, file not rewritten."""
+    calls, usage, _ = odds
+    dr.odds_api_fallback(_missing(), TODAY, allow=True)
+    dr.odds_api_fallback(_missing(), TODAY, allow=True, job="pretip")
+    assert len(calls) == 2
+    usage.write_text(usage.read_text()[:20])
+    snap = usage.read_text()
+    dr.odds_api_fallback(_missing(), TODAY, allow=True)
+    dr.odds_api_fallback(_missing(), TODAY, allow=True, job="pretip")
+    assert len(calls) == 2 and usage.read_text() == snap
+
+
+def test_init_creates_only_when_absent(tmp_path):
+    from czarp import odds_usage as ou
+    p = tmp_path / "ledger" / "odds_api_usage.json"
+    assert ou.main(["--check", "--path", str(p)]) == 1
+    assert ou.main(["--init", "--path", str(p)]) == 0 and ou.load(str(p)) == {"calls": {}, "remaining": None}
+    legacy = '{"calls": {"2026-11-08": 1}, "remaining": "19982", "last_call_ct": "2026-11-08T07:20:46-06:00"}'
+    p.write_text(legacy)                                         # production's current (pre-PR) format
+    assert ou.main(["--init", "--path", str(p)]) == 0 and p.read_text() == legacy    # never overwritten
+    assert ou.main(["--check", "--path", str(p)]) == 0
+    p.write_text("{broken")
+    assert ou.main(["--init", "--path", str(p)]) == 1 and p.read_text() == "{broken"  # init won't "repair" it
+
+
+def test_legacy_production_format_works_without_migration(odds):
+    calls, usage, _ = odds
+    usage.write_text('{"calls": {"2026-11-08": 1}, "remaining": "19982", "last_call_ct": "2026-11-08T07:20:46-06:00"}')
+    dr.odds_api_fallback(_missing(), TODAY, allow=True)
+    u = json.loads(usage.read_text())
+    assert len(calls) == 1 and u["calls"] == {"2026-11-08": 1, TODAY: 1}
+    assert u["calls_by_job"] == {TODAY: {"daily": 1}} and u["remaining"] == 400
+
+
+# ── budget day = real CT date, never --date ─────────────────────────────────────
+def test_slate_date_does_not_change_the_budget_day(odds):
+    calls, usage, _ = odds
+    for slate in ("2026-11-22", "2026-11-20", "2026-12-25", TODAY):            # --date backfills / future slates
+        dr.odds_api_fallback(_missing(), slate, allow=True)
+        dr.odds_api_fallback(_missing(), slate, allow=True, job="pretip")
+    u = json.loads(usage.read_text())
+    assert len(calls) == 2 and u["calls"] == {TODAY: 2} and list(u["calls_by_job"]) == [TODAY]
+
+
+def test_caller_slate_date_is_ignored_for_budgeting(odds, monkeypatch):
+    """daily_run.main / pretip_check.main pass `today = a.date or now` as the slate date; the counter still keys
+    on the real CT date."""
+    calls, usage, _ = odds
+    seen = []
+    real = dr.odds_api_fallback
+
+    def spy(games, today, allow, job="daily"):
+        seen.append(today)
+        return real(_missing(), today, allow, job)
+    monkeypatch.setattr(dr, "odds_api_fallback", spy)
+    dr.odds_api_fallback([], "2026-11-23", True)            # direct, with a slate date != today
+    assert seen == ["2026-11-23"] and json.loads(usage.read_text())["calls"] == {TODAY: 1}
+
+
+# ── path anchored to the checkout, not the cwd ──────────────────────────────────
+def test_usage_path_is_anchored_to_repo_not_cwd(tmp_path):
+    from czarp import odds_usage as ou
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    assert ou.USAGE_PATH == os.path.join(repo, "data", "ledger", "odds_api_usage.json")
+    assert os.path.isabs(dr.USAGE) and dr.USAGE == ou.USAGE_PATH
+    code = "import daily_run as dr; print(dr.USAGE)"
+    out = subprocess.run([sys.executable, "-c", code], cwd=tmp_path, capture_output=True, text=True,
+                         env={**os.environ, "PYTHONPATH": repo}, check=True).stdout.strip().splitlines()[-1]
+    assert out == ou.USAGE_PATH                                  # same file from any working directory
 
 
 # ── pre-tip: fill missing market_lines ─────────────────────────────────────────

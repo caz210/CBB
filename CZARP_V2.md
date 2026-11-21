@@ -63,7 +63,10 @@ python -m pytest -q tests
 
 One command: refresh KenPom (ratings/prior/HCA) + FanMatch → ESPN slate + DraftKings open/current
 lines (free) → Odds API fallback whenever any D-I game lacks an ESPN/DK line (≤2 calls/day across all jobs: 1 for the 7 AM run, 1 reserved for pretip_check, which also fills missing market_lines;
-100-credit reserve, usage in `data/ledger/odds_api_usage.json`) → Kalshi reference prices →
+100-credit reserve, usage in `data/ledger/odds_api_usage.json` under the checkout — counted under the real CT date, never `--date`;
+fails closed if that file is missing/corrupt; create it once with `python3 -m czarp.odds_usage --init`, check it with `--check`.
+The 7 AM run and `pretip_check.py` MUST run on the same machine from the same checkout: the cap is a local file + flock and is not
+shared across machines/runners — if a job ever moves to CI/Vercel, move the counter to Supabase first) → Kalshi reference prices →
 v2 sides + original-v1 totals → plays (sides edge% ≥4% vs BOTH open and current line; totals edge% ≥3% vs the open, skipped if the total moved ≥3 against us) with quarter-Kelly
 paper stakes (conservative 54.5% / 53.5% hit-rate estimates, 2.5% cap, plays under $1 skipped)
 → `data/ledger/ledger.csv` (one pick per game+market, first price kept; per-run snapshots in
