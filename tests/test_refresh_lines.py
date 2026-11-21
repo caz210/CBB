@@ -226,13 +226,21 @@ def test_refresh_uses_odds_api_only_for_games_espn_lacks(usage, monkeypatch):
     pre = [dict(id=1, external_id="1", home="A", away="A2"), dict(id=2, external_id="2", home="B", away="B2")]
     espn = {"1": dict(home_full="A Home", away_full="A Away"), "2": dict(home_full="B Home", away_full="B Away")}
     lines = {"1": {"current_home_spread": -3.0, "current_total": 140.0, "book": "DraftKings"}}
-    work = RL.fresh_lines(pre, espn, lines_for=lambda e: lines.get(e, {}), today=TODAY, log=lambda m: None)
-    assert len(calls) == 1
+    claims = []
+    claim = lambda: (claims.append(1) or True, "")
+    work = RL.fresh_lines(pre, espn, lines_for=lambda e: lines.get(e, {}), today=TODAY, log=lambda m: None,
+                          claim=claim)
+    assert len(calls) == 1 and len(claims) == 1
     assert work[2]["current_total"] == 150.5 and work[2]["price_source"] == "oddsapi:fanduel"
     assert work[1]["price_source"] == "espn:DraftKings"
-    assert json.loads(usage.read_text())["calls_by_job"][TODAY] == {"refresh": 1}
-    # nothing missing -> no call
-    RL.fresh_lines(pre[:1], espn, lines_for=lambda e: lines.get(e, {}), today=TODAY, log=lambda m: None)
+    assert json.loads(usage.read_text())["calls"] == {}           # the refresh never uses the local file
+    # nothing missing -> no call; no claim -> no call; a refused or failing claim -> no call
+    RL.fresh_lines(pre[:1], espn, lines_for=lambda e: lines.get(e, {}), today=TODAY, log=lambda m: None, claim=claim)
+    RL.fresh_lines(pre, espn, lines_for=lambda e: lines.get(e, {}), today=TODAY, log=lambda m: None)
+    RL.fresh_lines(pre, espn, lines_for=lambda e: lines.get(e, {}), today=TODAY, log=lambda m: None,
+                   claim=lambda: (False, "cap"))
+    RL.fresh_lines(pre, espn, lines_for=lambda e: lines.get(e, {}), today=TODAY, log=lambda m: None,
+                   claim=lambda: 1 / 0)
     assert len(calls) == 1
 
 
@@ -240,11 +248,14 @@ def test_refresh_uses_odds_api_only_for_games_espn_lacks(usage, monkeypatch):
 class FakeDB:
     """Minimal PostgREST stand-in: records every write; filters only what refresh_lines uses."""
 
-    def __init__(self, games, projections, lines, picks=()):
+    KEYS = {RL.RUNS_TABLE: ("day", "slot"), RL.CLAIMS_TABLE: ("day", "n")}
+
+    def __init__(self, games, projections, lines, picks=(), runs=(), claims=()):
         self.tables = {"games": list(games), "projections": list(projections), "market_lines": list(lines),
-                       "picks": list(picks)}
+                       "picks": list(picks), RL.RUNS_TABLE: list(runs), RL.CLAIMS_TABLE: list(claims)}
         self.writes = []
         self.reads = []
+        self.events = []
 
     def count(self, table, **params):
         self.reads.append(("count", table))
@@ -257,6 +268,13 @@ class FakeDB:
 
     def get(self, table, **params):
         self.reads.append(("get", table))
+        self.events.append(("get", table))
+        return self._rows(table, **params)
+
+    def get_all(self, table, order, page=1000, **params):
+        assert order                                   # paged reads always carry a stable order
+        self.reads.append(("get", table))
+        self.events.append(("get", table))
         return self._rows(table, **params)
 
     def _rows(self, table, **params):
@@ -270,13 +288,31 @@ class FakeDB:
                 rows = [r for r in rows if r["line_type"] == lt[3:]]
         if table == "games" and "date" in params:
             rows = [r for r in rows if r["date"] == params["date"][3:]]
+        if table in self.KEYS and "day" in params:
+            rows = [r for r in rows if r["day"] == params["day"][3:]]
         return rows
 
     def insert(self, table, rows):
+        self.events.append(("write", table))
         self.writes.append(("insert", table, [dict(r) for r in rows]))
         self.tables[table].extend(dict(r) for r in rows)
 
     def upsert(self, table, rows, on_conflict=None, returning=True, ignore_duplicates=False):
+        self.events.append(("write", table))
+        if table in self.KEYS:                         # primary key + CHECK (n between 1 and 4), like Postgres
+            key = self.KEYS[table]
+            assert on_conflict == ",".join(key) and ignore_duplicates
+            have = {tuple(r[k] for k in key) for r in self.tables[table]}
+            new = []
+            for r in rows:
+                if table == RL.CLAIMS_TABLE and not 1 <= r["n"] <= 4:
+                    raise RuntimeError("Supabase 400: new row violates check constraint")
+                if tuple(r[k] for k in key) not in have:
+                    new.append(dict(r))
+                    have.add(tuple(r[k] for k in key))
+            self.writes.append(("upsert", table, new))
+            self.tables[table].extend(new)
+            return [dict(r) for r in new] if returning else []
         self.writes.append(("upsert", table, [dict(r) for r in rows]))
         self.tables[table].extend(dict(r) for r in rows)
         return []
@@ -347,7 +383,8 @@ def test_refresh_never_writes_picks_or_the_ledger(monkeypatch):
     db = FakeDB(games, projs, lines)
     out = _run(db, games, lambda e: {"current_home_spread": -2.0, "current_total": 141.0, "book": "DraftKings"})
     assert out["ran"] and out["lines_written"] == 25
-    assert {(op, t) for op, t, _ in db.writes} == {("insert", "market_lines"), ("upsert", "projections")}
+    assert {(op, t) for op, t, _ in db.writes} == {("upsert", RL.RUNS_TABLE), ("insert", "market_lines"),
+                                                   ("upsert", "projections")}
     for _, _, rows in db.writes:
         for r in rows:
             assert not ({"pick_key", "pick_hash", "bet", "kelly_stake"} & set(r))
@@ -359,8 +396,12 @@ def test_refresh_is_idempotent_same_lines_write_nothing():
     fresh = lambda e: {"current_home_spread": -2.0, "current_total": 141.0, "book": "DraftKings"}
     _run(db, games, fresh)
     n = len(db.writes)
-    out = _run(db, games, fresh, now=ct(10, 40))         # same hour re-run, same lines
-    assert len(db.writes) == n and out["lines_written"] == 0 and out["edges_written"] == 0
+    out = _run(db, games, fresh, now=ct(10, 40))         # same slot fires again: skipped by line_refresh_runs
+    assert out["ran"] is False and "already ran" in out["reason"] and len(db.writes) == n + 1
+    assert db.writes[-1] == ("upsert", RL.RUNS_TABLE, [])
+    out = _run(db, games, fresh, now=ct(10, 41), force=True)   # forced re-run, same lines: writes nothing new
+    assert out["lines_written"] == 0 and out["edges_written"] == 0 and out["edges_unchanged"] == 25
+    assert {t for _, t, rows in db.writes[n + 1:] if rows} == {RL.RUNS_TABLE}
 
 
 def test_off_hour_and_light_day_gate_inside_run():
@@ -493,7 +534,7 @@ def test_bankroll_from_published_picks_is_read_only():
                                    dict(game_id=2, tier="track", result="win", pnl=90.0),
                                    dict(game_id=3, tier=None, result="loss", pnl=-11.0),
                                    dict(game_id=4, tier="official", result=None, pnl=None)])
-    assert RL.supabase_bankroll(db) == dr.BANKROLL0 + 9.0 and db.writes == []
+    assert RL.supabase_bankroll(RL.read_picks(db, "")) == dr.BANKROLL0 + 9.0 and db.writes == []
 
 
 # ── pre-tip fill routes through the same recompute ─────────────────────────────

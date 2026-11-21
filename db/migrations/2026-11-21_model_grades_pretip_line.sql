@@ -69,13 +69,13 @@ WITH latest_proj AS (
                    FROM market_lines ml
                   WHERE ml.game_id = g.id AND ml.source = 'vegas'::text AND ml.line_type = 'current'::text
                     AND ml.spread IS NOT NULL AND (g.tipoff IS NULL OR ml.fetched_at < g.tipoff)
-                  ORDER BY ml.fetched_at DESC
+                  ORDER BY ml.fetched_at DESC, ml.id DESC
                  LIMIT 1) cs ON true
              LEFT JOIN LATERAL ( SELECT ml.total
                    FROM market_lines ml
                   WHERE ml.game_id = g.id AND ml.source = 'vegas'::text AND ml.line_type = 'current'::text
                     AND ml.total IS NOT NULL AND (g.tipoff IS NULL OR ml.fetched_at < g.tipoff)
-                  ORDER BY ml.fetched_at DESC
+                  ORDER BY ml.fetched_at DESC, ml.id DESC
                  LIMIT 1) ct ON true
         )
  SELECT g.id AS game_id,

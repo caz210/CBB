@@ -66,22 +66,27 @@ lines (free) → Odds API fallback whenever any D-I game lacks an ESPN/DK line (
 100-credit reserve, usage in `data/ledger/odds_api_usage.json` under the checkout — counted under the real CT date, never `--date`;
 fails closed if that file is missing/corrupt; create it once with `python3 -m czarp.odds_usage --init`, check it with `--check`.
 The 7 AM run and `pretip_check.py` MUST run on the same machine from the same checkout: the cap is a local file + flock and is not
-shared across machines/runners. Exception: `refresh_lines.py` runs in GitHub Actions with its OWN counter file, restored/saved
-through the Actions cache; it can only ever claim the 'refresh' slot (4), so the box's daily+pretip (2) plus Actions' refresh (4)
-still stay within 6. Fail-safes: a counter created today (`created_on`, written by `--init`: first run or a missing/evicted cache)
-gives the refresh job NO Odds API call that day (ESPN only), so lost history can never push the day past 6; and a counter whose
-`remaining` is unknown (null) never calls: it first reads credits left from the free `/v4/sports` endpoint (0 credits), and if that
-fails it does not call. Moving every counter to Supabase remains the clean fix)
+shared across machines/runners. Exception: `refresh_lines.py` runs in GitHub Actions and does NOT use that file for its cap: its
+paid calls are claimed in Supabase (`odds_api_refresh_claims`, primary key (CT day, n) with CHECK n between 1 and 4), so a missing,
+stale or unsaved Actions cache can never hide earlier calls, and --force or a duplicate firing cannot exceed 4. Each refresh run
+first reads the API's own x-requests-used / x-requests-remaining from the free `/v4/sports` endpoint (key in a header); if that read
+fails, credits are under the reserve, or the API shows 6+ paid calls since today's first refresh run, it makes no paid call (ESPN
+only). Box daily (1) + pretip (1) + Supabase-capped refresh (4) = at most 6 a day)
 
 **Intraday line refresh (`refresh_lines.py`, GitHub Actions on main: "Intraday line refresh").** Normal days run at 10 AM, 1 PM,
 4 PM and 7 PM CT; light days (fewer than `LIGHT_DAY_MAX_GAMES` = 20 D-I games on today's slate) at 12 PM and 5 PM CT. The workflow
 fires at :05 of every UTC hour that can be one of those CT hours in CST or CDT; the script gates on America/Chicago time: a run
 counts for slot H from H:00 to H+1:05 CT (a firing up to 60 min late still runs), deciding the day type from a HEAD count of today's games. Each run pulls
 current lines (ESPN first, the Odds API 'refresh' slot only for games ESPN lacks), inserts a new vegas `current` market_lines row only
-when a line/price changed, and writes a new projections row per model with the 7:15 projections unchanged and the edges, skip codes
-and skip reasons recomputed by `daily_run.attach_skip_reasons` (edges_as_of = created_at). New-coach holds are carried over from the
-7:15 row. Nothing changes -> nothing written. It never writes picks or the ledger. `pretip_check.py` routes the games it fills through
-the same `refresh_lines.recompute_edges`. Needs migration `db/migrations/2026-11-21_intraday_line_refresh.sql` applied first.
+when a line/price changed. For a game whose line inputs changed since its newest projections row it writes a new projections row
+per model: projections copied unchanged, and ONLY the changed market's edges, skip codes, skip reasons and cover/over prob
+recomputed by `daily_run.attach_skip_reasons` from the full-precision model numbers (`projections.home_margin_full` /
+`total_full`, written by the 7 AM run), so they equal what daily_run computes for the same line; the other market is copied as-is
+(a total move also re-stamps the spread, whose edge divides by the total). edges_as_of = created_at. An unchanged line writes
+nothing. Each (CT day, slot) runs once (`line_refresh_runs`). New-coach holds are carried over from the 7:15 row. It never writes
+picks or the ledger, and never stamps a game within 10 minutes after a pick is logged on it. `pretip_check.py` routes the games it
+fills through the same `refresh_lines.recompute_edges`. Needs migration `db/migrations/2026-11-21_intraday_line_refresh.sql`
+applied first (checked before any write).
     python refresh_lines.py [--force] [--dry-run] [--no-odds-api]
 
 **Odds API counter recovery** (`data/ledger/odds_api_usage.json`). If the daily report notes or pretip_check's stderr say

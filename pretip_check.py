@@ -171,13 +171,15 @@ def fill_missing_lines(today: str, now, led: pd.DataFrame, allow_api: bool, log=
         client = sw.Client()
     lines = lines or dr.espn_dk_lines
     utc_now = pd.Timestamp(now).tz_convert("UTC")
-    games = [g for g in client.get("games", select="id,external_id,home,away,tipoff,status", date=f"eq.{today}")
+    games = [g for g in client.get_all("games", order="id", select="id,external_id,home,away,tipoff,status",
+                                           date=f"eq.{today}")
              if g.get("status") != "final" and g.get("tipoff") and pd.Timestamp(g["tipoff"]) > utc_now]
     if not games:
         return {}
     ids = ",".join(str(int(g["id"])) for g in games)
-    newest = sw.newest_vegas_current(client.get(
-        "market_lines", select="game_id,source,line_type,book,spread,total,prices,fetched_at",
+    newest = sw.newest_vegas_current(client.get_all(
+        "market_lines", order="fetched_at.desc,id.desc",
+        select="id,game_id,source,line_type,book,spread,total,prices,fetched_at",
         game_id=f"in.({ids})", source="eq.vegas", line_type="eq.current"))
     gaps = [g for g in games if sw._clean((newest.get(int(g["id"])) or {}).get("spread")) is None
             or sw._clean((newest.get(int(g["id"])) or {}).get("total")) is None]
@@ -221,8 +223,7 @@ def fill_missing_lines(today: str, now, led: pd.DataFrame, allow_api: bool, log=
         try:
             import refresh_lines as RL
             RL.recompute_edges(client, [g for g in games if int(g["id"]) in filled_ids], now,
-                               dr.bankroll(led) if len(led) else dr.BANKROLL0, ts,
-                               force_ids=filled_ids, log=log)
+                               dr.bankroll(led) if len(led) else dr.BANKROLL0, ts, log=log)
         except Exception as e:                 # never block the play checks
             log(f"  edge recompute after fill failed ({type(e).__name__}: {e})")
     return {w["event_id"]: w for w in work

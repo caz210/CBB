@@ -17,10 +17,54 @@
 --
 -- No new grants: projections already has SELECT for anon/authenticated (2026-11-18) and a new column inherits
 -- it; CREATE OR REPLACE VIEW keeps slate_games' grants (re-granted below anyway, SELECT only).
--- Apply only after Scantron approves, BEFORE the czarp-v2 code that writes edges_as_of runs.
+-- projections.home_margin_full / total_full: the model's unrounded home margin and total (czarp-v2 row: v2 margin
+--   and total; czarp-v1-totals row: v1 margin and total), written by the 7 AM run next to the 0.1-rounded
+--   spread/total customers see. The refresh recomputes a changed market's edges from these so they equal what
+--   daily_run would compute for the same line. NULL on older rows (the refresh then falls back to the rounded
+--   value, only for a market whose line changed).
+-- odds_api_refresh_claims: one row per paid Odds API call by the refresh job; primary key (day, n) with
+--   CHECK (n between 1 and 4) caps it at 4 per CT day in the database, whatever the runner's cache says.
+-- line_refresh_runs: one row per (CT day, slot) so a slot runs once, with the API's own x-requests-used /
+--   x-requests-remaining read (free /v4/sports) at the start of the run.
+-- Both tables: service role only (RLS on, no policies, anon/authenticated revoked). Not shown to customers.
+-- Apply only after Scantron approves, BEFORE the czarp-v2 code that writes these columns runs (the 7 AM upsert
+-- retries without the two *_full columns if they are missing; refresh_lines.py refuses to run without them).
+
+begin;
 
 alter table projections
-  add column if not exists edges_as_of timestamptz;
+  add column if not exists edges_as_of timestamptz,
+  add column if not exists home_margin_full double precision,
+  add column if not exists total_full double precision;
+
+comment on column projections.home_margin_full is
+  'Unrounded model home margin behind the rounded spread column (for exact intraday edge recomputes).';
+comment on column projections.total_full is
+  'Unrounded model total behind the rounded total column (for exact intraday edge recomputes).';
+
+create table if not exists odds_api_refresh_claims (
+  day                date        not null,
+  n                  smallint    not null check (n between 1 and 4),
+  slot               smallint,
+  claimed_at         timestamptz not null default now(),
+  requests_used      numeric,
+  requests_remaining numeric,
+  primary key (day, n)
+);
+
+create table if not exists line_refresh_runs (
+  day                date        not null,
+  slot               smallint    not null,
+  started_at         timestamptz not null default now(),
+  requests_used      numeric,
+  requests_remaining numeric,
+  primary key (day, slot)
+);
+
+alter table odds_api_refresh_claims enable row level security;
+alter table line_refresh_runs enable row level security;
+revoke all on odds_api_refresh_claims from anon, authenticated;
+revoke all on line_refresh_runs from anon, authenticated;
 
 comment on column projections.edges_as_of is
   'When this row''s stored edges and skip reasons were computed against the newest Vegas line (intraday refresh / pre-tip fill). NULL on rows from the 7 AM run: use created_at.';
@@ -87,3 +131,5 @@ left join lateral (
   limit 1) off_tot on true;
 
 grant select on slate_games to anon, authenticated;
+
+commit;

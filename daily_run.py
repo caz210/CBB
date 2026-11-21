@@ -440,10 +440,12 @@ def _odds_api_record(remaining) -> None:
         log(f"  Odds API: could not record credits ({type(e).__name__}: {e}); usage file left untouched")
 
 
-def odds_api_fallback(games: list[dict], today: str, allow: bool, job: str = "daily") -> int:
+def odds_api_fallback(games: list[dict], today: str, allow: bool, job: str = "daily", claim=None) -> int:
     """Fill missing DK lines from The Odds API: at most ODDS_API_MAX_CALLS_PER_DAY calls a day across all jobs,
     at most ODDS_API_JOB_SLOTS[job] for this job, never below the credit reserve. `today` is the slate date and is
-    NOT used for budgeting: calls always count under today's real CT date (odds_api_budget_day)."""
+    NOT used for budgeting: calls always count under today's real CT date (odds_api_budget_day).
+    `claim`: optional callable -> (ok, why) that replaces the local-file claim (refresh_lines uses a Supabase-backed,
+    server-capped claim); when given, the local counter's seed/claim are not used."""
     missing = [g for g in games if g.get("current_home_spread") is None or g.get("current_total") is None]
     if not games or not missing:
         if games:
@@ -464,18 +466,26 @@ def odds_api_fallback(games: list[dict], today: str, allow: bool, job: str = "da
     if not of.ODDS_API_KEY:
         log("  Odds API: no ODDS_API_KEY — skipped")
         return 0
-    odds_api_seed_remaining(of.ODDS_API_KEY)
-    ok, why = odds_api_claim(job)
+    if claim is None:
+        odds_api_seed_remaining(of.ODDS_API_KEY)
+        ok, why = odds_api_claim(job)
+    else:
+        try:
+            ok, why = claim()
+        except Exception as e:                 # a claim that errors is a refusal
+            ok, why = False, f"claim failed ({type(e).__name__})"
     if not ok:
         log(f"  Odds API: skipped — {why}")
         return 0
     try:
         df = of.fetch_vegas_lines()
     except Exception as e:
-        log(f"  Odds API: failed ({type(e).__name__}: {e})")
+        redact = getattr(of, "redact_key", lambda t: "(details withheld)")
+        log(f"  Odds API: failed ({type(e).__name__}: {redact(str(e))})")
         return 0
     finally:
-        _odds_api_record(getattr(of, "_odds_credits_remaining", None))
+        if claim is None:
+            _odds_api_record(getattr(of, "_odds_credits_remaining", None))
     try:
         rem = _usage().get("remaining")
     except Exception:

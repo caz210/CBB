@@ -381,6 +381,10 @@ class FakeClient:
             return []
         raise AssertionError(f"unexpected read of {table}")
 
+    def get_all(self, table, order, page=1000, **params):
+        assert order
+        return self.get(table, **params)
+
     def insert(self, table, rows):
         self.writes.append(("insert", table, rows))
 

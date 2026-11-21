@@ -31,7 +31,7 @@ def test_current_line_is_newest_pre_tip_row_not_max():
     assert "filter (where ml.line_type = 'current'" not in sql            # the old max() over current rows
     assert sql.count("ml.fetched_at < g.tipoff") == 2                    # spread and total, both pre-tip
     assert sql.count("g.tipoff is null or ml.fetched_at < g.tipoff") == 2
-    assert sql.count("order by ml.fetched_at desc") == 2
+    assert sql.count("order by ml.fetched_at desc, ml.id desc") == 2   # id breaks fetched_at ties
     assert "ml.spread is not null" in sql and "ml.total is not null" in sql
     assert "cs.spread::numeric as current_spread" in sql and "ct.total::numeric as current_total" in sql
     # fallback order unchanged: close, then current, then open
