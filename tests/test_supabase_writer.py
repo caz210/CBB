@@ -47,7 +47,7 @@ def test_sync_tipoff_central_and_projection_rounding():
     assert games["5"]["tipoff"] == "2026-11-04T00:00:00+00:00"
     v2 = next(p for p in c.calls["projections"] if p["model_version"] == "czarp-v2")
     v1 = next(p for p in c.calls["projections"] if p["model_version"] == sw.V1_VERSION)
-    assert v2["spread"] == -7.2 and v2["total"] == 143.7 and v2["proj_home"] == 75.5 and v2["proj_away"] == 68.2
+    assert v2["spread"] == -7.2 and v2["total"] == 143.7 and v2["proj_home"] == 76.1 and v2["proj_away"] == 68.9
     assert v1["total"] == 145.0 and v1["spread"] == -6.7
 
 
@@ -200,3 +200,54 @@ def test_stored_edges_sql_columns_and_view_logic():
     assert "numeric(6,4)" in sql
     # must not rewrite picks / the ledger
     assert "alter table picks" not in sql.lower()
+
+
+def _cents(x):
+    return round(x * 100)
+
+
+def test_team_scores_sum_to_czarp_total_and_gap_is_czarp_spread():
+    # CZarp total = v1 total (rounded as stored), CZarp spread = default-model margin (rounded as stored)
+    for hm, t2, t1 in [(9.8, 159.8, 165.0), (-1.9, 140.6, 135.5), (5.7, 164.5, 169.0), (7.25, 150.0, 145.5),
+                       (-22.149, 154.3, 154.0), (0.0, 131.8, 130.5), (13.3, 152.2, 152.04)]:
+        h, a = sw.team_scores(hm, t2, t1)
+        assert _cents(h + a) == _cents(round(t1, 1))
+        assert _cents(h - a) == _cents(round(hm, 1))           # home - away == home margin == -spread
+    assert sw.team_scores(9.8, 159.8, 165.0) == (87.4, 77.6)   # Mercer / Charleston Southern, Nov 21
+    assert sw.team_scores(-1.0, 150.0, 145.5) == (72.25, 73.25)  # .x5 case keeps both identities exact
+
+
+def test_team_scores_fall_back_to_default_total_without_v1():
+    for v1 in (None, float("nan")):
+        h, a = sw.team_scores(7.2345, 143.678, v1)
+        assert _cents(h + a) == _cents(143.7) and _cents(h - a) == _cents(7.2)
+
+
+def test_sync_team_scores_match_czarp_total_and_spread_incl_neutral():
+    now = datetime(2026, 11, 21, 7, 13, tzinfo=dr.CENTRAL)
+    base = dict(game_date="2026-11-21", state="pre", tip_utc=datetime(2026, 11, 22, 0, 0, tzinfo=timezone.utc),
+                v2_home_win_prob=0.7, current_home_spread=-8.5, current_total=161.5)
+    gs = [dict(base, event_id="1", kp_home="Mercer", kp_away="Charleston Southern", neutral=False,
+               v2_home_margin=9.8031, v2_total=159.81, v1_total=165.0, v1_home_margin=9.0),
+          # neutral floor: the margin carries no home edge; same rule, home/away as listed
+          dict(base, event_id="2", kp_home="San Diego", kp_away="UC Irvine", neutral=True,
+               v2_home_margin=-5.6449, v2_total=147.02, v1_total=148.5, v1_home_margin=-5.0),
+          # no v1 total: scores follow the default model's own total
+          dict(base, event_id="3", kp_home="X", kp_away="Y", neutral=False,
+               v2_home_margin=3.33, v2_total=140.04, v1_total=None)]
+    c = FakeClient()
+    sw.sync(gs, pd.DataFrame(columns=dr.LEDGER_COLS), None, now, log=lambda *_: None, client=c)
+    gid = {r["external_id"]: 100 + i for i, r in enumerate(c.calls["games"])}   # FakeClient ids
+    pr = c.calls["projections"]
+    v2 = {p["game_id"]: p for p in pr if p["model_version"] == "czarp-v2"}
+    v1 = {p["game_id"]: p for p in pr if p["model_version"] == sw.V1_VERSION}
+    for eid in ("1", "2"):
+        p, t = v2[gid[eid]], v1[gid[eid]]["total"]
+        assert _cents(p["proj_home"] + p["proj_away"]) == _cents(t)
+        assert _cents(p["proj_home"] - p["proj_away"]) == _cents(-p["spread"])
+    p3 = v2[gid["3"]]
+    assert _cents(p3["proj_home"] + p3["proj_away"]) == _cents(p3["total"])
+    assert _cents(p3["proj_home"] - p3["proj_away"]) == _cents(-p3["spread"])
+    # stored total / spread columns unchanged by the reconciliation
+    assert (v2[gid["1"]]["total"], v2[gid["1"]]["spread"]) == (159.8, -9.8)
+    assert (v2[gid["2"]]["total"], v2[gid["2"]]["spread"]) == (147.0, 5.6)

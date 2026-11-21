@@ -45,6 +45,19 @@ def _edge_frac(v):
     return None if v is None else round(float(v), 4)
 
 
+def team_scores(home_margin, v2_total, v1_total=None) -> tuple[float, float]:
+    """Projected (home, away) points that agree with what customers see: they add up to the CZarp total
+    (the czarp-v1-totals total when it exists, else the default model's total) and their gap equals the
+    CZarp spread (the default model's home margin). Both are taken at the precision they are stored and
+    shown (0.1), so home + away == total and home - away == -spread exactly; a score can land on .x5,
+    hence two decimals. Neutral games need no special case: the margin already carries no home edge."""
+    t = _clean(v1_total)
+    t = float(v2_total) if t is None else float(t)
+    m = round(float(home_margin), 1)
+    t = round(t, 1)
+    return round((t + m) / 2, 2), round((t - m) / 2, 2)
+
+
 def _edge_fields(g: dict) -> dict:
     return {k: _edge_frac(g.get(k)) for k in (
         "edge_now_pct_spread", "edge_vs_open_pct_spread",
@@ -305,7 +318,7 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
         L, MT = g.get("current_home_spread"), g.get("current_total")
         proj.append({**base, "season": _season(g["game_date"]), "game_id": gid[str(g["event_id"])],
                      "model_version": g.get("model_version", "czarp-v2"),
-                     "proj_home": round((T + hm) / 2, 1), "proj_away": round((T - hm) / 2, 1),
+                     **dict(zip(("proj_home", "proj_away"), team_scores(hm, T, g.get("v1_total")))),
                      "spread": round(-hm, 1), "total": round(T, 1),
                      "home_win_prob": round(g.get("v2_home_win_prob", _ncdf(hm / msd)), 4),
                      "home_cover_prob": round(_ncdf((hm + L) / msd), 4) if L is not None else None,

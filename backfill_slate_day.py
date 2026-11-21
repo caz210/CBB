@@ -39,7 +39,7 @@ except Exception:
     pass
 
 from czarp.supabase_writer import (DEFAULT_VERSION, LEAGUE, SPORT, V1_VERSION, Client, _edge_fields,
-                                   _season, _tip_ct_iso)
+                                   _season, _tip_ct_iso, team_scores)
 import daily_run as dr
 
 MARGIN_SD, TOTAL_SD = 11.4, 16.9   # czarp.config.Betting defaults (same fallbacks as supabase_writer.sync)
@@ -126,7 +126,7 @@ def build_rows(games: list[dict], *, sport_id: int, team_ids: dict[str, int], ex
             if hm is not None and T is not None and (k, DEFAULT_VERSION, stamp) not in existing_proj:
                 wp = g.get("v2_home_win_prob")
                 rows.append({**base, "season": _season(g["game_date"]), "game_id": k, "model_version": DEFAULT_VERSION,
-                             "proj_home": round((T + hm) / 2, 1), "proj_away": round((T - hm) / 2, 1),
+                             **dict(zip(("proj_home", "proj_away"), team_scores(hm, T, g.get("v1_total")))),
                              "spread": round(-hm, 1), "total": round(T, 1),
                              "home_win_prob": round(wp if wp is not None else _ncdf(hm / MARGIN_SD), 4),
                              "home_cover_prob": round(_ncdf((hm + L) / MARGIN_SD), 4) if L is not None else None,

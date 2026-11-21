@@ -248,3 +248,49 @@ def test_resync_never_grades_logs_picks_or_writes_ledger(monkeypatch, tmp_path):
     assert synced.get("skips") and "n" in synced
     assert (tmp_path / "2026-11-10.resync.md").exists()
     assert not (tmp_path / "snap").exists() or not any((tmp_path / "snap").iterdir())
+
+
+def test_odds_api_fallback_runs_when_any_game_missing_and_keeps_cap_and_reserve(monkeypatch, tmp_path):
+    """One D-I game without a DK line (2% of the slate) is enough to call The Odds API, but never more
+    than ODDS_API_MAX_CALLS_PER_DAY times a day and never below ODDS_API_RESERVE credits."""
+    import json, sys, types
+    calls = []
+    fake = types.ModuleType("odds_fetcher")
+    fake.ODDS_API_KEY = "test-key"
+    fake._odds_credits_remaining = 400
+    fake._best_score = lambda a, b: 1.0 if a == b else 0.0
+
+    def fetch():
+        calls.append(1)
+        return pd.DataFrame([dict(vegas_home="Austin Peay Governors", vegas_away="UT Rio Grande Valley Vaqueros",
+                                  vegas_spread=-4.5, vegas_total=143.5, home_spread_price=-110,
+                                  away_spread_price=-110, over_price=-110, under_price=-110,
+                                  source_book="draftkings")])
+    fake.fetch_vegas_lines = fetch
+    monkeypatch.setitem(sys.modules, "odds_fetcher", fake)
+    usage = tmp_path / "usage.json"
+    usage.write_text(json.dumps({"calls": {}, "remaining": 500}))
+    monkeypatch.setattr(dr, "USAGE", str(usage))
+    monkeypatch.setattr(dr, "log", lambda *a, **k: None)
+
+    def slate():
+        full = [dict(home_full=f"H{i}", away_full=f"A{i}", current_home_spread=-3.5, current_total=140.5)
+                for i in range(50)]
+        return full + [dict(home_full="Austin Peay Governors", away_full="UT Rio Grande Valley Vaqueros",
+                            current_home_spread=None, current_total=None)]
+
+    g = slate()
+    assert dr.odds_api_fallback(g, "2026-11-21", allow=True) == 1
+    assert len(calls) == 1 and g[-1]["current_home_spread"] == -4.5 and g[-1]["current_total"] == 143.5
+    assert g[-1]["price_source"] == "oddsapi:draftkings"
+    assert json.loads(usage.read_text())["calls"]["2026-11-21"] == 1
+    # daily cap: a second run the same day does not call again
+    assert dr.odds_api_fallback(slate(), "2026-11-21", allow=True) == 0 and len(calls) == 1
+    # credit reserve: below it, no call even on a new day
+    usage.write_text(json.dumps({"calls": {}, "remaining": dr.ODDS_API_RESERVE - 1}))
+    assert dr.odds_api_fallback(slate(), "2026-11-22", allow=True) == 0 and len(calls) == 1
+    # every game has a line: no call
+    usage.write_text(json.dumps({"calls": {}, "remaining": 500}))
+    assert dr.odds_api_fallback(slate()[:50], "2026-11-23", allow=True) == 0 and len(calls) == 1
+    # --no-odds-api still wins
+    assert dr.odds_api_fallback(slate(), "2026-11-23", allow=False) == 0 and len(calls) == 1
