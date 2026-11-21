@@ -1,7 +1,8 @@
 "use client";
 import type { SlateGame, ValueBet } from "@/lib/types";
 import { pickStatusTags, statusTagLabel, type StatusTag } from "@/lib/statusTags";
-import { verdictLabel, type VerdictLevel } from "@/lib/verdicts";
+import { ladderMarketLabel, verdictLabel, type VerdictLevel } from "@/lib/verdicts";
+import type { Market } from "@/lib/labels";
 import type { ExplainerKey } from "@/lib/explainers";
 import { InfoTip } from "./InfoTip";
 import { NewCoachChip } from "./NewCoachBadge";
@@ -25,11 +26,12 @@ const VERDICT_TIP: Record<VerdictLevel, ExplainerKey> = {
 };
 
 /** One verdict chip (Toss Up / Lean / Favor / Official Play). Tap for the definition.
+ *  market: name it in the chip ("Total Favor"), for the header's stronger-market slot.
  *  noLine: a card with no line yet gets a neutral tip, never "below the bar". */
-export function VerdictChip({ level, noLine = false, className = "" }: { level: VerdictLevel; noLine?: boolean; className?: string }) {
+export function VerdictChip({ level, noLine = false, market = null, wrap = false, className = "" }: { level: VerdictLevel; noLine?: boolean; market?: Market | null; wrap?: boolean; className?: string }) {
   return (
-    <InfoTip term={noLine && level === "toss_up" ? "noLine" : VERDICT_TIP[level]} triggerClassName={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${VERDICT_STYLE[level]} ${CHIP} ${className}`}>
-      {verdictLabel(level)}
+    <InfoTip term={noLine && level === "toss_up" ? "noLine" : VERDICT_TIP[level]} triggerClassName={`${wrap ? "text-left leading-tight" : "whitespace-nowrap"} rounded-md font-sans px-1.5 py-0.5 text-[10px] font-semibold ${VERDICT_STYLE[level]} ${CHIP} ${className}`}>
+      {market ? `${ladderMarketLabel(market)} ${verdictLabel(level)}` : verdictLabel(level)}
     </InfoTip>
   );
 }
@@ -38,7 +40,7 @@ function StatusTagView({ tag }: { tag: StatusTag }) {
   if (tag.kind === "pause") {
     return <NewCoachChip locks={tag.locks} market={tag.market} className={CHIP} />;
   }
-  return <VerdictChip level={tag.verdict} noLine={tag.noLine} />;
+  return <VerdictChip level={tag.verdict} noLine={tag.noLine} market={tag.market} />;
 }
 
 /** Up to STATUS_TAG_MAX status tags. Verdict first; Neutral and TV are not rendered here. */

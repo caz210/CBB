@@ -26,6 +26,7 @@ import { isPickTier, type Market, type MarketSource, type PickTier } from "./lab
 import { wilsonCi, SMALL_SAMPLE_N } from "./stats";
 import { newCoachLock, type NewCoachLock } from "./coach";
 import { parseVerdict } from "./verdict";
+import { newestByGame, pickLinesAsOf } from "./linesAsOf";
 
 export type Loaded<T> =
   | { state: "live"; data: T }
@@ -112,6 +113,8 @@ function toSlateGame(r: Row): SlateGame {
     verdict_total: parseVerdict(r.verdict_total),
     lean_spread: r.lean_spread == null ? null : r.lean_spread === true,
     lean_total: r.lean_total == null ? null : r.lean_total === true,
+    // present once the pipeline adds it; absent today, which just leaves this null
+    market_fetched_at: typeof r.market_fetched_at === "string" ? r.market_fetched_at : null,
   };
 }
 
@@ -307,6 +310,7 @@ export async function loadSlateFrom(sb: SB, sport: Sport, date: string): Promise
       if (stamps.length) updatedAt = new Date(Math.max(...stamps)).toISOString();
     }
     attachRawEdges(games, (pr.data ?? []) as Row[]);
+    await attachLinesAsOf(sb, games);
     // Pause chips read the team's CURRENT profile, so only show them on today's and future slates.
     // Past slates keep the reason that was stored with that day's projection instead.
     if (date >= todayCT()) await attachNewCoaches(sb, games, st.data ?? []);
@@ -514,6 +518,37 @@ async function attachTeamTags(sb: SB, games: SlateGame[], gameRows: Row[]) {
 
 
 type SB = NonNullable<Awaited<ReturnType<typeof createSupabaseServerClient>>>;
+
+/** Stamp each game with the real "as of" time of the line its ratings use (lib/linesAsOf.ts).
+ *  One read per source for the whole slate. projections.edges_as_of may not exist yet: that read
+ *  then errors and is ignored, so this upgrades by itself once the column appears. Never throws. */
+export async function attachLinesAsOf(sb: SB, games: SlateGame[]): Promise<void> {
+  if (!games.length) return;
+  const ids = games.map((g) => g.game_id);
+  type Res = { data: unknown[] | null; error: unknown } | null;
+  const safe = async (q: () => PromiseLike<Res>): Promise<Res> => { try { return await q(); } catch { return null; } };
+  const [ea, ml] = await Promise.all([
+    safe(() => sb.from("projections").select("game_id,model_version,created_at,edges_as_of").in("game_id", ids)
+      .not("edges_as_of", "is", null).order("created_at", { ascending: false })),
+    games.some((g) => !g.market_fetched_at)
+      ? safe(() => sb.from("market_lines").select("game_id,fetched_at").in("game_id", ids).eq("source", "vegas").eq("line_type", "current"))
+      : Promise.resolve(null),
+  ]);
+  // edges_as_of from the newest default-model (czarp-v2) row, else the newest row with a stamp.
+  const edgeRows = ea && !ea.error ? ((ea.data ?? []) as Row[]) : [];
+  const v2 = newestByGame(edgeRows.filter((r) => str(r.model_version) === V2), "edges_as_of");
+  const anyModel = newestByGame(edgeRows, "edges_as_of");
+  const lines = ml && !ml.error ? newestByGame((ml.data ?? []) as Row[], "fetched_at") : new Map<number, string>();
+  for (const g of games) {
+    const p = pickLinesAsOf({
+      edgesAsOf: v2.get(g.game_id) ?? anyModel.get(g.game_id),
+      marketFetchedAt: g.market_fetched_at,
+      marketLinesFetchedAt: lines.get(g.game_id),
+    });
+    g.lines_as_of = p?.at ?? null;
+    g.lines_as_of_source = p?.source ?? null;
+  }
+}
 
 /** Which of these game ids are neutral-site games (games.neutral). slate_games has no such column. Never throws:
  *  on any failure every game reads as a normal home game. */
@@ -944,6 +979,7 @@ export async function loadTeam(sport: Sport, slug: string): Promise<Loaded<TeamP
     g.neutral = (await neutralP).has(g.game_id);
     // Same pause chips as the slate card / game sheet (name lookup is enough if game rows have no ids).
     await attachNewCoaches(sb, [g], []);
+    await attachLinesAsOf(sb, [g]);
     next = { ...g, officialBets };
   }
   const neutral = await neutralP;

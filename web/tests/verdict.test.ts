@@ -49,8 +49,10 @@ test("coach pause with only unknown codes: Also falls back to the stored text", 
   const d = formatSkip("edge vs open below 3%; total moved 5 pts against our side; Paused until game 4 (new coach, 2 played)", ["new_coach_lock", "mystery"], "total");
   assert.deepEqual(d, {
     primary: "paused until game 4 (new coach, 2 played)",
-    also: ["edge vs open below 3%", "market moved 3+ pts away from CZarp since open"],
+    also: ["market moved 3+ pts away from CZarp since open"],
   });
+  // Opening-line text is dropped from the fallback: the ladder is judged on the current line.
+  assert.deepEqual(formatSkip("edge vs open below 4%", [], "spread"), { primary: null, also: [] });
 });
 
 test("notAPlayLine / notAPlayAlso on a total-headline coach card", () => {
@@ -62,7 +64,9 @@ test("notAPlayLine / notAPlayAlso on a total-headline coach card", () => {
 test("notAPlayLine falls back to stored text for unknown codes", () => {
   const g = game({ skip_reasons_total: ["brand_new_rule"], skip_reason_total: "injury news pending" });
   assert.equal(notAPlayLine(g, []), "Not a play: injury news pending");
-  assert.equal(notAPlayLine(game({ skip_reasons_total: ["brand_new_rule"], skip_reason_total: null }), []), null);
+  // Unknown code, no text, edge now clears with no hold: Favor, so the reason is the morning run.
+  assert.equal(notAPlayLine(game({ skip_reasons_total: ["brand_new_rule"], skip_reason_total: null }), []), "Not a play: not posted at the 7:15 AM CT run");
+  assert.equal(notAPlayLine(game({ edge_now_pct_total: 0.01, skip_reasons_total: ["brand_new_rule"], skip_reason_total: null }), [], "total"), "Not a play: edge now below 3%");
 });
 
 test("pausedChipLabel by market", () => {

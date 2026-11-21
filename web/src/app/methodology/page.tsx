@@ -47,7 +47,7 @@ export default function MethodologyPage() {
       ))}
       <section id={GLOSSARY_ANCHOR} className="scroll-mt-24">
         <H>Glossary</H>
-        <p>Tap the ⓘ on any verdict, game chip or style tag on the site for its definition. Each game gets one verdict for its headline market, from weakest to strongest. Style tags describe how a team plays relative to the rest of D-I; a dashed chip marked “· tent.” means the sample is still early.</p>
+        <p>Tap the ⓘ on any verdict, game chip or style tag on the site for its definition. Each game gets two verdicts, one for the spread and one for the total, judged on the current line, from weakest to strongest. Style tags describe how a team plays relative to the rest of D-I; a dashed chip marked “· tent.” means the sample is still early.</p>
         <GlossaryBlock title="Verdicts" group="verdict" />
         <GlossaryBlock title="Game chips" group="chip" />
         <GlossaryBlock title="Style tags" group="style" />
