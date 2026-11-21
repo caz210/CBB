@@ -3,6 +3,14 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getSport } from "@/lib/sports";
 import { isIsoDate, loadSlate, shiftDate, todayCT } from "@/lib/data";
+import {
+  SLATE_MATCHUP_CTA_LABEL,
+  showSlateLiveBadge,
+  showSlateMatchupCta,
+  slateDateRelation,
+  slateEmptyBody,
+  slateMatchupHref,
+} from "@/lib/slateEmpty";
 import { parseSlateSort } from "@/lib/tvRating";
 import { fmtGameDate } from "@/lib/labels";
 import { ComingSoon } from "@/components/ComingSoon";
@@ -41,7 +49,9 @@ export default async function SlatePage({
   const sp = await searchParams;
   const today = todayCT();
   const date = isIsoDate(sp.date) ? sp.date : today;
+  const relation = slateDateRelation(date, today);
   const res = await loadSlate(sport, date);
+  const gameCount = res.state === "live" ? res.data.games.length : 0;
   const sort = parseSlateSort(sp.sort);
   const hide = sp.hide === "1";
   const href = (d: string) => {
@@ -57,7 +67,7 @@ export default async function SlatePage({
   return (
     <div className="mx-auto max-w-7xl px-4 py-5 md:px-6 md:py-10">
       <PageHeader
-        badge={res.state === "live" ? "live" : "none"}
+        badge={res.state === "live" && showSlateLiveBadge(relation, gameCount) ? "live" : "none"}
         updatedAt={res.state === "live" ? res.data.updatedAt : null}
         finished={res.state === "live" ? res.data.finished : false}
         finalAt={res.state === "live" ? res.data.finalAt : null}
@@ -84,11 +94,10 @@ export default async function SlatePage({
             actions={[{ href: href(date), label: "Try again" }]} />
         ) : res.data.games.length === 0 ? (
           <EmptyState
-            title={date < today ? "No slate stored for this date" : `No ${sport.label} games on ${fmtGameDate(date)}`}
-            body={date < today
-              ? "We don't have a stored slate for this date."
-              : "Nothing has been posted for this date yet. The model publishes each morning, so check back later."}
+            title={relation === "past" ? "No slate stored for this date" : `No ${sport.label} games on ${fmtGameDate(date)}`}
+            body={slateEmptyBody(relation)}
             actions={[
+              ...(showSlateMatchupCta(relation) ? [{ href: slateMatchupHref(sport.key), label: SLATE_MATCHUP_CTA_LABEL, variant: "primary" as const }] : []),
               ...(res.data.prevDate ? [{ href: href(res.data.prevDate), label: `‹ ${fmtGameDate(res.data.prevDate)}` }] : []),
               ...(res.data.nextDate ? [{ href: href(res.data.nextDate), label: `${fmtGameDate(res.data.nextDate)} ›` }] : []),
             ]}

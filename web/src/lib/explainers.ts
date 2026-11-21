@@ -22,7 +22,7 @@ export const EXPLAINERS = {
   },
   percentile: {
     title: "Percentile",
-    body: "Where this team ranks among D1 teams this season, from 0 (worst) to 100 (best). We show percentiles — not KenPom ranks — so you can compare style without obsessing over a leaderboard.",
+    body: "Percentiles vs all D-I teams, from 0 (worst) to 100 (best). Use them to compare style, not as a leaderboard.",
   },
   lean: {
     title: "Lean",
@@ -39,6 +39,14 @@ export const EXPLAINERS = {
   rating: {
     title: "Rating",
     body: "Projected margin vs an average D-I team on a neutral court.",
+  },
+  teamRating: {
+    title: "Rating",
+    body: "Projected margin vs an average D-I team on a neutral floor.",
+  },
+  diRecord: {
+    title: "D-I record",
+    body: "Records count only games between two D-I teams.",
   },
 } as const;
 

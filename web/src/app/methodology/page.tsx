@@ -19,7 +19,6 @@ export default function MethodologyPage() {
     <LegalPage
       eyebrow="How it works"
       title="Methodology"
-      banner="Layout and section stubs only. CZarp, the product owner, will write the final copy."
     >
       <p>This page will explain how CZarp builds projections, measures edge, and grades the public book.{sections.length ? " Until that copy lands, the sections below are an outline." : " The section copy is on the way."}</p>
       {sections.map((s) => (

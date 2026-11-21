@@ -7,7 +7,7 @@ export function EmptyState({
 }: {
   title: string;
   body: React.ReactNode;
-  actions?: { href: string; label: string }[];
+  actions?: { href: string; label: string; variant?: "primary" | "ghost" }[];
   tone?: "neutral" | "warn";
 }) {
   const ring = tone === "warn" ? "border-amber-400/30 bg-amber-400/5" : "border-ink-700 bg-ink-900";
@@ -21,7 +21,13 @@ export function EmptyState({
       {actions.length > 0 && (
         <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-center">
           {actions.map((a) => (
-            <Link key={a.href} href={a.href} className="flex min-h-11 items-center justify-center rounded-xl border border-ink-600 px-4 text-sm font-semibold hover:bg-ink-800">
+            <Link
+              key={a.href + a.label}
+              href={a.href}
+              className={a.variant === "primary"
+                ? "flex min-h-11 w-full items-center justify-center rounded-xl bg-court-500/15 px-4 text-sm font-semibold text-court-400 hover:bg-court-500/25 sm:w-auto"
+                : "flex min-h-11 items-center justify-center rounded-xl border border-ink-600 px-4 text-sm font-semibold hover:bg-ink-800"}
+            >
               {a.label}
             </Link>
           ))}
