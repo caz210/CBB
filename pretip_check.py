@@ -12,8 +12,9 @@ It never changes prices, stakes or graded results: the only ledger write is the 
 of open, not-yet-started plays (skipped with --dry-run).
 MISSING LINES: today's not-started games whose newest Vegas line in Supabase market_lines lacks a spread or a
 total get the missing value(s) filled (ESPN/DK first, then the reserved Odds API call, official plays first,
-then by tip time) as new insert-only market_lines rows. Existing lines, picks, grading and the ledger are never
-touched. Skipped with --dry-run; --no-odds-api still fills from ESPN.
+then by tip time) as new insert-only market_lines rows, then re-stamp those games' edges / skip reasons with a new
+projections row (refresh_lines.recompute_edges, the same function the intraday refresh uses). Existing lines,
+picks, grading and the ledger are never touched. Skipped with --dry-run; --no-odds-api still fills from ESPN.
 
     python pretip_check.py                 # today's slate (America/Chicago), annotate ledger
     python pretip_check.py --dry-run       # report only, no ledger write, no Odds API call
@@ -211,7 +212,19 @@ def fill_missing_lines(today: str, now, led: pd.DataFrame, allow_api: bool, log=
     if still and allow_api:
         _run_odds_api(still, today, log)
     fills = {w["game_id"]: w for w in work}
-    sw.insert_missing_lines(client, newest, fills, now.isoformat(timespec="seconds"), log=log)
+    ts = now.isoformat(timespec="seconds")
+    n = sw.insert_missing_lines(client, newest, fills, ts, log=log)
+    if n:
+        # A new current line must never sit next to a stale edge: recompute edges / skip reasons for the games
+        # that just got a row, with the same function the intraday refresh uses (never posts picks).
+        filled_ids = {r["game_id"] for r in sw.missing_line_fill_rows(newest, fills, ts)}
+        try:
+            import refresh_lines as RL
+            RL.recompute_edges(client, [g for g in games if int(g["id"]) in filled_ids], now,
+                               dr.bankroll(led) if len(led) else dr.BANKROLL0, ts,
+                               force_ids=filled_ids, log=log)
+        except Exception as e:                 # never block the play checks
+            log(f"  edge recompute after fill failed ({type(e).__name__}: {e})")
     return {w["event_id"]: w for w in work
             if w["current_home_spread"] is not None or w["current_total"] is not None}
 

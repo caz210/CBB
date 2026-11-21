@@ -70,10 +70,19 @@ def _row(d: dict) -> dict:
     return {k: _clean(v) for k, v in d.items()}
 
 
+def rest_base(url: str) -> str:
+    """PostgREST base for a project URL. Accepts the plain project URL or one pasted with a trailing /rest/v1
+    and/or trailing slashes (a common secret-entry mistake), and always returns '<project>/rest/v1'."""
+    u = (url or "").strip().rstrip("/")
+    while u.lower().endswith("/rest/v1"):
+        u = u[: -len("/rest/v1")].rstrip("/")
+    return u + "/rest/v1"
+
+
 class Client:
     def __init__(self, url: str | None = None, key: str | None = None):
         # SUPABASE_REST_URL overrides the REST base (self-hosted PostgREST / local testing)
-        self.base = os.getenv("SUPABASE_REST_URL") or (url or os.environ["SUPABASE_URL"]).rstrip("/") + "/rest/v1"
+        self.base = os.getenv("SUPABASE_REST_URL") or rest_base(url or os.environ["SUPABASE_URL"])
         key = key or os.environ["SUPABASE_SERVICE_KEY"]
         self.s = requests.Session()
         self.s.headers.update({"apikey": key, "Authorization": f"Bearer {key}",

@@ -12,7 +12,7 @@ pretip_check must therefore run on the same machine from the same checkout to sh
 
 Schema (the pre-2026-11-21 format, without calls_by_job, is still valid; no migration needed):
     {"calls": {"YYYY-MM-DD": int>=0, ...},
-     "calls_by_job": {"YYYY-MM-DD": {"daily": int>=0, "pretip": int>=0}, ...},   # optional
+     "calls_by_job": {"YYYY-MM-DD": {"daily": int>=0, "pretip": int>=0, "refresh": int>=0}, ...},   # optional
      "remaining": null | number | numeric string,                               # optional
      "last_call_ct": str}                                                       # optional
 """

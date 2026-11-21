@@ -187,8 +187,10 @@ def apply_pace_fix(games, today: str, data_dir: str = "data") -> int:
     return n
 
 
-ODDS_API_MAX_CALLS_PER_DAY = 2   # hard cap per America/Chicago day, across ALL jobs and processes
-ODDS_API_JOB_SLOTS = {"daily": 1, "pretip": 1}   # per-job share: the 7 AM run can never use the pre-tip slot
+ODDS_API_MAX_CALLS_PER_DAY = 6   # hard cap per America/Chicago day, across ALL jobs and processes
+# Per-job share: no job can use another job's slot. 'refresh' is refresh_lines.py (intraday line refresh:
+# up to 4 runs a day, at most 1 call each, only for games ESPN has no line for).
+ODDS_API_JOB_SLOTS = {"daily": 1, "pretip": 1, "refresh": 4}
 ODDS_API_RESERVE = 100
 ODDS_API_MIN_MISSING = 0.0      # use the Odds API whenever ANY D-I game lacks an ESPN/DK line (0 = any);
                                 # the per-day call cap and the credit reserve still apply
@@ -895,9 +897,15 @@ def candidates(games, now) -> list[dict]:
             why.append("Not a play: market moved 3+ pts away from CZarp since open")
         if c["market"] == "spread" and ma is not None and ma >= SIDE_MOVE_AGAINST_PTS and SIDE_MOVE_SKIP:
             why.append(f"spread moved {ma:g} pts against our side since open (market disagrees)")
-        locks = coach_locks(c["g"], market=c["market"])
-        c["coach_tag"] = coach_tag(c["g"], c["market"])
-        why.extend(coach_hold_reasons(locks))
+        holds = c["g"].get("coach_holds")
+        if holds is not None:
+            # intraday refresh (refresh_lines.py): the 7:15 run's new-coach holds, carried over as-is
+            why.extend(holds.get(c["market"]) or [])
+            c["coach_tag"] = ""
+        else:
+            locks = coach_locks(c["g"], market=c["market"])
+            c["coach_tag"] = coach_tag(c["g"], c["market"])
+            why.extend(coach_hold_reasons(locks))
         c["reasons"] = why
         c["rule_ok"] = not why
         # SHADOW 'track' tier: sides whose ONLY failing rule is the vs-current bar, with >= TRACK_SIDE_CUR_THR left
@@ -987,7 +995,9 @@ def skip_codes(c, kelly_ok: bool = True) -> list[str]:
         codes.append("line_moved_against")
     if c.get("market") == "spread" and c.get("flagged") and LINE_MOVE_EXCLUDE:
         codes.append("line_moved_against")
-    if any(x.get("locked") for x in coach_locks(c["g"], market=c.get("market"))):
+    holds = c["g"].get("coach_holds")
+    if (holds or {}).get(c.get("market")) or any(
+            x.get("locked") for x in coach_locks(c["g"], market=c.get("market"))):
         codes.append("new_coach_lock")
     if not kelly_ok:
         codes.append("kelly_too_small")
@@ -1019,8 +1029,19 @@ def attach_market_edges(games, now) -> None:
         c["g"][f"edge_vs_open_pct_{key}"] = c["edge_pct_vs_open"]
 
 
+def clears_bar(c) -> bool:
+    """A candidate whose edge clears its market's bar (4% sides / 3% totals): it passes every rule, or its edge
+    vs the CURRENT line is at or above the bar. kelly_too_small is checked for all of these, not only official
+    plays, so the side/total ladders can tell a too-small stake apart from a clean edge. Started games never."""
+    if c.get("started"):
+        return False
+    ec, thr = c.get("edge_pct"), c.get("thr")
+    return bool(c.get("rule_ok")) or (ec is not None and thr is not None and ec >= thr)
+
+
 def attach_skip_reasons(games, now, bankroll: float) -> None:
-    """Stamp skip reasons and per-market edges (via attach_market_edges) on each game."""
+    """Stamp skip reasons and per-market edges (via attach_market_edges) on each game.
+    kelly_too_small is computed for every candidate that clears the bar (clears_bar), not only official plays."""
     attach_market_edges(games, now)
     for g in games:
         g.setdefault("skip_reasons_spread", [])
@@ -1029,7 +1050,7 @@ def attach_skip_reasons(games, now, bankroll: float) -> None:
         g.setdefault("skip_reason_total", None)
     for c in candidates(games, now):
         kelly_ok = True
-        if c.get("rule_ok"):
+        if clears_bar(c):
             stake = kelly_stake(c["p_est"], c["price"], bankroll)
             kelly_ok = stake >= MIN_STAKE
         codes = skip_codes(c, kelly_ok=kelly_ok)

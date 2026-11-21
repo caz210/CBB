@@ -62,11 +62,24 @@ python -m pytest -q tests
     python daily_run.py [--date YYYY-MM-DD] [--no-refresh] [--no-odds-api] [--no-kalshi] [--dry-run] [--config FILE]
 
 One command: refresh KenPom (ratings/prior/HCA) + FanMatch → ESPN slate + DraftKings open/current
-lines (free) → Odds API fallback whenever any D-I game lacks an ESPN/DK line (≤2 calls/day across all jobs: 1 for the 7 AM run, 1 reserved for pretip_check, which also fills missing market_lines;
+lines (free) → Odds API fallback whenever any D-I game lacks an ESPN/DK line (≤6 calls/day across all jobs: 1 for the 7 AM run, 1 reserved for pretip_check, which also fills missing market_lines, and 4 for the intraday `refresh_lines.py`;
 100-credit reserve, usage in `data/ledger/odds_api_usage.json` under the checkout — counted under the real CT date, never `--date`;
 fails closed if that file is missing/corrupt; create it once with `python3 -m czarp.odds_usage --init`, check it with `--check`.
 The 7 AM run and `pretip_check.py` MUST run on the same machine from the same checkout: the cap is a local file + flock and is not
-shared across machines/runners — if a job ever moves to CI/Vercel, move the counter to Supabase first)
+shared across machines/runners. Exception: `refresh_lines.py` runs in GitHub Actions with its OWN counter file, restored/saved
+through the Actions cache; it can only ever claim the 'refresh' slot (4), so the box's daily+pretip (2) plus Actions' refresh (4)
+still stay within 6. If that cache is evicted the refresh counter restarts at 0 for the day; the schedule (≤4 runs a day, 1 call each)
+still bounds it. Moving every counter to Supabase remains the clean fix)
+
+**Intraday line refresh (`refresh_lines.py`, GitHub Actions on main: "Intraday line refresh").** Normal days run at 10 AM, 1 PM,
+4 PM and 7 PM CT; light days (fewer than `LIGHT_DAY_MAX_GAMES` = 20 D-I games on today's slate) at 12 PM and 5 PM CT. The workflow
+fires at every UTC hour that can be one of those CT hours in CST or CDT; the script gates on the America/Chicago hour. Each run pulls
+current lines (ESPN first, the Odds API 'refresh' slot only for games ESPN lacks), inserts a new vegas `current` market_lines row only
+when a line/price changed, and writes a new projections row per model with the 7:15 projections unchanged and the edges, skip codes
+and skip reasons recomputed by `daily_run.attach_skip_reasons` (edges_as_of = created_at). New-coach holds are carried over from the
+7:15 row. Nothing changes -> nothing written. It never writes picks or the ledger. `pretip_check.py` routes the games it fills through
+the same `refresh_lines.recompute_edges`. Needs migration `db/migrations/2026-11-21_intraday_line_refresh.sql` applied first.
+    python refresh_lines.py [--force] [--dry-run] [--no-odds-api]
 
 **Odds API counter recovery** (`data/ledger/odds_api_usage.json`). If the daily report notes or pretip_check's stderr say
 "Odds API call refused (fail closed)", Odds API calls stop until the file is fixed (ESPN lines and picks are unaffected):
@@ -78,7 +91,8 @@ shared across machines/runners — if a job ever moves to CI/Vercel, move the co
 4. Move the bad file aside (`mv odds_api_usage.json odds_api_usage.json.bad`), run `python3 -m czarp.odds_usage --init`,
    then write today's real counts back (CT date), e.g.
    `{"calls": {"2026-11-21": 1}, "calls_by_job": {"2026-11-21": {"daily": 1}}, "remaining": "19980"}`.
-   When unsure, record 2 calls for today (no more calls today; it resets tomorrow).
+   When unsure, record today's daily and pretip slots as used, e.g. `"calls_by_job": {"<today>": {"daily": 1, "pretip": 1}}`
+   with `"calls": {"<today>": 2}` (no more box calls today; it resets tomorrow).
 5. `python3 -m czarp.odds_usage --check` must say ok. → Kalshi reference prices →
 v2 sides + original-v1 totals → plays (sides edge% ≥4% vs BOTH open and current line; totals edge% ≥3% vs the open, skipped if the total moved ≥3 against us) with quarter-Kelly
 paper stakes (conservative 54.5% / 53.5% hit-rate estimates, 2.5% cap, plays under $1 skipped)
