@@ -66,7 +66,20 @@ lines (free) → Odds API fallback whenever any D-I game lacks an ESPN/DK line (
 100-credit reserve, usage in `data/ledger/odds_api_usage.json` under the checkout — counted under the real CT date, never `--date`;
 fails closed if that file is missing/corrupt; create it once with `python3 -m czarp.odds_usage --init`, check it with `--check`.
 The 7 AM run and `pretip_check.py` MUST run on the same machine from the same checkout: the cap is a local file + flock and is not
-shared across machines/runners — if a job ever moves to CI/Vercel, move the counter to Supabase first) → Kalshi reference prices →
+shared across machines/runners — if a job ever moves to CI/Vercel, move the counter to Supabase first)
+
+**Odds API counter recovery** (`data/ledger/odds_api_usage.json`). If the daily report notes or pretip_check's stderr say
+"Odds API call refused (fail closed)", Odds API calls stop until the file is fixed (ESPN lines and picks are unaffected):
+1. `python3 -m czarp.odds_usage --check` — prints why the file is not usable.
+2. If the cause is an I/O error (read-only folder, disk full), fix permissions/space; the file itself is fine.
+3. If the file is corrupt or missing, do NOT just re-init it (that would read as "0 calls today" and allow 2 more):
+   find today's real calls first — the 7 AM log/daily report ("Odds API: filled ..." / "Vegas lines fetched") and
+   pretip_check stderr — and the latest "Credits remaining" figure.
+4. Move the bad file aside (`mv odds_api_usage.json odds_api_usage.json.bad`), run `python3 -m czarp.odds_usage --init`,
+   then write today's real counts back (CT date), e.g.
+   `{"calls": {"2026-11-21": 1}, "calls_by_job": {"2026-11-21": {"daily": 1}}, "remaining": "19980"}`.
+   When unsure, record 2 calls for today (no more calls today; it resets tomorrow).
+5. `python3 -m czarp.odds_usage --check` must say ok. → Kalshi reference prices →
 v2 sides + original-v1 totals → plays (sides edge% ≥4% vs BOTH open and current line; totals edge% ≥3% vs the open, skipped if the total moved ≥3 against us) with quarter-Kelly
 paper stakes (conservative 54.5% / 53.5% hit-rate estimates, 2.5% cap, plays under $1 skipped)
 → `data/ledger/ledger.csv` (one pick per game+market, first price kept; per-run snapshots in

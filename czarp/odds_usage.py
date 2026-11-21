@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import sys
@@ -61,11 +62,11 @@ def validate(u) -> None:
     rem = u.get("remaining")
     if rem is not None:
         try:
-            float(rem)
+            x = float(rem)
         except (TypeError, ValueError):
             raise UsageError(f"'remaining' is not numeric: {rem!r}") from None
-        if isinstance(rem, bool):
-            raise UsageError("'remaining' is not numeric")
+        if isinstance(rem, bool) or not math.isfinite(x):
+            raise UsageError(f"'remaining' is not a finite number: {rem!r}")
     if "last_call_ct" in u and not isinstance(u["last_call_ct"], str):
         raise UsageError("'last_call_ct' is not a string")
 
@@ -77,7 +78,7 @@ def load(path: str = USAGE_PATH) -> dict:
             u = json.load(fh)
     except FileNotFoundError:
         raise UsageError(f"usage file missing ({path}); run `python3 -m czarp.odds_usage --init`") from None
-    except (OSError, ValueError) as e:
+    except (OSError, ValueError) as e:            # ValueError covers bad JSON and bad encodings
         raise UsageError(f"usage file unreadable ({type(e).__name__})") from None
     validate(u)
     return u
@@ -87,9 +88,18 @@ def write(u: dict, path: str = USAGE_PATH) -> None:
     """Atomic replace of an EXISTING, validated counter (never used to create it)."""
     validate(u)
     tmp = f"{path}.tmp{os.getpid()}"
-    with open(tmp, "w") as fh:
-        json.dump(u, fh, indent=1)
-    os.replace(tmp, path)
+    try:
+        with open(tmp, "w") as fh:
+            json.dump(u, fh, indent=1, allow_nan=False)
+            fh.flush()
+            os.fsync(fh.fileno())          # data on disk before the rename, so a crash can't leave an empty file
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def init(path: str = USAGE_PATH) -> str:

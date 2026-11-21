@@ -128,13 +128,20 @@ def check_play(row, ln: dict, move_pts: float = MOVE_PTS) -> list[str]:
 
 def _run_odds_api(games: list[dict], today: str, log) -> None:
     """daily_run.odds_api_fallback under the 'pretip' slot. Its prints go to stderr: stdout is the alert text."""
+    n_issues = len(dr.ODDS_API_COUNTER_ISSUES)
     try:
         dr.log_lines.clear()
         _out, dr.log = dr.log, log
         with contextlib.redirect_stdout(sys.stderr):
             dr.odds_api_fallback(games, today, allow=True, job="pretip")
+    except Exception as e:                     # optional; never block the play checks
+        log(f"  Odds API fallback failed ({type(e).__name__}: {e})")
     finally:
         dr.log = _out
+    for why in dr.ODDS_API_COUNTER_ISSUES[n_issues:]:
+        # always shown (no -v needed), on stderr: stdout is the alert text
+        print(f"pretip_check: Odds API call refused (fail closed): {why}. "
+              "Check with `python3 -m czarp.odds_usage --check`; recovery steps in CZARP_V2.md.", file=sys.stderr)
 
 
 def _odds_api_lines(rows, today, allow, log) -> dict:

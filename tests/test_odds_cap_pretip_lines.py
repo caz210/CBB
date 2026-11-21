@@ -133,6 +133,10 @@ def test_cap_holds_across_processes(odds):
     '{"calls": {"2026-11-21": -1}}',                                        # negative
     '{"calls": {"2026-11-21": 1}, "calls_by_job": {"2026-11-21": {"daily": 1, "pretip": 1}}}',  # jobs > total
     '{"calls": {}, "remaining": "lots"}',                                   # remaining not numeric
+    '{"calls": {}, "remaining": NaN}',                                      # NaN credits
+    '{"calls": {}, "remaining": Infinity}',                                 # infinite credits
+    '{"calls": {}, "remaining": "-inf"}',
+    '{"calls": {}, "remaining": "nan"}',
 ])
 def test_corrupt_counter_refuses_and_is_left_unchanged(odds, content):
     calls, usage, _ = odds
@@ -194,6 +198,134 @@ def test_legacy_production_format_works_without_migration(odds):
     u = json.loads(usage.read_text())
     assert len(calls) == 1 and u["calls"] == {"2026-11-08": 1, TODAY: 1}
     assert u["calls_by_job"] == {TODAY: {"daily": 1}} and u["remaining"] == 400
+
+
+# ── I/O errors on the counter: refuse + log, never crash ────────────────────────
+def _assert_refused_untouched(calls, usage, before, n_calls=0):
+    assert len(calls) == n_calls and usage.read_text() == before
+    assert not [f for f in os.listdir(usage.parent) if ".tmp" in f]        # no stray temp files
+
+
+@pytest.mark.parametrize("where", ["flock", "open_tmp", "fsync", "replace"])
+def test_os_error_on_lock_write_or_replace_refuses_without_crashing(odds, monkeypatch, where):
+    import errno
+    import fcntl
+    import builtins
+    from czarp import odds_usage as ou
+    calls, usage, _ = odds
+    before = usage.read_text()
+    boom = OSError(errno.ENOSPC, "No space left on device")
+
+    def raise_(*a, **k):
+        raise boom
+    if where == "flock":
+        monkeypatch.setattr(fcntl, "flock", raise_)
+    elif where == "open_tmp":
+        real_open = builtins.open
+        monkeypatch.setattr(builtins, "open", lambda f, m="r", *a, **k: raise_() if ".tmp" in str(f)
+                            else real_open(f, m, *a, **k))
+    elif where == "fsync":
+        monkeypatch.setattr(ou.os, "fsync", raise_)
+    else:
+        monkeypatch.setattr(ou.os, "replace", raise_)
+    n = len(dr.ODDS_API_COUNTER_ISSUES)
+    for job in ("daily", "pretip"):
+        assert dr.odds_api_fallback(_missing(), TODAY, allow=True, job=job) == 0     # no exception
+    _assert_refused_untouched(calls, usage, before)
+    assert len(dr.ODDS_API_COUNTER_ISSUES) == n + 2 and "I/O error" in dr.ODDS_API_COUNTER_ISSUES[-1]
+
+
+def test_read_only_ledger_folder_refuses_without_crashing(odds):
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        pytest.skip("root ignores directory permissions")
+    calls, usage, _ = odds
+    before = usage.read_text()
+    (usage.parent / "odds_api_usage.json.lock").touch()       # lock file present; temp file can't be created
+    os.chmod(usage.parent, 0o555)
+    try:
+        for job in ("daily", "pretip"):
+            assert dr.odds_api_fallback(_missing(), TODAY, allow=True, job=job) == 0
+        _assert_refused_untouched(calls, usage, before)
+    finally:
+        os.chmod(usage.parent, 0o755)
+    # read-only folder WITHOUT a lock file: the lock can't be created either -> refused
+    os.unlink(usage.parent / "odds_api_usage.json.lock")
+    os.chmod(usage.parent, 0o555)
+    try:
+        ok, why = dr.odds_api_claim("daily")
+        assert not ok and "fail closed" in why and usage.read_text() == before
+    finally:
+        os.chmod(usage.parent, 0o755)
+
+
+def test_record_os_error_after_call_is_logged_not_raised(odds, monkeypatch):
+    from czarp import odds_usage as ou
+    calls, usage, board = odds
+    board.append(dict(vegas_home="H", vegas_away="A", vegas_spread=-3.5, vegas_total=140.5, home_spread_price=-110,
+                      away_spread_price=-110, over_price=-110, under_price=-110, source_book="draftkings"))
+    real = ou.os.replace
+    n = {"i": 0}
+
+    def flaky(a, b):
+        n["i"] += 1
+        if n["i"] >= 2:                                   # the claim's write works; the credits write fails
+            raise OSError(30, "Read-only file system")
+        return real(a, b)
+    monkeypatch.setattr(ou.os, "replace", flaky)
+    logged = []
+    monkeypatch.setattr(dr, "log", lambda m: logged.append(m))
+    g = _missing()
+    assert dr.odds_api_fallback(g, TODAY, allow=True) == 1 and g[0]["current_total"] == 140.5
+    assert len(calls) == 1 and json.loads(usage.read_text())["calls"][TODAY] == 1     # the claim was kept
+    assert any("could not record credits" in m for m in logged)
+
+
+def test_pretip_logs_counter_refusal_without_verbose(odds, capsys):
+    calls, usage, _ = odds
+    usage.write_text("{broken")
+    pc._run_odds_api(_missing(), TODAY, log=lambda m: None)          # non-verbose logger
+    cap = capsys.readouterr()
+    assert calls == [] and cap.out == "" and "Odds API call refused (fail closed)" in cap.err
+
+
+def test_daily_run_still_logs_plays_when_counter_write_fails(odds, monkeypatch, tmp_path):
+    """7 AM run with an unwritable counter: the Odds API call is refused, plays are still appended + written,
+    and the refusal shows up in the report notes."""
+    from czarp import odds_usage as ou
+    calls, usage, _ = odds
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(ou.os, "replace", lambda *a: (_ for _ in ()).throw(PermissionError(13, "Permission denied")))
+    seen = {}
+    play = dict(pick_id="9-total", event_id="9", market="total", tier="official", side="Over")
+    monkeypatch.setattr(dr, "OUT_DIR", str(tmp_path))
+    monkeypatch.setattr(dr, "SNAP_DIR", str(tmp_path / "snap"))
+    monkeypatch.setattr(dr, "read_ledger", lambda: pd.DataFrame(columns=dr.LEDGER_COLS))
+    monkeypatch.setattr(dr, "seal", lambda led: led)
+    monkeypatch.setattr(dr, "verify_ledger", lambda led: [])
+    monkeypatch.setattr(dr, "grade", lambda led, now: [])
+    monkeypatch.setattr(dr, "espn_scoreboard", lambda d: [dict(event_id="9", game_date=TODAY, state="pre",
+                                                                home_full="H", away_full="A", kp_home="H", kp_away="A")])
+    monkeypatch.setattr(dr, "espn_dk_lines", lambda e: {})          # ESPN has no line -> Odds API wanted
+    monkeypatch.setattr(dr, "load_kenpom", lambda today, refresh: {"config": None})
+    monkeypatch.setattr(dr, "fanmatch_preds", lambda d: {})
+    monkeypatch.setattr(dr, "project_all", lambda games, data: None)
+    monkeypatch.setattr(dr, "matchup_parity", lambda *a, **k: None)
+    monkeypatch.setattr(dr, "tag_new_coaches", lambda games, today: {})
+    monkeypatch.setattr(dr, "coach_locks", lambda g, market=None: [])
+    monkeypatch.setattr(dr, "PACE_FIX", False)
+    monkeypatch.setattr(dr, "flag_plays", lambda games, br, board, now: [dict(play)])
+    monkeypatch.setattr(dr, "candidates", lambda games, now: [])
+    monkeypatch.setattr(dr, "attach_skip_reasons", lambda *a: None)
+    monkeypatch.setattr(dr, "info_extras_on", lambda: False)
+    monkeypatch.setattr(dr, "append_picks", lambda led, rows, now: seen.setdefault("appended", rows) and led)
+    monkeypatch.setattr(dr, "write_ledger", lambda led: seen.setdefault("written", True))
+    monkeypatch.setattr(dr, "write_summary", lambda today, now, games, new_rows, ledger, gi, notes, top, **k:
+                        seen.setdefault("notes", list(notes)) and str(tmp_path / "s.md"))
+    assert dr.main(["--date", TODAY, "--no-kalshi", "--no-refresh"]) == 0
+    assert calls == []                                                # refused: no Odds API call
+    assert [r["pick_id"] for r in seen["appended"]] == ["9-total"] and seen["written"]
+    assert any("Odds API call refused (fail closed)" in n and "I/O error" in n for n in seen["notes"])
+    assert json.loads(usage.read_text())["calls"] == {}                # counter untouched
 
 
 # ── budget day = real CT date, never --date ─────────────────────────────────────

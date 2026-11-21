@@ -346,6 +346,11 @@ def _job_calls(u: dict, today: str) -> dict:
     return by
 
 
+# Fail-closed refusals of the usage counter this process (bad/missing file, I/O error). The daily report notes
+# and pretip_check surface these; the Odds API call is simply skipped and the run carries on.
+ODDS_API_COUNTER_ISSUES: list[str] = []
+
+
 def odds_api_budget_day() -> str:
     """The day the budget is counted under: always today's real America/Chicago date, never a --date slate."""
     return now_ct().date().isoformat()
@@ -373,7 +378,13 @@ def odds_api_claim(job: str) -> tuple[bool, str]:
             _write_usage(u)
             return True, ""
     except _odds_usage.UsageError as e:
-        return False, f"REFUSED (fail closed) — usage counter not usable: {e}"
+        why = f"usage counter not usable: {e}"
+    except OSError as e:                       # lock / read / write / replace failed (read-only dir, disk full, ...)
+        why = f"usage counter I/O error ({type(e).__name__}: {e.strerror or e})"
+    except Exception as e:                     # never let the counter take a run down
+        why = f"usage counter error ({type(e).__name__})"
+    ODDS_API_COUNTER_ISSUES.append(why)
+    return False, f"REFUSED (fail closed) — {why}"
 
 
 def _odds_api_record(remaining) -> None:
@@ -384,8 +395,8 @@ def _odds_api_record(remaining) -> None:
                 u["remaining"] = remaining
             u["last_call_ct"] = now_ct().isoformat(timespec="seconds")
             _write_usage(u)
-    except _odds_usage.UsageError as e:
-        log(f"  Odds API: could not record credits ({e}); usage file left untouched")
+    except Exception as e:                     # UsageError, OSError, ...: log only, never crash
+        log(f"  Odds API: could not record credits ({type(e).__name__}: {e}); usage file left untouched")
 
 
 def odds_api_fallback(games: list[dict], today: str, allow: bool, job: str = "daily") -> int:
@@ -425,7 +436,7 @@ def odds_api_fallback(games: list[dict], today: str, allow: bool, job: str = "da
         _odds_api_record(getattr(of, "_odds_credits_remaining", None))
     try:
         rem = _usage().get("remaining")
-    except _odds_usage.UsageError:
+    except Exception:
         rem = "?"
     if df is None or df.empty:
         return 0
@@ -2082,7 +2093,14 @@ def main(argv=None) -> int:
                 if kp and kp[1] is not None:
                     g["kp_margin_home"] = kp[1] if kp[0] == g.get("kp_home") else -kp[1]
         d1pre = [g for g in pre if not g.get("skip")]
-        odds_api_fallback(d1pre, today, allow=not a.no_odds_api)
+        n_issues = len(ODDS_API_COUNTER_ISSUES)
+        try:
+            odds_api_fallback(d1pre, today, allow=not a.no_odds_api)
+        except Exception as e:                 # the fallback is optional; never block plays
+            log(f"  Odds API fallback failed ({type(e).__name__}: {e}) — continuing without it")
+        for why in ODDS_API_COUNTER_ISSUES[n_issues:]:
+            notes.append(f"Odds API call refused (fail closed): {why}. Games ESPN had no line for were not "
+                         "backfilled; check with `python3 -m czarp.odds_usage --check` (recovery: CZARP_V2.md).")
         board = {}
         if not a.no_kalshi:
             try:
