@@ -5,6 +5,7 @@ import { SportSwitcher } from "./SportSwitcher";
 import { TeamSearch } from "./TeamSearch";
 import { DEFAULT_SPORT, SPORTS } from "@/lib/sports";
 import { matchupHref } from "@/lib/matchup";
+import { headerAccountLinks } from "@/lib/accounts";
 
 export function SiteHeader() {
   // The switcher (and the row it used below xl) only appear when a second sport is enabled in SPORTS.
@@ -30,12 +31,17 @@ export function SiteHeader() {
               </Link>
             }
           />
-          <Link href="/login" className="whitespace-nowrap rounded-lg px-1.5 py-2 sm:px-2 text-sm font-medium text-zinc-300 hover:text-white">
-            Log in
-          </Link>
-          <Link href="/signup" className="whitespace-nowrap rounded-lg bg-court-500 px-2 py-2 text-sm font-semibold text-ink-950 hover:bg-court-400 min-[360px]:px-3">
-            Sign up
-          </Link>
+          {headerAccountLinks().map((l) => (
+            <Link
+              key={l.href}
+              href={l.href}
+              className={l.tone === "primary"
+                ? "whitespace-nowrap rounded-lg bg-court-500 px-2 py-2 text-sm font-semibold text-ink-950 hover:bg-court-400 min-[360px]:px-3"
+                : "whitespace-nowrap rounded-lg px-1.5 py-2 sm:px-2 text-sm font-medium text-zinc-300 hover:text-white"}
+            >
+              {l.label}
+            </Link>
+          ))}
         </div>
       </div>
       {many && (

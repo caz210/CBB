@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Sport } from "@/lib/sports";
+import { comingSoonCtas } from "@/lib/accounts";
 
 export function ComingSoon({ sport }: { sport: Sport }) {
   return (
@@ -13,12 +14,17 @@ export function ComingSoon({ sport }: { sport: Sport }) {
         land here once the model has a track record for this league.
       </p>
       <div className="mt-8 grid gap-3 sm:flex sm:justify-center">
-        <Link href="/cbb/slate" className="flex min-h-12 items-center justify-center rounded-xl bg-court-500 px-5 font-semibold text-ink-950 hover:bg-court-400">
-          Go to CBB slate
-        </Link>
-        <Link href="/signup" className="flex min-h-12 items-center justify-center rounded-xl border border-ink-600 px-5 font-semibold hover:bg-ink-800">
-          Notify me
-        </Link>
+        {comingSoonCtas().map((l) => (
+          <Link
+            key={l.label}
+            href={l.href}
+            className={l.tone === "primary"
+              ? "flex min-h-12 items-center justify-center rounded-xl bg-court-500 px-5 font-semibold text-ink-950 hover:bg-court-400"
+              : "flex min-h-12 items-center justify-center rounded-xl border border-ink-600 px-5 font-semibold hover:bg-ink-800"}
+          >
+            {l.label}
+          </Link>
+        ))}
       </div>
     </div>
   );

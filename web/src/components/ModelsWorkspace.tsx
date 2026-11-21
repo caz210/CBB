@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { BASELINE_FEATURES, EXAMPLE_USER_MODELS, MODEL_LIMIT, type UserModel } from "@/lib/example-data";
 import { TIER_LABEL, type Tier } from "@/lib/labels";
+import { SHOW_ACCOUNTS } from "@/lib/accounts";
 
 const PRO_EXTRA: UserModel[] = [
   { ...EXAMPLE_USER_MODELS[0], id: "x2", name: "Defense Wins", created_at: "2026-10-30T19:00:00-05:00" },
@@ -82,7 +83,9 @@ export function ModelsWorkspace() {
             <div className="mt-3 rounded-xl border border-court-500/40 bg-court-500/10 p-3 text-sm">
               <div className="font-semibold">You&apos;ve used your free model</div>
               <p className="mt-0.5 text-xs text-zinc-400">Edit or replace it anytime, or go Pro for unlimited models.</p>
-              <Link href="/pricing" className="mt-2 inline-flex min-h-10 items-center rounded-lg bg-court-500 px-4 text-sm font-semibold text-ink-950">See Pro</Link>
+              {SHOW_ACCOUNTS && (
+                <Link href="/pricing" className="mt-2 inline-flex min-h-10 items-center rounded-lg bg-court-500 px-4 text-sm font-semibold text-ink-950">See Pro</Link>
+              )}
             </div>
           ) : notice ? (
             <p className="mt-3 rounded-lg bg-ink-800 px-3 py-2 text-xs text-amber-300">{notice}</p>

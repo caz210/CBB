@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 import { SITE_URL } from "@/lib/site";
 import { SPORTS } from "@/lib/sports";
+import { SHOW_ACCOUNTS } from "@/lib/flags";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const now = new Date();
@@ -13,7 +14,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
       { url: `${SITE_URL}/${s.key}/matchup`, lastModified: now, changeFrequency: "weekly" as const, priority: 0.7 },
       { url: `${SITE_URL}/${s.key}/results`, lastModified: now, changeFrequency: "daily" as const, priority: 0.8 },
     ]),
-    ...["methodology", "about", "pricing", "terms", "privacy"].map((p) => ({
+    ...["methodology", "about", ...(SHOW_ACCOUNTS ? ["pricing"] as const : []), "terms", "privacy"].map((p) => ({
       url: `${SITE_URL}/${p}`, lastModified: now, changeFrequency: "monthly" as const, priority: 0.5,
     })),
   ];

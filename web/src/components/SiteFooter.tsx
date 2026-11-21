@@ -1,12 +1,5 @@
 import Link from "next/link";
-
-const links = [
-  { href: "/pricing", label: "Pricing" },
-  { href: "/about", label: "About" },
-  { href: "/methodology", label: "Methodology" },
-  { href: "/terms", label: "Terms" },
-  { href: "/privacy", label: "Privacy" },
-];
+import { footerLinks } from "@/lib/accounts";
 
 export function SiteFooter() {
   return (
@@ -24,7 +17,7 @@ export function SiteFooter() {
             </p>
           </div>
           <nav className="flex flex-wrap gap-x-4 gap-y-2" aria-label="Legal">
-            {links.map((l) => (
+            {footerLinks().map((l) => (
               <Link key={l.href} href={l.href} className="hover:text-white">{l.label}</Link>
             ))}
           </nav>
