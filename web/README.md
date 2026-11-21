@@ -11,6 +11,7 @@ node scripts/screenshots.mjs    # server running → screenshots/mobile/*.png (3
 ```
 
 Routes: `/`, `/login`, `/signup`, `/[sport]/slate`, `/[sport]/rankings`, `/[sport]/results`, `/[sport]/matchup`, `/models`, `/pricing`.
+Account UI (Log in, Sign up, account CTAs) is gated by `SHOW_ACCOUNTS` in `src/lib/flags.ts` (currently off). The auth pages stay in the tree and redirect to `/`.
 Phone navigation is a bottom tab bar (Slate · Rankings · Matchup · Portfolio · My Models). Pricing is in the footer and the desktop nav.
 Sports registry: `src/lib/sports.ts` (CBB is live; flip `enabled` on a league to add it, and old `/nba` and `/wnba` URLs 307 to the CBB slate).
 Data wiring, view columns, and the saved-model limit trigger: `src/lib/supabase/README.md`.

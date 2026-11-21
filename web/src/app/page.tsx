@@ -11,6 +11,7 @@ import { postedVsNow } from "@/lib/posted";
 import { verdictLabel } from "@/lib/verdicts";
 import { TitleLine } from "@/components/NeutralChip";
 import { gameTitle, retitle } from "@/lib/gameTitle";
+import { homeCtas } from "@/lib/accounts";
 
 // Hero shows today's top official play, so render per request.
 export const dynamic = "force-dynamic";
@@ -40,8 +41,17 @@ export default async function Landing() {
               Fair value vs market price on every D1 men&apos;s game. Edge % is the headline. A public portfolio grades every pick — wins, losses, and drawdowns.
             </p>
             <div className="mt-6 grid gap-3 sm:flex md:mt-8">
-              <Link href="/signup" className="flex min-h-12 items-center justify-center rounded-xl bg-court-500 px-5 font-semibold text-ink-950 hover:bg-court-400">Create free account</Link>
-              <Link href="/cbb/slate" className="flex min-h-12 items-center justify-center rounded-xl border border-ink-600 px-5 font-semibold hover:bg-ink-800">See today&apos;s slate →</Link>
+              {homeCtas().map((l) => (
+                <Link
+                  key={l.label}
+                  href={l.href}
+                  className={l.tone === "primary"
+                    ? "flex min-h-12 items-center justify-center rounded-xl bg-court-500 px-5 font-semibold text-ink-950 hover:bg-court-400"
+                    : "flex min-h-12 items-center justify-center rounded-xl border border-ink-600 px-5 font-semibold hover:bg-ink-800"}
+                >
+                  {l.label}
+                </Link>
+              ))}
             </div>
             <div className="mt-6 flex flex-wrap gap-2 text-xs text-zinc-500 md:mt-10">
               {SPORTS.map((sp) => (
