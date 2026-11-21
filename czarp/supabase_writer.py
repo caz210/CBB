@@ -2,7 +2,7 @@
 
 Runs only when SUPABASE_URL and SUPABASE_SERVICE_KEY are set. Talks to the PostgREST API
 (/rest/v1) with plain `requests` — no extra dependency. Writes: model_configs, teams, games, team_profiles (daily Four Factors stamp),
-projections (v2 + v1 totals; reason / proj_possessions / upset_alert; spreads/totals rounded to 0.1),
+projections (v2 + v1 totals; reason / proj_possessions / upset_alert / tv_rating; spreads/totals rounded to 0.1),
 market_lines (DK open/current, Kalshi board), picks (full ledger upsert).
 Schema: db/schema.sql + db/migrations/. The key is never logged.
 """
@@ -15,6 +15,8 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 import requests
+
+from czarp.tv_rating import game_tv_rating, quality_from_data
 
 SPORT, LEAGUE = "cbb", "ncaam"
 V1_VERSION = "czarp-v1-totals"
@@ -307,6 +309,10 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
                       "away_score": int(r.away_score) if done else None, "updated_at": ts})
     gid = {x["external_id"]: x["id"] for x in c.upsert("games", grows, on_conflict="league,external_id")}
 
+    # TV Rating: only when KenPom ratings were passed in (data=). Omit the
+    # column when data is None so a ratings-less re-run cannot null out scores.
+    qmap = quality_from_data(data) if data is not None else None
+
     # projections
     msd = getattr(getattr(cfg, "betting", None), "margin_sd", 11.4)
     tsd = getattr(getattr(cfg, "betting", None), "total_sd", 16.9)
@@ -316,16 +322,24 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
             continue
         hm, T = g["v2_home_margin"], g["v2_total"]
         L, MT = g.get("current_home_spread"), g.get("current_total")
+        win_p = round(g.get("v2_home_win_prob", _ncdf(hm / msd)), 4)
+        poss = round(g["proj_possessions"], 1) if g.get("proj_possessions") is not None else None
+        total = round(T, 1)
+        # Same TV Rating on both model rows, from the card's v2 win% and possessions.
+        extra = {}
+        if qmap is not None:
+            extra["tv_rating"] = game_tv_rating(qmap, g["kp_home"], g["kp_away"], win_p,
+                                                possessions=poss, total=total)
         proj.append({**base, "season": _season(g["game_date"]), "game_id": gid[str(g["event_id"])],
                      "model_version": g.get("model_version", "czarp-v2"),
                      **dict(zip(("proj_home", "proj_away"), team_scores(hm, T, g.get("v1_total")))),
-                     "spread": round(-hm, 1), "total": round(T, 1),
-                     "home_win_prob": round(g.get("v2_home_win_prob", _ncdf(hm / msd)), 4),
+                     "spread": round(-hm, 1), "total": total,
+                     "home_win_prob": win_p,
                      "home_cover_prob": round(_ncdf((hm + L) / msd), 4) if L is not None else None,
                      "over_prob": round(1 - _ncdf((MT - T) / tsd), 4) if MT is not None else None,
                      "archetype_tags": g.get("archetype_tags", {}),
                      "reason": g.get("reason"),
-                     "proj_possessions": round(g["proj_possessions"], 1) if g.get("proj_possessions") is not None else None,
+                     "proj_possessions": poss,
                      "upset_alert": bool(g.get("upset_alert")),
                      "upset_reason": g.get("upset_reason"),
                      "skip_reasons_spread": g.get("skip_reasons_spread") or [],
@@ -333,6 +347,7 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
                      "skip_reason_spread": g.get("skip_reason_spread"),
                      "skip_reason_total": g.get("skip_reason_total"),
                      **_edge_fields(g),
+                     **extra,
                      "created_at": ts})
         if g.get("v1_total") is not None:
             t1, m1 = g["v1_total"], g.get("v1_home_margin")
@@ -343,6 +358,7 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
                          "skip_reasons_total": g.get("skip_reasons_total") or [],
                          "skip_reason_total": g.get("skip_reason_total"),
                          **_edge_fields(g),
+                         **extra,
                          "created_at": ts})
     # Merge on the table's unique key so a re-run with the same stamp fills fields
     # (reason, pace, upset, skip reasons, stored edges) instead of silently keeping the old row.
