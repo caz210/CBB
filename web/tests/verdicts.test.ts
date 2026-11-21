@@ -1,0 +1,131 @@
+// Verdict ladder: Toss Up → Lean → Favor → Official Play. Run: npm test
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { HOLD_CODES, VERDICT_LADDER, VERDICT_RANK, holdCodes, ladderLevel, verdictLabel, type LadderInput } from "../src/lib/verdicts";
+import { cardHeadline, marketVerdict, notAPlayLine } from "../src/lib/verdict";
+import { EXPLAINERS } from "../src/lib/explainers";
+import { POSTED_TOTAL_NOTE, totalFair } from "../src/lib/posted";
+import type { SlateGame, ValueBet } from "../src/lib/types";
+
+const L = (o: Partial<LadderInput>): LadderInput => ({ market: "total", official: false, edgeNow: null, edgeVsOpen: null, skipCodes: [], ...o });
+
+test("ladder order and labels (weakest to strongest)", () => {
+  assert.deepEqual(VERDICT_LADDER.map((d) => d.label), ["Toss Up", "Lean", "Favor", "Official Play"]);
+  assert.deepEqual(VERDICT_LADDER.map((d) => VERDICT_RANK[d.level]), [0, 1, 2, 3]);
+  assert.equal(verdictLabel("official"), "Official Play");
+  for (const d of VERDICT_LADDER) assert.ok(d.short.length > 20, d.level);
+});
+
+test("Toss Up: edge now below the bar (sides 4%, totals 3%), whatever the open or codes say", () => {
+  assert.equal(ladderLevel(L({ edgeNow: 0.0299, edgeVsOpen: 0.05 })).level, "toss_up");
+  assert.equal(ladderLevel(L({ market: "spread", edgeNow: 0.0399, edgeVsOpen: 0.05 })).level, "toss_up");
+  assert.equal(ladderLevel(L({ market: "moneyline", edgeNow: 0.035 })).level, "toss_up");
+  // Real row: Lindenwood @ Northern Iowa total 11-17 (kelly_too_small, now 2.95%, open 3.63%).
+  assert.equal(ladderLevel(L({ edgeNow: 0.0295, edgeVsOpen: 0.0363, skipCodes: ["kelly_too_small"] })).level, "toss_up");
+  // Real row: Oregon St. @ Oregon total 11-19 (new_coach_lock, now 0.93%).
+  assert.equal(ladderLevel(L({ edgeNow: 0.0093, edgeVsOpen: 0.0334, skipCodes: ["new_coach_lock"] })).level, "toss_up");
+});
+
+test("Toss Up when there is no stored edge", () => {
+  assert.equal(ladderLevel(L({})).level, "toss_up");
+  assert.equal(ladderLevel(L({ edgeNow: Number.NaN })).level, "toss_up");
+});
+
+test("Lean: clears the bar now but not vs the open", () => {
+  // Real row: Cal Baptist @ Loyola Marymount total 11-21 (now 4.76%, open 2.51%).
+  assert.equal(ladderLevel(L({ edgeNow: 0.0476, edgeVsOpen: 0.0251, skipCodes: ["below_open_threshold", "line_moved_against"] })).level, "lean");
+  assert.equal(ladderLevel(L({ market: "spread", edgeNow: 0.0409, edgeVsOpen: 0.0276, skipCodes: ["below_open_threshold"] })).level, "lean");
+  assert.equal(ladderLevel(L({ edgeNow: 0.05, edgeVsOpen: null })).level, "lean");
+});
+
+test("bars are inclusive: exactly 4% / 3% clears", () => {
+  assert.equal(ladderLevel(L({ market: "spread", edgeNow: 0.04, edgeVsOpen: 0.04, skipCodes: ["new_coach_lock"] })).level, "favor");
+  assert.equal(ladderLevel(L({ edgeNow: 0.03, edgeVsOpen: 0.029 })).level, "lean");
+});
+
+test("Favor for each hold code: new_coach_lock, line_moved_against, kelly_too_small", () => {
+  // Real rows: Arkansas Pine Bluff @ Cal Baptist spread 11-13; UC Irvine @ San Diego total 11-21; Charleston @ Drake total 11-19.
+  const a = ladderLevel(L({ market: "spread", edgeNow: 0.0588, edgeVsOpen: 0.0592, skipCodes: ["new_coach_lock"] }));
+  assert.deepEqual(a, { level: "favor", holds: ["new_coach_lock"] });
+  const b = ladderLevel(L({ edgeNow: 0.0645, edgeVsOpen: 0.0348, skipCodes: ["line_moved_against"] }));
+  assert.deepEqual(b, { level: "favor", holds: ["line_moved_against"] });
+  const c = ladderLevel(L({ edgeNow: 0.0439, edgeVsOpen: 0.0379, skipCodes: ["kelly_too_small"] }));
+  assert.deepEqual(c, { level: "favor", holds: ["kelly_too_small"] });
+  const d = ladderLevel(L({ edgeNow: 0.0564, edgeVsOpen: 0.0322, skipCodes: ["line_moved_against", "new_coach_lock"] }));
+  assert.deepEqual(d, { level: "favor", holds: ["new_coach_lock", "line_moved_against"] });
+  assert.deepEqual(Object.keys(HOLD_CODES), ["new_coach_lock", "line_moved_against", "kelly_too_small"]);
+});
+
+test("both bars cleared with no hold code is not Favor (pre-skip-code rows read Lean)", () => {
+  assert.equal(ladderLevel(L({ edgeNow: 0.0315, edgeVsOpen: 0.0315, skipCodes: [] })).level, "lean");
+  assert.equal(ladderLevel(L({ edgeNow: 0.05, edgeVsOpen: 0.05, skipCodes: ["game_started", "mystery_code"] })).level, "lean");
+  assert.equal(ladderLevel(L({ edgeNow: 0.05, edgeVsOpen: 0.05, skipCodes: null })).level, "lean");
+});
+
+test("Official Play beats everything", () => {
+  assert.equal(ladderLevel(L({ official: true, edgeNow: 0.0217, edgeVsOpen: 0.041 })).level, "official");
+  assert.equal(ladderLevel(L({ official: true, skipCodes: ["new_coach_lock"] })).level, "official");
+});
+
+test("holdCodes keeps only hold codes, in a stable order", () => {
+  assert.deepEqual(holdCodes(["kelly_too_small", "below_open_threshold", "new_coach_lock"]), ["new_coach_lock", "kelly_too_small"]);
+  assert.deepEqual(holdCodes(undefined), []);
+});
+
+const game = (o: Partial<SlateGame> = {}): SlateGame => ({
+  sport: "cbb", game_date: "2026-11-21", game_id: 9, home: "San Diego", away: "UC Irvine",
+  tipoff: null, game: "UC Irvine @ San Diego", proj_home: 70, proj_away: 75, proj_spread: 5,
+  proj_total: 145, home_win_prob: 0.3, home_cover_prob: 0.5,
+  archetypes: { home: [], away: [], home_tentative: false, away_tentative: false, tentative: false, notes: [] },
+  market_spread: 6, market_total: 154, market_source: null,
+  edge_now_pct_spread: 0.002, edge_vs_open_pct_spread: 0.002, skip_reasons_spread: ["below_open_threshold"],
+  edge_now_pct_total: 0.0645, edge_vs_open_pct_total: 0.0348, skip_reasons_total: ["line_moved_against"],
+  skip_reason_total: "Not a play: market moved 3+ pts away from CZarp since open",
+  verdict_spread: "low_value", verdict_total: "low_value",
+  ...o,
+} as SlateGame);
+
+const bet = (o: Partial<ValueBet> = {}): ValueBet => ({
+  sport: "cbb", game_id: 9, market: "total", side: "Under 154", model_prob: 0.55, market_prob: 0.5,
+  prob_edge: 0.05, line_edge_pct: 0.06, kelly_quarter_units: 1, pick_tier: "official", ...o,
+});
+
+test("cardHeadline: Favor headline with its hold and a not-a-play reason", () => {
+  const h = cardHeadline(game(), []);
+  assert.equal(h.market, "total");
+  assert.equal(h.verdict, "favor");
+  assert.deepEqual(h.holds, ["line_moved_against"]);
+  assert.equal(notAPlayLine(game(), []), "Not a play: market moved 3+ pts away from CZarp since open");
+});
+
+test("cardHeadline: ladder rank beats a bigger raw edge when choosing the headline market", () => {
+  // Spread Toss Up at 3.9% vs total Lean at 3.1%: the Lean total headlines.
+  const g = game({ edge_now_pct_spread: 0.039, edge_now_pct_total: 0.031, edge_vs_open_pct_total: 0.01, skip_reasons_total: ["below_open_threshold"] });
+  const h = cardHeadline(g, []);
+  assert.equal(h.market, "total");
+  assert.equal(h.verdict, "lean");
+});
+
+test("cardHeadline: posted pick is Official Play; tracked picks never count", () => {
+  assert.equal(cardHeadline(game(), [bet()]).verdict, "official");
+  assert.equal(cardHeadline(game(), [bet({ pick_tier: "track" })]).verdict, "favor");
+  assert.equal(marketVerdict(game({ verdict_total: "official" }), [], "total").level, "official");
+});
+
+test("verdict InfoTips come from the shared ladder", () => {
+  assert.equal(EXPLAINERS.tossUp.title, "Toss Up");
+  assert.equal(EXPLAINERS.favor.title, "Favor");
+  assert.equal(EXPLAINERS.officialPlay.title, "Official Play");
+  assert.equal(EXPLAINERS.lean.body, VERDICT_LADDER[1].short);
+  for (const e of Object.values(EXPLAINERS)) {
+    assert.doesNotMatch(`${e.title} ${e.body}`, /\b(HOT|VALUE|EDGE)\b|low value|Official play|\bv[12]\b/);
+  }
+});
+
+test("posted-total sentence applies only to an official total with a posted fair", () => {
+  assert.equal(POSTED_TOTAL_NOTE, "Total shown is CZarp's number when this play was posted.");
+  assert.equal(totalFair(game({ proj_total_v1: 150 }), [bet({ fair_at_post: 147.5 })]).tag, "posted");
+  assert.equal(totalFair(game({ proj_total_v1: 150 }), [bet({ fair_at_post: 147.5, pick_tier: "track" })]).tag, undefined);
+  assert.equal(totalFair(game({ proj_total_v1: 150 }), [bet({ market: "spread", fair_at_post: 3 })]).tag, undefined);
+  assert.equal(totalFair(game({ proj_total_v1: 150 }), []).tag, undefined);
+});

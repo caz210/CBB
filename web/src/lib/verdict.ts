@@ -1,18 +1,20 @@
 /** Card verdict, headline numbers, and "not a play" copy.
- *  Reads stored slate_games columns (edge_now_*, edge_vs_open_*, verdict_*, lean_*).
- *  Never computes an edge or the Lean flag in the UI. If those columns are
- *  missing/null, the vs-open / vs-now line and Lean chip are hidden, and
- *  verdict falls back to official picks from value_bets / official_picks_locked.
+ *  Reads stored slate_games columns (edge_now_*, edge_vs_open_*, verdict_*, skip_reasons_*).
+ *  Never computes an edge in the UI. The ladder rule (Toss Up / Lean / Favor / Official Play)
+ *  lives in lib/verdicts.ts. If the edge columns are missing/null, the vs-open / vs-now line is
+ *  hidden and the market reads Toss Up unless it has a posted official pick.
  */
 import { fmtPlayPct, fmtThresholdPct, type Market } from "./labels";
 import type { SlateGame, ValueBet } from "./types";
 import { marketPauseText } from "./coach";
+import { ladderLevel, VERDICT_RANK, type HoldCode, type VerdictLevel } from "./verdicts";
 
-export type Verdict = "official" | "low_value";
+/** The pipeline's stored verdict_* column (not the customer ladder). */
+export type StoredVerdict = "official" | "low_value";
 
 const FINITE = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
 
-export function parseVerdict(v: unknown): Verdict | null {
+export function parseVerdict(v: unknown): StoredVerdict | null {
   return v === "official" || v === "low_value" ? v : null;
 }
 
@@ -27,14 +29,12 @@ export function marketEdgeVsOpen(g: SlateGame, market: Market): number | null {
   return FINITE(n) ? n : null;
 }
 
-export function storedVerdict(g: SlateGame, market: Market): Verdict | null {
+export function storedVerdict(g: SlateGame, market: Market): StoredVerdict | null {
   return market === "total" ? parseVerdict(g.verdict_total) : parseVerdict(g.verdict_spread);
 }
 
-/** Read the stored lean flag. Only `true` shows the chip; null/missing is not computed. */
-export function marketLean(g: SlateGame, market: Market): boolean {
-  const v = market === "total" ? g.lean_total : g.lean_spread;
-  return v === true;
+function marketSkipCodes(g: SlateGame, market: Market): string[] | null | undefined {
+  return market === "total" ? g.skip_reasons_total : g.skip_reasons_spread;
 }
 
 function officialBetFor(bets: ValueBet[], market: Market): ValueBet | undefined {
@@ -43,20 +43,31 @@ function officialBetFor(bets: ValueBet[], market: Market): ValueBet | undefined 
 }
 
 function isOfficialMarket(g: SlateGame, officialBets: ValueBet[], market: Market): boolean {
-  if (officialBetFor(officialBets, market)) return true;
+  if (officialBetFor(officialBetsOnly(officialBets), market)) return true;
   return storedVerdict(g, market) === "official";
+}
+
+/** Ladder level for one market of a game, from stored values only. */
+export function marketVerdict(g: SlateGame, officialBets: ValueBet[], market: Market): { level: VerdictLevel; holds: HoldCode[] } {
+  return ladderLevel({
+    market,
+    official: isOfficialMarket(g, officialBets, market),
+    edgeNow: marketEdgeNow(g, market),
+    edgeVsOpen: marketEdgeVsOpen(g, market),
+    skipCodes: marketSkipCodes(g, market),
+  });
 }
 
 export type CardHeadline = {
   market: Market | null;
-  verdict: Verdict;
-  /** Posted edge for official plays; stored edge_now for low value. Null if we don't have it. */
+  verdict: VerdictLevel;
+  /** Hold codes behind a Favor verdict; empty otherwise. */
+  holds: HoldCode[];
+  /** Posted edge for official plays; stored edge_now otherwise. Null if we don't have it. */
   edgePct: number | null;
   officialBet: ValueBet | null;
   edgeNow: number | null;
   edgeVsOpen: number | null;
-  /** Stored lean_* for the headline market; only on low-value cards. */
-  lean: boolean;
   /** "vs open 2.5% (needs 4%) · vs now 4.5%" or "Posted 4.2% · vs now 3.1%". Hidden when stored edges are missing. */
   subtitle: string | null;
 };
@@ -65,7 +76,8 @@ function officialBetsOnly(bets: ValueBet[]): ValueBet[] {
   return bets.filter((b) => b.pick_tier !== "track");
 }
 
-/** Headline market: an official market if any, else the market with the higher stored edge_now. */
+/** Headline market: an official market if any; else the market highest on the ladder,
+ *  ties broken by the higher stored edge_now. */
 export function cardHeadline(g: SlateGame, officialBets: ValueBet[]): CardHeadline {
   const official = officialBetsOnly(officialBets);
 
@@ -86,38 +98,43 @@ export function cardHeadline(g: SlateGame, officialBets: ValueBet[]): CardHeadli
     return {
       market,
       verdict: "official",
+      holds: [],
       edgePct: FINITE(posted) ? posted : null,
       officialBet,
       edgeNow,
       edgeVsOpen,
-      lean: false,
       subtitle,
     };
   }
 
-  // No official play. Pick the market with the higher stored edge_now.
+  // No posted pick: rank both markets on the ladder.
   const spreadNow = marketEdgeNow(g, "spread");
   const totalNow = marketEdgeNow(g, "total");
   let market: Market | null = null;
   if (spreadNow != null || totalNow != null) {
-    market = (spreadNow ?? -1) >= (totalNow ?? -1) ? "spread" : "total";
+    const s = marketVerdict(g, [], "spread");
+    const t = marketVerdict(g, [], "total");
+    const rs = spreadNow == null ? -1 : VERDICT_RANK[s.level];
+    const rt = totalNow == null ? -1 : VERDICT_RANK[t.level];
+    market = rs !== rt ? (rs > rt ? "spread" : "total") : (spreadNow ?? -1) >= (totalNow ?? -1) ? "spread" : "total";
   }
 
+  const v = market ? marketVerdict(g, [], market) : { level: "toss_up" as const, holds: [] };
   const edgeNow = market ? marketEdgeNow(g, market) : null;
   const edgeVsOpen = market ? marketEdgeVsOpen(g, market) : null;
   return {
     market,
-    verdict: "low_value",
+    verdict: v.level,
+    holds: v.holds,
     edgePct: edgeNow,
     officialBet: null,
     edgeNow,
     edgeVsOpen,
-    lean: market ? marketLean(g, market) : false,
-    subtitle: lowValueSubtitle(market, edgeNow, edgeVsOpen),
+    subtitle: notPostedSubtitle(market, edgeNow, edgeVsOpen),
   };
 }
 
-function lowValueSubtitle(market: Market | null, edgeNow: number | null, edgeVsOpen: number | null): string | null {
+function notPostedSubtitle(market: Market | null, edgeNow: number | null, edgeVsOpen: number | null): string | null {
   if (!market) return null;
   const parts: string[] = [];
   if (edgeVsOpen != null) parts.push(`vs open ${fmtPlayPct(edgeVsOpen)} (needs ${fmtThresholdPct(market)})`);
@@ -137,7 +154,7 @@ export function knownSkipCodeLabel(code: string, thresholdPct: string): string |
     case "no_opening_line": return "no opening line yet";
     case "no_current_line": return "no current line";
     case "game_started": return "game already started";
-    case "kelly_too_small": return "stake too small to post";
+    case "kelly_too_small": return "stake under $1";
     default: return null;
   }
 }

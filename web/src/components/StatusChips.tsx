@@ -1,35 +1,43 @@
 "use client";
 import type { SlateGame, ValueBet } from "@/lib/types";
-import { TIER_BADGE } from "@/lib/labels";
 import { pickStatusTags, statusTagLabel, type StatusTag } from "@/lib/statusTags";
+import { verdictLabel, type VerdictLevel } from "@/lib/verdicts";
+import type { ExplainerKey } from "@/lib/explainers";
 import { InfoTip } from "./InfoTip";
 import { NewCoachChip } from "./NewCoachBadge";
 
 /** normal-case tracking-normal: the team-page row is uppercase; the slate is not.
- *  These classes keep Official play / Lean / Low value matching the slate. */
+ *  These classes keep the verdict chips matching the slate. */
 const CHIP = "normal-case tracking-normal";
+
+const VERDICT_STYLE: Record<VerdictLevel, string> = {
+  official: "bg-edge-400/15 text-edge-400 hover:bg-edge-400/25",
+  favor: "bg-edge-400/[0.07] text-edge-400/80 ring-1 ring-inset ring-edge-400/25 hover:bg-edge-400/15",
+  lean: "bg-ink-800 text-zinc-300 hover:bg-ink-700",
+  toss_up: "bg-ink-800 text-zinc-500 hover:bg-ink-700 hover:text-zinc-300",
+};
+
+const VERDICT_TIP: Record<VerdictLevel, ExplainerKey> = {
+  official: "officialPlay",
+  favor: "favor",
+  lean: "lean",
+  toss_up: "tossUp",
+};
+
+/** One verdict chip (Toss Up / Lean / Favor / Official Play). Tap for the definition. */
+export function VerdictChip({ level, className = "" }: { level: VerdictLevel; className?: string }) {
+  return (
+    <InfoTip term={VERDICT_TIP[level]} triggerClassName={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${VERDICT_STYLE[level]} ${CHIP} ${className}`}>
+      {verdictLabel(level)}
+    </InfoTip>
+  );
+}
 
 function StatusTagView({ tag }: { tag: StatusTag }) {
   if (tag.kind === "pause") {
     return <NewCoachChip locks={tag.locks} market={tag.market} className={CHIP} />;
   }
-  if (tag.kind === "verdict" && tag.verdict === "official") {
-    return <span className={`rounded-md bg-edge-400/15 px-1.5 py-0.5 text-[10px] font-semibold text-edge-400 ${CHIP}`}>Official play</span>;
-  }
-  if (tag.kind === "verdict" && tag.verdict === "lean") {
-    return (
-      <InfoTip term="lean" triggerClassName={`rounded-md bg-ink-800 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-400 hover:bg-ink-700 hover:text-zinc-200 ${CHIP}`}>
-        Lean
-      </InfoTip>
-    );
-  }
-  if (tag.kind === "verdict" && tag.verdict === "low_value") {
-    return <span className={`rounded-md bg-ink-800 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-400 ${CHIP}`}>Low value</span>;
-  }
-  if (tag.kind === "value" && tag.value === "tier") {
-    return <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${TIER_BADGE[tag.tier]} ${CHIP}`}>{tag.tier}</span>;
-  }
-  return <span className={`rounded-md bg-ink-800 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-400 ${CHIP}`}>Low value</span>;
+  return <VerdictChip level={tag.verdict} />;
 }
 
 /** Up to STATUS_TAG_MAX status tags. Verdict first; Neutral and TV are not rendered here. */

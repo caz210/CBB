@@ -121,7 +121,7 @@ export const SKIP_LABELS: Record<string, string> = {
   below_current_threshold: "edge now below threshold",
   line_moved_against: "market moved 3+ pts away from CZarp since open",
   new_coach_lock: "new coach",
-  kelly_too_small: "stake too small to post",
+  kelly_too_small: "stake under $1",
   game_started: "game already started",
   no_current_line: "no current line",
   no_opening_line: "no opening line yet",

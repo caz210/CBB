@@ -119,7 +119,6 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
                 FV {next.proj_spread == null ? "—" : spreadRef(fmtLine(next.proj_spread), next.home, next.neutral)} · Price {next.market_spread == null ? "—" : spreadRef(fmtLine(next.market_spread), next.home, next.neutral)}
                 {/* Same helper as the slate card: posted fair for an official total, else czarp-v1-totals, else "—". Never v2. */}
                 {" · Total FV "}{nextTotal!.value}
-                {nextTotal!.tag && <span className="ml-1 rounded px-1 py-px align-middle font-sans text-[9px] font-bold text-zinc-400 ring-1 ring-ink-600">{nextTotal!.tag}</span>}
                 {" / "}{next.market_total == null ? "—" : next.market_total.toFixed(1)}
               </div>
               {next.upset_alert && (

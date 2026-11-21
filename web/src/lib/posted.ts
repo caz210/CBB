@@ -91,6 +91,9 @@ export function postedFairVsProjections(b: ValueBet | null | undefined, g: Slate
   return null;
 }
 
+/** Game-sheet note shown instead of a "posted" tag when the total FV is the posted pick's number. */
+export const POSTED_TOTAL_NOTE = "Total shown is CZarp's number when this play was posted.";
+
 /** Fair total for a card, sheet, or team page. Always czarp-v1-totals (the official totals model):
  *  the posted fair for an official total, else the current v1 projection, else "—".
  *  Never the v2 team-score sum. */
