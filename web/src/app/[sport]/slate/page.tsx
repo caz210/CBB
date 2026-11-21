@@ -3,11 +3,12 @@ import { notFound } from "next/navigation";
 import { getSport } from "@/lib/sports";
 import { isIsoDate, loadSlate, shiftDate, todayCT } from "@/lib/data";
 import {
-  SLATE_MATCHUP_CTA_LABEL,
+  confirmedSchedule,
   showSlateLiveBadge,
   showSlateMatchupCta,
   slateDateRelation,
   slateEmptyBody,
+  slateMatchupCtaLabel,
   slateMatchupHref,
 } from "@/lib/slateEmpty";
 import { parseSlateSort } from "@/lib/tvRating";
@@ -90,8 +91,8 @@ export default async function SlatePage({
         ) : res.data.games.length === 0 ? (
           <EmptyState
             title={relation === "past" ? "No slate stored for this date" : `No ${sport.label} games on ${fmtGameDate(date)}`}
-            body={slateEmptyBody(relation)}
-            actions={showSlateMatchupCta(relation) ? [{ href: slateMatchupHref(sport.key), label: SLATE_MATCHUP_CTA_LABEL, variant: "primary" as const }] : []}
+            body={slateEmptyBody(relation, confirmedSchedule(res.data.hasScheduledGames))}
+            actions={showSlateMatchupCta(relation) ? [{ href: slateMatchupHref(sport.key), label: slateMatchupCtaLabel(relation, confirmedSchedule(res.data.hasScheduledGames)), variant: "primary" as const }] : []}
             footer={(
               <SlateDateLinks
                 sportKey={sport.key}
@@ -110,7 +111,7 @@ export default async function SlatePage({
                 No value bets are showing for this slate yet.
               </div>
             )}
-            <SlateBoard games={res.data.games} bets={res.data.bets} tracked={res.data.tracked} sort={sort} hide={hide} sportKey={sport.key} />
+            <SlateBoard games={res.data.games} bets={res.data.bets} tracked={res.data.tracked} sort={sort} hide={hide} sportKey={sport.key} slateAliases={res.data.aliases} />
           </>
         )}
       </div>

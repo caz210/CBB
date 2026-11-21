@@ -51,14 +51,23 @@ export function filterSlateGames<T extends NamedSides>(games: T[], query: string
 /** How long to wait on /api/teams before giving up on DB aliases and showing the real empty state. */
 export const ALIAS_INDEX_TIMEOUT_MS = 3000;
 
-/** True when a query has no local matches and the alias index is still loading, so the slate
- *  should show "Searching…" instead of flashing "No games match". False on error, timeout, or a hit. */
+/** Server-sent slate aliases (SlateData.aliases) as an AliasByName. null/undefined → undefined. */
+export function aliasByNameFromRecord(rec: Record<string, string[]> | null | undefined): AliasByName | undefined {
+  return rec ? new Map(Object.entries(rec)) : undefined;
+}
+
+/** True only for a possible alias-only lookup: no local matches, the slate's own aliases didn't come with the
+ *  page (slateAliasesKnown false), and the /api/teams index is still loading. When the server already sent the
+ *  slate teams' aliases, a no-match is a real no-match, so the empty state shows straight away.
+ *  False on error, timeout, or a hit. */
 export function isSlateAliasSearchPending(opts: {
   query: string;
   matchCount: number;
   load: "loading" | "ready" | "error";
   timedOut: boolean;
+  slateAliasesKnown?: boolean;
 }): boolean {
+  if (opts.slateAliasesKnown) return false;
   return !isEmptySlateQuery(opts.query) && opts.matchCount === 0 && opts.load === "loading" && !opts.timedOut;
 }
 

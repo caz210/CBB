@@ -83,6 +83,17 @@ export function officialMarketDisplay(
   return { value: `${wins}-${losses}`, hint: officialPicksCue(wins, losses), quiet: false };
 }
 
+/** Official W-L-P overall. No official picks at all → null (show NO_OFFICIAL_PICKS_YET, never "0-0-0"). */
+export function officialOverallDisplay(
+  wins: number | null | undefined,
+  losses: number | null | undefined,
+  pushes: number | null | undefined,
+): string | null {
+  const n = officialPickCount(wins, losses) + (isFiniteNum(pushes) && pushes > 0 ? pushes : 0);
+  if (n === 0) return null;
+  return `${wins ?? 0}-${losses ?? 0}-${pushes ?? 0}`;
+}
+
 /** W / L / P (or win / loss / push) → Win / Loss / Push. */
 export function fmtPickResult(result: string | null | undefined): string | null {
   if (!result) return null;

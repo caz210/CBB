@@ -9,6 +9,7 @@ import {
   formatTeamSubtitle,
   NO_OFFICIAL_PICKS_YET,
   officialMarketDisplay,
+  officialOverallDisplay,
   officialPicksCue,
   parseTeamRanking,
   teamSubtitleParts,
@@ -158,4 +159,14 @@ test("customer surface does not mention KenPom", async () => {
     if (/kenpom/i.test(text)) hits.push(path.relative(srcRoot, f));
   }
   assert.deepEqual(hits, [], `KenPom still appears in: ${hits.join(", ")}`);
+});
+
+test("official overall: no official picks reads 'No official picks yet', never 0-0-0", async () => {
+  assert.equal(officialOverallDisplay(0, 0, 0), null);
+  assert.equal(officialOverallDisplay(null, null, null), null);
+  assert.equal(officialOverallDisplay(2, 1, 0), "2-1-0");
+  assert.equal(officialOverallDisplay(0, 0, 1), "0-0-1");
+  const src = await readFile(path.join(process.cwd(), "src/app/[sport]/team/[slug]/page.tsx"), "utf8");
+  assert.doesNotMatch(src, /`\$\{r\.official_wins\}-\$\{r\.official_losses\}-\$\{r\.official_pushes\}`/);
+  assert.match(src, /empty=\{NO_OFFICIAL_PICKS_YET\}/);
 });

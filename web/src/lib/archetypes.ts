@@ -213,10 +213,24 @@ function cleanSentence(sentence: string): string {
   return stripped;
 }
 
+/** A piece that ends in an abbreviation, not a sentence: "St.", "Mt.", "N.C.", "N.", "vs.". */
+const ABBREV_END = /(?:^|[\s(])(?:St|Ste|Mt|Ft|Jr|Sr|Dr|Mr|vs|No|[A-Z](?:\.[A-Z])*)\.$/;
+
+/** Split text into sentences at ". " without breaking names like "St. Thomas" or "N.C. State". */
+export function splitSentences(text: string): string[] {
+  const out: string[] = [];
+  for (const piece of text.split(/(?<=\.)\s+/)) {
+    const prev = out[out.length - 1];
+    if (prev != null && ABBREV_END.test(prev)) out[out.length - 1] = `${prev} ${piece}`;
+    else out.push(piece);
+  }
+  return out;
+}
+
 /** Hide Soft Glass / Open Arc mentions without dropping the surrounding Why or pace sentence. */
 export function visibleCopy(text: string | null | undefined): string {
   if (!text) return "";
-  const kept = text.split(/(?<=\.)\s+/).map(cleanSentence).filter(Boolean);
+  const kept = splitSentences(text).map(cleanSentence).filter(Boolean);
   return kept.join(" ").replace(/\s{2,}/g, " ").trim();
 }
 

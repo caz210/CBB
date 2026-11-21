@@ -10,6 +10,7 @@ import {
   parseTagList,
   PUBLIC_TAG_NAMES,
   visibleCopy,
+  splitSentences,
   visibleNotes,
   visibleTags,
   weaknessesOnly,
@@ -156,4 +157,25 @@ test("visibleCopy filters hidden names out of upset_reason without dropping the 
     visibleCopy("California Volume 3s vs Houston Open Arc; California Sharp vs Houston soft 3-point defense"),
     "California Sharp vs Houston soft 3-point defense",
   );
+});
+
+test("visibleCopy does not split on abbreviations (prod notes: Green Bay @ St. Thomas 11-08, Troy @ N.C. State 11-13)", () => {
+  // Whole note is a hidden-tag matchup, so nothing is left (was "St." / "N.C.").
+  assert.equal(visibleCopy("St. Thomas: Volume 3s vs Open Arc (+0.50)"), "");
+  assert.equal(visibleCopy("N.C. State: Crash vs Soft Glass (+0.50)"), "");
+  assert.deepEqual(visibleNotes(["St. Thomas: Volume 3s vs Open Arc (+0.50)"]), []);
+  assert.deepEqual(visibleNotes(["N.C. State: Crash vs Soft Glass (+0.50)"]), []);
+  // Public notes with abbreviations are kept whole.
+  assert.equal(visibleCopy("St. Thomas: Volume 3s vs Soft D (+0.25)"), "St. Thomas: Volume 3s vs Soft D (+0.25)");
+  assert.equal(visibleCopy("N.C. State: Crash vs Careless (+0.25)"), "N.C. State: Crash vs Careless (+0.25)");
+  // Prod reasons.
+  const gb = "Green Bay (Careless, Slow) at St. Thomas (Volume 3s, Secure). Projected pace about 68 possessions.";
+  assert.equal(visibleCopy(gb), gb);
+  const troy = "Troy (no standout style tags) at N. C. State (Sharp, Crash).";
+  assert.equal(visibleCopy(troy), troy);
+  assert.equal(
+    visibleCopy("Green Bay (Careless, Slow) at St. Thomas (Volume 3s, Secure). Projected pace about 68 possessions. Matchup notes: St. Thomas: Volume 3s vs Open Arc."),
+    gb,
+  );
+  assert.deepEqual(splitSentences("At Mt. St. Mary's. Pace 70. N.C. State next."), ["At Mt. St. Mary's.", "Pace 70.", "N.C. State next."]);
 });

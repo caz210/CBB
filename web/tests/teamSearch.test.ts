@@ -289,3 +289,25 @@ test("new aliases: Brigham Young, North Carolina State, Mt St Marys", () => {
   assert.equal(searchTeams(idx, "mt st marys")[0].name, "Mount St. Mary's");
   assert.equal(searchTeams(idx, "mt st mary's")[0].name, "Mount St. Mary's");
 });
+
+test("'saint': real Saint schools (Mount St. Mary's) outrank Siena's mascot alias in the header's top 8", () => {
+  const names = ["St. Thomas", "Saint Peter's", "St. John's", "Saint Louis", "Saint Mary's", "Saint Joseph's",
+    "St. Bonaventure", "Mount St. Mary's", "Siena", "Michigan", "Lehigh"];
+  const teams: SearchTeam[] = names.map((name, i) => ({
+    id: i + 1, name, slug: teamSlug(name), next: null,
+    aliases: name === "Siena" ? ["saints", "sie", "siena saints"] : name === "Lehigh" ? ["mountain hawks"] : [],
+  }));
+  const idx = buildIndex(teams);
+  const top = searchTeams(idx, "saint").map((t) => t.name);
+  assert.equal(top.length, 8);
+  assert.ok(top.includes("Mount St. Mary's"), top.join(", "));
+  assert.ok(!top.includes("Siena"), top.join(", "));
+  // Siena is still findable, just below the Saint schools.
+  const all = searchTeams(idx, "saint", 20).map((t) => t.name);
+  assert.equal(all.at(-1), "Siena");
+  // Exact and whole-word alias hits keep their rank; mid-word name prefixes are unchanged.
+  assert.equal(searchTeams(idx, "saints")[0].name, "Siena");
+  assert.equal(searchTeams(idx, "sie")[0].name, "Siena");
+  assert.equal(searchTeams(idx, "mich")[0].name, "Michigan");
+  assert.deepEqual(searchTeams(idx, "mount").map((t) => t.name), ["Mount St. Mary's", "Lehigh"]);
+});
