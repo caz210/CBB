@@ -1,5 +1,7 @@
 """Pull ESPN final scores for every stored game on a date and update games.status / scores.
 
+Scores are matched to games.home / games.away by team name, not ESPN's homeAway slot
+(neutral events often flip that label after we persist the morning slate).
 The daily writer only stamps scores for today's slate and for ledger games graded the
 next morning, so non-pick games stayed 'scheduled'. This module backfills and keeps
 those rows current. It never writes picks.
@@ -145,6 +147,41 @@ def _scoreboard(day: date):
     return dr.espn_scoreboard(day)
 
 
+
+def map_espn_scores(stored_home, stored_away, espn_home, espn_away, home_score, away_score,
+                    match=None):
+    """Assign ESPN scores to our stored home/away by team name, not by slot.
+
+    Neutral events often flip ESPN's homeAway between the morning slate (when we
+    first persist games.home / games.away) and the final box. Copying ESPN's
+    home_score into games.home_score then credits the points to the wrong team.
+
+    Returns (home_score, away_score) in *our* stored labels, or None if the
+    two ESPN teams cannot be matched to the stored pair. If stored names are
+    missing, falls back to the ESPN slots (same as the previous behavior).
+    `match`, if given, maps an ESPN name to a KenPom / stored name.
+    """
+    if home_score is None or away_score is None:
+        return None
+    hs, aws = int(home_score), int(away_score)
+    if not stored_home or not stored_away or not espn_home or not espn_away:
+        return hs, aws
+
+    def _n(name):
+        if match is not None:
+            got = match(str(name))
+            if got:
+                return got
+        return str(name)
+
+    sh, sa, eh, ea = _n(stored_home), _n(stored_away), _n(espn_home), _n(espn_away)
+    if sh == eh and sa == ea:
+        return hs, aws
+    if sh == ea and sa == eh:
+        return aws, hs
+    return None
+
+
 def sync_finals(lookback: int = DEFAULT_LOOKBACK, day: date | None = None, *,
                 now: datetime | None = None, client: Client | None = None,
                 log=print, scoreboard=None, end_time=None) -> dict:
@@ -181,8 +218,13 @@ def sync_finals(lookback: int = DEFAULT_LOOKBACK, day: date | None = None, *,
         summary["espn_games"] += len(events)
         existing = {str(r["external_id"]): r for r in c.get(
             "games",
-            select="id,external_id,date,status,home_score,away_score,league,tipoff,final_at,final_at_estimated",
+            select="id,external_id,date,status,home,away,home_score,away_score,league,tipoff,final_at,final_at_estimated",
             league=f"eq.{LEAGUE}", date=f"eq.{d.isoformat()}", limit="2000")}
+        from backtest import NameMatcher
+        names = {r.get("home") for r in existing.values()} | {r.get("away") for r in existing.values()}
+        names.discard(None)
+        names.discard("")
+        matcher = NameMatcher(names) if names else None
         rows = []
         for g in events:
             eid = str(g["event_id"])
@@ -193,8 +235,20 @@ def sync_finals(lookback: int = DEFAULT_LOOKBACK, day: date | None = None, *,
             summary["matched"] += 1
             st = game_status(g)
             scored = st in ("final", "in_progress") and g.get("home_score") is not None and g.get("away_score") is not None
-            hs = int(g["home_score"]) if scored else None
-            as_ = int(g["away_score"]) if scored else None
+            if scored:
+                aligned = map_espn_scores(cur.get("home"), cur.get("away"),
+                                          g.get("home"), g.get("away"),
+                                          g.get("home_score"), g.get("away_score"),
+                                          match=matcher)
+                if aligned is None:
+                    log(f"  finals {d.isoformat()} espn={eid}: ESPN teams "
+                        f"{g.get('away')} / {g.get('home')} do not match stored "
+                        f"{cur.get('away')} / {cur.get('home')} — scores not applied")
+                    summary["unchanged"] += 1
+                    continue
+                hs, as_ = aligned
+            else:
+                hs, as_ = None, None
             if st == "final" and (hs is None or as_ is None):
                 summary["unchanged"] += 1
                 continue

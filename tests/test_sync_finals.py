@@ -244,3 +244,38 @@ def test_migration_exposes_final_at_on_views():
     assert "create or replace view slate_games" in sql
     assert "create or replace view model_grades" in sql
     assert "g.status" in sql
+
+
+def test_map_espn_scores_assigns_by_team_not_slot():
+    from czarp.sync_finals import map_espn_scores
+    from backtest import NameMatcher
+    # Same labels: passthrough
+    assert map_espn_scores("California", "Houston", "California", "Houston", 86, 68) == (86, 68)
+    # ESPN flipped home/away on a neutral; stored labels stay, scores follow the teams
+    assert map_espn_scores("California", "Houston", "Houston", "California", 86, 68) == (68, 86)
+    # ESPN "Wichita State" vs stored "Wichita St."
+    m = NameMatcher(["USC", "Wichita St."])
+    assert map_espn_scores("Wichita St.", "USC", "USC", "Wichita State", 93, 86, match=m) == (86, 93)
+    # cannot match → None (do not write slot scores)
+    assert map_espn_scores("A", "B", "C", "D", 10, 20) is None
+    # missing stored names → slot fallback (legacy / incomplete rows)
+    assert map_espn_scores(None, None, "Houston", "California", 86, 68) == (86, 68)
+
+
+def test_sync_aligns_scores_when_espn_flips_neutral_home_away():
+    """A morning slate stored California as home; ESPN's final lists Houston as home."""
+    existing = [
+        dict(external_id="401918053", date="2026-11-08", status="scheduled",
+             home="California", away="Houston", home_score=None, away_score=None, league="ncaam"),
+    ]
+    espn = [
+        _espn(event_id="401918053", game_date="2026-11-08",
+              home="Houston", away="California", home_score=86, away_score=68, completed=True),
+    ]
+    c = FakeClient(existing)
+    s = sync_finals(lookback=0, day=date(2026, 11, 8), client=c, log=lambda *_: None,
+                    scoreboard=lambda d: espn, end_time=lambda eid: None)
+    row = {r["external_id"]: r for r in c.calls["games"]}["401918053"]
+    assert s["updated"] == 1
+    # stored home is still California: they scored 68, Houston 86
+    assert row["home_score"] == 68 and row["away_score"] == 86
