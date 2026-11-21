@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { buildIndex, type SearchTeam } from "../src/lib/teamSearch";
 import {
   aliasByNameFromIndex, echoSlateQuery, filterSlateGames, isEmptySlateQuery,
-  slateDateHref, slateGameMatches, teamMatchesQuery,
+  isSlateAliasSearchPending, slateDateHref, slateGameMatches, teamMatchesQuery,
 } from "../src/lib/slateSearch";
 
 const slate = [
@@ -162,4 +162,16 @@ test("a long unbroken query is truncated in the empty-state echo", () => {
   assert.equal(echo, `${"x".repeat(40)}…`);
   assert.equal(echoSlateQuery("xyzzy"), "xyzzy");
   assert.equal(echoSlateQuery("  mercer  "), "mercer");
+});
+
+test("alias-only queries stay in Searching… until the index loads, then show the real empty state on failure or timeout", () => {
+  const pending = (over: Partial<{ query: string; matchCount: number; load: "loading" | "ready" | "error"; timedOut: boolean }>) =>
+    isSlateAliasSearchPending({ query: "ualbany", matchCount: 0, load: "loading", timedOut: false, ...over });
+  assert.equal(pending({}), true);
+  assert.equal(pending({ matchCount: 1 }), false); // a local hit should not wait
+  assert.equal(pending({ load: "ready" }), false);
+  assert.equal(pending({ load: "error" }), false);
+  assert.equal(pending({ timedOut: true }), false);
+  assert.equal(pending({ query: "" }), false);
+  assert.equal(pending({ query: "   " }), false);
 });

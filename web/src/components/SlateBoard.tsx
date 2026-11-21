@@ -14,7 +14,7 @@ import { NeutralChip, TitleLine } from "./NeutralChip";
 import { SlateSearch } from "./SlateSearch";
 import { TvRatingChip } from "./TvRatingChip";
 import { compareTvRating, tvHighlightIds, type SlateSort } from "@/lib/tvRating";
-import { aliasByNameFromIndex, echoSlateQuery, filterSlateGames, isEmptySlateQuery, slateGameMatches } from "@/lib/slateSearch";
+import { ALIAS_INDEX_TIMEOUT_MS, aliasByNameFromIndex, echoSlateQuery, filterSlateGames, isEmptySlateQuery, isSlateAliasSearchPending, slateGameMatches } from "@/lib/slateSearch";
 import { useTeamIndex } from "@/lib/useTeamIndex";
 import { SHOW_TRACKED_TIER } from "@/lib/pickTier";
 import { gameTitle, sideLabel, spreadNotationNote } from "@/lib/gameTitle";
@@ -48,6 +48,13 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
   // or the request fails, matching falls back to localAliases only — same as before.
   const teamLoad = useTeamIndex(sportKey, true);
   const aliases = teamLoad.state === "ready" ? aliasByNameFromIndex(teamLoad.index) : undefined;
+  // Don't flash "No games match" for an alias-only query (ualbany) while /api/teams is in flight.
+  const [aliasTimedOut, setAliasTimedOut] = useState(false);
+  useEffect(() => {
+    if (teamLoad.state !== "loading") { setAliasTimedOut(false); return; }
+    const t = window.setTimeout(() => setAliasTimedOut(true), ALIAS_INDEX_TIMEOUT_MS);
+    return () => window.clearTimeout(t);
+  }, [teamLoad.state]);
   const setQuery = (next: string) => {
     const q = new URLSearchParams(search.toString());
     if (next) q.set("q", next); else q.delete("q");
@@ -96,6 +103,10 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
     return true;
   });
 
+  const searchingAliases = isSlateAliasSearchPending({
+    query, matchCount: matched.length, load: teamLoad.state, timedOut: aliasTimedOut,
+  });
+
   return (
     <div>
       <SlateSearch query={query} onQuery={setQuery} />
@@ -127,7 +138,13 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
         <div className="ml-auto hidden md:block"><ArchetypeLegend /></div>
       </div>
 
-      {shown.length === 0 && hasQuery && (
+      {shown.length === 0 && hasQuery && searchingAliases && (
+        <div className="mb-4 rounded-xl border border-ink-700 bg-ink-900 px-3.5 py-3 text-sm text-zinc-400" aria-live="polite">
+          Searching…
+        </div>
+      )}
+
+      {shown.length === 0 && hasQuery && !searchingAliases && (
         <div className="mb-4 min-w-0 overflow-hidden break-words rounded-xl border border-ink-700 bg-ink-900 px-3.5 py-3 text-sm text-zinc-400 [overflow-wrap:anywhere]">
           {matched.length === 0
             ? <>No games match “{echoSlateQuery(query)}”.</>
