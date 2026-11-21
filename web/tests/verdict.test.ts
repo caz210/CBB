@@ -65,7 +65,7 @@ test("notAPlayLine falls back to stored text for unknown codes", () => {
   const g = game({ skip_reasons_total: ["brand_new_rule"], skip_reason_total: "injury news pending" });
   assert.equal(notAPlayLine(g, []), "Not a play: injury news pending");
   // Unknown code, no text, edge now clears with no hold: Favor, so the reason is the morning run.
-  assert.equal(notAPlayLine(game({ skip_reasons_total: ["brand_new_rule"], skip_reason_total: null }), []), "Not a play: not posted at the 7:15 AM CT run");
+  assert.equal(notAPlayLine(game({ skip_reasons_total: ["brand_new_rule"], skip_reason_total: null }), []), "Value on the current line. Official plays are set at 7:15 AM CT.");
   assert.equal(notAPlayLine(game({ edge_now_pct_total: 0.01, skip_reasons_total: ["brand_new_rule"], skip_reason_total: null }), [], "total"), "Not a play: edge now below 3%");
 });
 

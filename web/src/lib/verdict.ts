@@ -278,7 +278,7 @@ export function formatSkip(
 const BAR_CODES = new Set(["below_open_threshold", "below_current_threshold"]);
 
 /** Customer reason line for a non-official market, matching its ladder level:
- *  - Favor: nothing held it back, but plays are only set at the 7:15 AM CT run (any other
+ *  - Favor: "Value on the current line. Official plays are set at 7:15 AM CT." (any other
  *    stored reason, e.g. "game already started", still shows).
  *  - Lean: the hold rule(s) (new-coach pause leads).
  *  - Toss Up: "edge now below 4%" (plus any other stored reason), or the stored text with
@@ -297,12 +297,15 @@ function skipForMarket(g: SlateGame, officialBets: ValueBet[], market: Market): 
   const d = formatSkip(human, codes, market === "moneyline" ? "moneyline" : m, g.coachLocks);
   // Favor: nothing on the ladder held it back. Any other stored reason (game started, a new pipeline
   // rule) still shows; otherwise it simply wasn't posted at the morning run.
-  if (v.level === "favor" && !d.primary) return { primary: FAVOR_NOT_POSTED, also: [] };
+  if (v.level === "favor" && !d.primary) return { primary: FAVOR_REASON, also: [] };
   return d;
 }
 
-/** Favor's "not a play" reason. */
-export const FAVOR_NOT_POSTED = "not posted at the 7:15 AM CT run";
+/** Favor's reason line, shown as-is (no "Not a play:" prefix). Copy approved by CZarp on #67. */
+export const FAVOR_REASON = "Value on the current line. Official plays are set at 7:15 AM CT.";
+
+/** "Not a play: <reason>", except the Favor line, which stands on its own. */
+const reasonLine = (primary: string) => (primary === FAVOR_REASON ? FAVOR_REASON : `Not a play: ${primary}`);
 
 /** Skip detail for the headline (or given) non-play market; null for official plays. */
 export function notAPlayDetail(g: SlateGame, officialBets: ValueBet[], market?: Market | null): SkipDetail | null {
@@ -317,7 +320,7 @@ export function notAPlayDetail(g: SlateGame, officialBets: ValueBet[], market?: 
  *  or, with a new-coach pause, "Not a play: paused until game 4 (new coach, 3 played)". */
 export function notAPlayLine(g: SlateGame, officialBets: ValueBet[], market?: Market | null): string | null {
   const d = notAPlayDetail(g, officialBets, market);
-  return d?.primary ? `Not a play: ${d.primary}` : null;
+  return d?.primary ? reasonLine(d.primary) : null;
 }
 
 /** "Also: …" lines for the game sheet (reasons behind a new-coach pause). */
@@ -333,7 +336,7 @@ export function notAPlayLines(g: SlateGame, officialMarkets: Iterable<string>): 
   const out: string[] = [];
   const push = (d: SkipDetail) => {
     if (!d.primary) return;
-    out.push(`Not a play: ${d.primary}`);
+    out.push(reasonLine(d.primary));
     for (const r of d.also) out.push(`Also: ${r}`);
   };
   if (!mk.has("spread") && !mk.has("moneyline")) push(skipForMarket(g, [], "spread"));

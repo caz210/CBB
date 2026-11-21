@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { HOLD_CODES, LINE_MOVE_NOTE, NO_LINE_TIP, VERDICT_LADDER, VERDICT_RANK, clearsBar, holdCodes, ladderLevel, showsLineMoveNote, verdictLabel, type LadderInput } from "../src/lib/verdicts";
-import { FAVOR_NOT_POSTED, cardHeadline, marketRatings, marketVerdict, notAPlayLine } from "../src/lib/verdict";
+import { FAVOR_REASON, cardHeadline, marketRatings, marketVerdict, notAPlayLine, notAPlayLines } from "../src/lib/verdict";
 import { EXPLAINERS } from "../src/lib/explainers";
 import { POSTED_TOTAL_NOTE, totalFair } from "../src/lib/posted";
 import { fmtEdgeVsBar, fmtPlayPct, fmtPostedVsNow } from "../src/lib/labels";
@@ -82,6 +82,10 @@ test("Official Play beats everything and is never derived from the edge", () => 
   assert.equal(ladderLevel(L({ edgeNow: 0.09 })).level, "favor");
 });
 
+test("Favor reason is the approved copy, with no 'Not a play:' prefix", () => {
+  assert.equal(FAVOR_REASON, "Value on the current line. Official plays are set at 7:15 AM CT.");
+});
+
 test("line-move note: official pick whose edge now is below the bar", () => {
   assert.equal(LINE_MOVE_NOTE, "No longer a value play due to line movement.");
   assert.equal(showsLineMoveNote("total", true, 0.0099), true);
@@ -130,7 +134,7 @@ test("cardHeadline: ladder rank beats a bigger raw edge when choosing the headli
   const h = cardHeadline(g, []);
   assert.equal(h.market, "total");
   assert.equal(h.verdict, "favor");
-  assert.equal(notAPlayLine(g, []), `Not a play: ${FAVOR_NOT_POSTED}`);
+  assert.equal(notAPlayLine(g, []), "Value on the current line. Official plays are set at 7:15 AM CT.");
   // Spread Lean at 6% vs total Favor at 3.1%: Favor outranks Lean despite the smaller edge.
   const g2 = game({ edge_now_pct_spread: 0.06, skip_reasons_spread: ["new_coach_lock"], edge_now_pct_total: 0.031, skip_reasons_total: [] });
   assert.equal(cardHeadline(g2, []).market, "total");
@@ -250,8 +254,10 @@ test("South Alabama @ UCF 11-10: Spread Favor, Total Toss Up; header names the m
   const t = pickStatusTags(g, [])[0];
   assert.ok(t.kind === "verdict" && t.verdict === "favor" && t.market === "spread");
   // No opening-line copy anywhere on the card.
-  assert.equal(notAPlayLine(g, []), `Not a play: ${FAVOR_NOT_POSTED}`);
+  assert.equal(notAPlayLine(g, []), "Value on the current line. Official plays are set at 7:15 AM CT.");
   assert.equal(notAPlayLine(g, [], "total"), "Not a play: edge now below 3%");
+  // Team page lines use the same copy.
+  assert.deepEqual(notAPlayLines(g, []), ["Value on the current line. Official plays are set at 7:15 AM CT.", "Not a play: edge now below 3%"]);
 });
 
 test("Lamar @ Nebraska Omaha 11-17: Total Lean (new-coach pause), Spread Toss Up", () => {
