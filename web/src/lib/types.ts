@@ -80,6 +80,13 @@ export type SlateGame = {
   /** Stored booleans from the pipeline. The ladder (lib/verdicts.ts) reads the stored edges instead. */
   lean_spread?: boolean | null;
   lean_total?: boolean | null;
+  /** slate_games.market_fetched_at, once the pipeline adds it (czarp-v2). */
+  market_fetched_at?: string | null;
+  /** slate_games.edges_as_of (coalesce of projections.edges_as_of / created_at), once the pipeline adds it. */
+  edges_as_of?: string | null;
+  /** Real stored stamp for the line the ladder ratings use (lib/linesAsOf.ts); null → omit "as of". */
+  lines_as_of?: string | null;
+  lines_as_of_source?: import("./linesAsOf").LinesAsOfSource | null;
 };
 export type GameInsight = {
   proj_home: number | null;

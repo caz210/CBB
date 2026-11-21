@@ -25,10 +25,12 @@ import { InfoTip } from "@/components/InfoTip";
 import { GLOSSARY_HREF } from "@/lib/glossary";
 import { visibleCopy, visibleTags } from "@/lib/archetypes";
 import { TermLabel } from "@/components/InfoTip";
-import { StatusChips } from "@/components/StatusChips";
+import { StatusChips, VerdictChip } from "@/components/StatusChips";
 import { NewCoachBadge } from "@/components/NewCoachBadge";
 import { newCoachLock } from "@/lib/coach";
-import { cardHeadline, notAPlayLine } from "@/lib/verdict";
+import { cardHeadline, marketRatings, notAPlayLine } from "@/lib/verdict";
+import { LINE_MOVE_NOTE } from "@/lib/verdicts";
+import { fmtLinesAsOf } from "@/lib/linesAsOf";
 import { totalFair } from "@/lib/posted";
 
 export const dynamic = "force-dynamic";
@@ -101,6 +103,8 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
   const nextEdge = next ? cardHeadline(next, next.officialBets ?? []) : null;
   const nextWhy = next && nextEdge?.verdict !== "official" ? notAPlayLine(next, next.officialBets ?? []) : null;
   const nextTotal = next ? totalFair(next, next.officialBets ?? []) : null;
+  const nextRatings = next ? marketRatings(next, next.officialBets ?? []) : null;
+  const nextAsOf = next ? fmtLinesAsOf(next.lines_as_of) : null;
 
   return (
     <div className="mt-4 space-y-4 md:mt-6 md:space-y-6">
@@ -133,11 +137,20 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
                 <Link className="hover:text-court-400" href={teamHref(sportKey, next.home)}>{next.home}</Link>
                 {next.neutral && <NeutralChip className="ml-2" />}
               </div>
-              <div className="mt-1 font-mono text-xs text-zinc-400">
-                FV {next.proj_spread == null ? "—" : spreadRef(fmtLine(next.proj_spread), next.home, next.neutral)} · Price {next.market_spread == null ? "—" : spreadRef(fmtLine(next.market_spread), next.home, next.neutral)}
-                {/* Same helper as the slate card: posted fair for an official total, else czarp-v1-totals, else "—". Never v2. */}
-                {" · Total FV "}{nextTotal!.value}
-                {" / "}{next.market_total == null ? "—" : next.market_total.toFixed(1)}
+              {/* Two ladder ratings, one per market, judged on the current line (lib/verdicts.ts). */}
+              <div className="mt-1 space-y-1 font-mono text-xs text-zinc-400">
+                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                  <span className="font-sans text-[10px] uppercase tracking-wider text-zinc-500">Spread</span>
+                  <VerdictChip level={nextRatings!.spread.level} noLine={nextRatings!.spread.noLine} />
+                  <span>FV {next.proj_spread == null ? "—" : spreadRef(fmtLine(next.proj_spread), next.home, next.neutral)} · Price {next.market_spread == null ? "—" : spreadRef(fmtLine(next.market_spread), next.home, next.neutral)}</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                  <span className="font-sans text-[10px] uppercase tracking-wider text-zinc-500">Total</span>
+                  <VerdictChip level={nextRatings!.total.level} noLine={nextRatings!.total.noLine} />
+                  {/* Same helper as the slate card: posted fair for an official total, else czarp-v1-totals, else "—". Never v2. */}
+                  <span>FV {nextTotal!.value} · Price {next.market_total == null ? "—" : next.market_total.toFixed(1)}</span>
+                </div>
+                {nextAsOf && <div className="font-sans text-[10px] text-zinc-600">Ratings use the line {nextAsOf}</div>}
               </div>
               {next.upset_alert && (
                 <div className="mt-2 inline-block rounded-md border border-amber-400/40 bg-amber-400/10 px-2 py-1 text-[11px] text-amber-200">
@@ -158,6 +171,7 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
                 {nextEdge?.edgeLabel ?? "—"}
               </div>
               <div className="text-[11px] text-zinc-500">{nextEdge?.subtitle ?? (nextEdge?.market ?? "fair vs price")}</div>
+              {nextEdge?.lineMoveNote && <div className="mt-0.5 text-[11px] font-medium text-amber-300/90">{LINE_MOVE_NOTE}</div>}
             </div>
           </div>
         )}

@@ -15,7 +15,9 @@ const game = (o: Partial<SlateGame> = {}): SlateGame => ({
   proj_total: 143, home_win_prob: 0.9, home_cover_prob: 0.5,
   archetypes: { home: [], away: [], home_tentative: false, away_tentative: false, tentative: false, notes: [] },
   market_spread: -13.5, market_total: 146, market_source: null,
+  // Real row 11-21: total now 4.76% with a 3+ pt move away since open → Lean on the current line.
   edge_now_pct_spread: 0.012, edge_now_pct_total: 0.048, verdict_spread: "low_value", verdict_total: "low_value",
+  skip_reasons_total: ["below_open_threshold", "line_moved_against"],
   lean_total: true,
   ...o,
 } as SlateGame);
@@ -81,7 +83,8 @@ test("no value badge ever: an Official Play with no pause is Official Play alone
 test("no pause: Lean alone, Toss Up alone, Favor alone", () => {
   assert.deepEqual(labels(game({ coachLocks: [] })), ["lean"]);
   assert.deepEqual(labels(game({ edge_now_pct_total: 0.01, coachLocks: [] })), ["toss_up"]);
-  assert.deepEqual(labels(game({ edge_vs_open_pct_total: 0.035, skip_reasons_total: ["kelly_too_small"], coachLocks: [] })), ["favor"]);
+  assert.deepEqual(labels(game({ skip_reasons_total: ["below_open_threshold"], coachLocks: [] })), ["favor"]);
+  assert.deepEqual(labels(game({ skip_reasons_total: ["kelly_too_small"], coachLocks: [] })), ["lean"]);
 });
 
 test("old VALUE / EDGE / HOT / Low value labels never come out of the picker", () => {
@@ -111,13 +114,13 @@ test("Toss Up with a pause is verdict + pause", () => {
   assert.deepEqual(labels(g), ["toss_up", "pause"]);
 });
 
-test("Favor (new-coach hold) with both teams paused: Favor + one merged pause chip", () => {
+test("Lean (new-coach hold) with both teams paused: Lean + one merged pause chip", () => {
   const g = game({
     edge_now_pct_total: 0.05, edge_vs_open_pct_total: 0.045, skip_reasons_total: ["new_coach_lock"],
     coachLocks: [lock(), lock({ team: "Pacific" })],
   });
   const tags = pickStatusTags(g, []);
-  assert.deepEqual(tags.map(statusTagLabel), ["favor", "pause"]);
+  assert.deepEqual(tags.map(statusTagLabel), ["lean", "pause"]);
   if (tags[1].kind === "pause") assert.equal(tags[1].locks.length, 2);
 });
 
@@ -131,4 +134,13 @@ test("never returns more than STATUS_TAG_MAX status tags, and never drops the ve
     assert.ok(t.length <= STATUS_TAG_MAX);
     assert.equal(t[0].kind, "verdict");
   }
+});
+
+test("header verdict names the stronger market (Official wins ties); no-line names none", () => {
+  const t = pickStatusTags(game({ coachLocks: [] }), [])[0];
+  assert.ok(t.kind === "verdict" && t.verdict === "lean" && t.market === "total");
+  const o = pickStatusTags(game({ coachLocks: [] }), [officialBet()])[0];
+  assert.ok(o.kind === "verdict" && o.verdict === "official" && o.market === "spread");
+  const n = pickStatusTags(game({ edge_now_pct_spread: null, edge_now_pct_total: null, coachLocks: [] }), [])[0];
+  assert.ok(n.kind === "verdict" && n.noLine && n.market === null);
 });

@@ -38,9 +38,9 @@ export const EXPLAINERS = {
   },
   /** Read by the slate chips and the methodology glossary; derived from lib/verdicts.ts (one source). */
   officialPlay: ladderTip("official"),
-  openLineRule: {
-    title: "Why we use the opening line",
-    body: "We only play edges that were there at the open, so we're never chasing line moves. A number that looks good vs the current price is only a Lean if it wasn't there when the market opened.",
+  ladderRule: {
+    title: "How each market is rated",
+    body: "The spread and the total each get their own rating, judged on the current line: below our bar (4% sides, 3% totals) is a Toss Up; clearing it is a Favor, or a Lean if a hold rule applies. Official Plays are set once, at the 7:15 AM CT run, and are never added later.",
   },
   tvRating: {
     title: "TV Rating",

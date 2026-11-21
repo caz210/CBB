@@ -3,8 +3,10 @@
  *  Neutral, conference, and TV Rating are informational and are not status
  *  tags: they are uncapped and never compete for a slot here.
  *
- *  The verdict (Toss Up, Lean, Favor, or Official Play; see lib/verdicts.ts)
- *  always takes the first slot and is never dropped. The remaining slot goes
+ *  Each game has two ladder ratings (spread and total; see lib/verdicts.ts),
+ *  shown per market in the card footer. The header's first slot is the
+ *  STRONGER market's verdict with its market named ("Total Favor"; Official
+ *  wins ties) and is never dropped. The remaining slot goes
  *  to the next entry in STATUS_TAG_PRIORITY: a single pause chip if any team
  *  is paused (two team pauses collapse into one "Both teams paused" chip).
  *  The old VALUE / EDGE / HOT value badges are gone, so "value" never fills a
@@ -23,7 +25,7 @@ export type StatusTagKind = (typeof STATUS_TAG_PRIORITY)[number];
 
 export type StatusTag =
   | { kind: "pause"; locks: NewCoachLock[]; market: Market | null }
-  | { kind: "verdict"; verdict: VerdictLevel; holds: HoldCode[]; noLine: boolean };
+  | { kind: "verdict"; verdict: VerdictLevel; holds: HoldCode[]; noLine: boolean; market: Market | null };
 
 /** Stable labels for tests and debugging. */
 export function statusTagLabel(t: StatusTag): string {
@@ -36,7 +38,7 @@ export function pickStatusTags(g: SlateGame, bets: ValueBet[]): StatusTag[] {
   const locks = lockedCoachLocks(g.coachLocks);
 
   const byKind: Record<StatusTagKind, StatusTag[]> = {
-    verdict: [{ kind: "verdict", verdict: h.verdict, holds: h.holds, noLine: h.noLine }],
+    verdict: [{ kind: "verdict", verdict: h.verdict, holds: h.holds, noLine: h.noLine, market: h.noLine ? null : h.market }],
     pause: locks.length ? [{ kind: "pause", locks, market: h.market }] : [],
     value: [],
   };
