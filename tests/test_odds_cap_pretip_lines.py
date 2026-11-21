@@ -183,7 +183,8 @@ def test_init_creates_only_when_absent(tmp_path):
     from czarp import odds_usage as ou
     p = tmp_path / "ledger" / "odds_api_usage.json"
     assert ou.main(["--check", "--path", str(p)]) == 1
-    assert ou.main(["--init", "--path", str(p)]) == 0 and ou.load(str(p)) == {"calls": {}, "remaining": None}
+    assert ou.main(["--init", "--path", str(p)]) == 0
+    assert ou.load(str(p)) == {"calls": {}, "remaining": None, "created_on": ou.today_ct()}
     legacy = '{"calls": {"2026-11-08": 1}, "remaining": "19982", "last_call_ct": "2026-11-08T07:20:46-06:00"}'
     p.write_text(legacy)                                         # production's current (pre-PR) format
     assert ou.main(["--init", "--path", str(p)]) == 0 and p.read_text() == legacy    # never overwritten

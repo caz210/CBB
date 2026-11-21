@@ -13,8 +13,14 @@ pretip_check must therefore run on the same machine from the same checkout to sh
 Schema (the pre-2026-11-21 format, without calls_by_job, is still valid; no migration needed):
     {"calls": {"YYYY-MM-DD": int>=0, ...},
      "calls_by_job": {"YYYY-MM-DD": {"daily": int>=0, "pretip": int>=0, "refresh": int>=0}, ...},   # optional
-     "remaining": null | number | numeric string,                               # optional
-     "last_call_ct": str}                                                       # optional
+     "remaining": null | number | numeric string,                               # optional; null = unknown:
+                                                                                #   no Odds API call until it
+                                                                                #   is known (free /sports read)
+     "last_call_ct": str,                                                       # optional
+     "created_on": "YYYY-MM-DD"}                                                # optional; CT date --init made
+                                                                                #   the file (a counter created
+                                                                                #   today knows nothing of
+                                                                                #   earlier calls today)
 """
 from __future__ import annotations
 
@@ -69,6 +75,8 @@ def validate(u) -> None:
             raise UsageError(f"'remaining' is not a finite number: {rem!r}")
     if "last_call_ct" in u and not isinstance(u["last_call_ct"], str):
         raise UsageError("'last_call_ct' is not a string")
+    if "created_on" in u and not (isinstance(u["created_on"], str) and _DAY.match(u["created_on"])):
+        raise UsageError(f"bad 'created_on': {u['created_on']!r}")
 
 
 def load(path: str = USAGE_PATH) -> dict:
@@ -102,12 +110,20 @@ def write(u: dict, path: str = USAGE_PATH) -> None:
         raise
 
 
-def init(path: str = USAGE_PATH) -> str:
-    """Create a valid empty counter only if the file is absent. Never touches an existing file."""
+def today_ct() -> str:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo("America/Chicago")).date().isoformat()
+
+
+def init(path: str = USAGE_PATH, today: str | None = None) -> str:
+    """Create a valid empty counter only if the file is absent. Never touches an existing file.
+    The new file records created_on (CT date): a counter created today cannot know about calls made earlier
+    today (e.g. an evicted Actions cache), so the intraday 'refresh' job makes no Odds API call on that day."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     try:
         with open(path, "x") as fh:
-            json.dump(EMPTY, fh, indent=1)
+            json.dump({**EMPTY, "created_on": today or today_ct()}, fh, indent=1)
     except FileExistsError:
         return "exists (left unchanged)"
     return "created"

@@ -3,8 +3,12 @@
 Christian's schedule (America/Chicago local time, so DST is handled here, not in cron):
   * normal day : 10 AM, 1 PM, 4 PM, 7 PM CT
   * light day  : 12 PM and 5 PM CT — a slate with fewer than LIGHT_DAY_MAX_GAMES (20) D-I games
-The GitHub Actions workflow fires at every UTC hour that can be one of those CT hours in either CST or CDT;
-this script decides from the CT clock and today's game count whether this hour is a run hour (--force skips that).
+The GitHub Actions workflow fires at :05 of every UTC hour that can be one of those CT hours in either CST or CDT;
+this script decides from the CT clock and today's game count (a HEAD count, no full read) whether `now` is inside a
+run slot, H:00 to H+1:05 CT, so a firing up to 60 minutes late still runs (--force skips the gate).
+Odds API safety: the 'refresh' slot (4/day) is refused when the usage counter was created today (missing or evicted
+Actions cache: it cannot see today's earlier calls) and whenever credits left are unknown; unknown credits are read
+from the free /v4/sports endpoint first.
 
 Each run, for today's games that have not tipped:
   1. pulls the current DraftKings line from ESPN (free); The Odds API only for games ESPN has no line for, through
@@ -44,9 +48,15 @@ LIGHT_DAY_MAX_GAMES = 20                 # fewer than this many D-I games on tod
 NORMAL_RUN_HOURS_CT = (10, 13, 16, 19)   # 10 AM, 1 PM, 4 PM, 7 PM CT
 LIGHT_RUN_HOURS_CT = (12, 17)            # 12 PM, 5 PM CT
 ALL_RUN_HOURS_CT = tuple(sorted(set(NORMAL_RUN_HOURS_CT) | set(LIGHT_RUN_HOURS_CT)))
-# UTC hours the GitHub Actions workflow (main: .github/workflows/line-refresh.yml) fires at: every CT run hour in
-# both CST (UTC-6) and CDT (UTC-5). Off-hours exit before any network call. Kept in sync by a test.
+# The GitHub Actions schedule (main: .github/workflows/line-refresh.yml): every CT run hour in both CST (UTC-6)
+# and CDT (UTC-5), at minute 5. Off-hours exit before any network call. tests/test_refresh_lines.py parses the
+# workflow file when it is in the checkout, else compares with this snapshot, so the two cannot drift.
+WORKFLOW_CRON = "5 0,1,15-19,21-23 * * *"
+CRON_MINUTE = 5
 CRON_UTC_HOURS = (0, 1, 15, 16, 17, 18, 19, 21, 22, 23)
+# A run counts for slot H (e.g. 10 AM) from H:00 until H+1:05 CT: the H:05 firing may start up to 60 minutes late
+# and still run, while the next hour's firing (H+1:05, which can never start early) is already outside the window.
+SLOT_GRACE_MIN = 65
 PICK_QUIET_MIN = 10   # never stamp a projection within this many minutes of a pick being logged on that game
 V2, V1 = sw.DEFAULT_VERSION, sw.V1_VERSION
 EDGE_COLS = dr.EDGE_FIELDS
@@ -66,21 +76,34 @@ def run_hours(n_games: int) -> tuple[int, ...]:
     return LIGHT_RUN_HOURS_CT if is_light_day(n_games) else NORMAL_RUN_HOURS_CT
 
 
+def slot_for(now, hours) -> int | None:
+    """The run slot (CT hour) whose window [H:00, H:00 + SLOT_GRACE_MIN) contains `now`, else None.
+    Slot windows are on today's CT date only (a 7 PM slot never spills past midnight: 65 min < 5 h)."""
+    t = now.astimezone(dr.CENTRAL)
+    for h in hours:
+        start = t.replace(hour=h, minute=0, second=0, microsecond=0)
+        if start <= t < start + timedelta(minutes=SLOT_GRACE_MIN):
+            return h
+    return None
+
+
 def maybe_run_hour(now) -> bool:
-    """Cheap pre-check (no network): could this CT hour be a run hour on any kind of day?"""
-    return now.astimezone(dr.CENTRAL).hour in ALL_RUN_HOURS_CT
+    """Cheap pre-check (no network): could `now` be inside a run slot on any kind of day?"""
+    return slot_for(now, ALL_RUN_HOURS_CT) is not None
 
 
 def should_run(now, n_games: int) -> tuple[bool, str]:
-    h = now.astimezone(dr.CENTRAL).hour
+    t = now.astimezone(dr.CENTRAL)
     kind = "light" if is_light_day(n_games) else "normal"
     hours = run_hours(n_games)
     label = ", ".join(f"{(x - 1) % 12 + 1}{'am' if x < 12 else 'pm'}" for x in hours)
     if n_games <= 0:
         return False, "no games on today's slate"
-    if h not in hours:
-        return False, f"{kind} day ({n_games} games): runs at {label} CT, not {h}:00"
-    return True, f"{kind} day ({n_games} games), {h}:00 CT run"
+    h = slot_for(now, hours)
+    if h is None:
+        return False, f"{kind} day ({n_games} games): runs at {label} CT, not {t:%H:%M}"
+    late = (t - t.replace(hour=h, minute=CRON_MINUTE, second=0, microsecond=0)).total_seconds() / 60
+    return True, f"{kind} day ({n_games} games), {h}:00 CT run" + (f" ({late:.0f} min late)" if late > 15 else "")
 
 
 # ── helpers ─────────────────────────────────────────────────────────────────────
@@ -345,12 +368,14 @@ def espn_index(day: date, scoreboard=None) -> dict:
 def run(now, client, today: str | None = None, force=False, dry_run=False, allow_api=True,
         scoreboard=None, lines_for=None, log=print) -> dict:
     today = today or now.astimezone(dr.CENTRAL).date().isoformat()
-    games = client.get("games", select="id,external_id,home,away,tipoff,status,date",
-                       date=f"eq.{today}", league=f"eq.{sw.LEAGUE}")
-    ok, why = should_run(now, len(games))
+    flt = {"date": f"eq.{today}", "league": f"eq.{sw.LEAGUE}"}
+    # the day type needs only a count (HEAD + Prefer: count=exact); the full games read happens only on a run
+    n = client.count("games", **flt) if hasattr(client, "count") else len(client.get("games", select="id", **flt))
+    ok, why = should_run(now, n)
     log(f"refresh_lines {today} {now.astimezone(dr.CENTRAL):%H:%M} CT: {why}" + (" [--force]" if force and not ok else ""))
-    if not games or not (ok or force):
-        return {"ran": False, "reason": why, "games": len(games)}
+    if not n or not (ok or force):
+        return {"ran": False, "reason": why, "games": n}
+    games = client.get("games", select="id,external_id,home,away,tipoff,status,date", **flt)
     espn = espn_index(date.fromisoformat(today), scoreboard)
     utc_now = pd.Timestamp(now).tz_convert("UTC")
     pre = []
@@ -387,7 +412,7 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     now = dr.now_ct()
     if not a.force and not maybe_run_hour(now):
-        print(f"refresh_lines: {now:%H:%M} CT is not a refresh hour ({', '.join(map(str, ALL_RUN_HOURS_CT))}) — nothing to do")
+        print(f"refresh_lines: {now:%H:%M} CT is not inside a refresh slot ({', '.join(map(str, ALL_RUN_HOURS_CT))}:00 + {SLOT_GRACE_MIN} min CT) — nothing to do")
         return 0
     if not (os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_SERVICE_KEY")):
         print("refresh_lines: SUPABASE_URL / SUPABASE_SERVICE_KEY not set", file=sys.stderr)

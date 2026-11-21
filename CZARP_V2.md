@@ -68,12 +68,15 @@ fails closed if that file is missing/corrupt; create it once with `python3 -m cz
 The 7 AM run and `pretip_check.py` MUST run on the same machine from the same checkout: the cap is a local file + flock and is not
 shared across machines/runners. Exception: `refresh_lines.py` runs in GitHub Actions with its OWN counter file, restored/saved
 through the Actions cache; it can only ever claim the 'refresh' slot (4), so the box's daily+pretip (2) plus Actions' refresh (4)
-still stay within 6. If that cache is evicted the refresh counter restarts at 0 for the day; the schedule (≤4 runs a day, 1 call each)
-still bounds it. Moving every counter to Supabase remains the clean fix)
+still stay within 6. Fail-safes: a counter created today (`created_on`, written by `--init`: first run or a missing/evicted cache)
+gives the refresh job NO Odds API call that day (ESPN only), so lost history can never push the day past 6; and a counter whose
+`remaining` is unknown (null) never calls: it first reads credits left from the free `/v4/sports` endpoint (0 credits), and if that
+fails it does not call. Moving every counter to Supabase remains the clean fix)
 
 **Intraday line refresh (`refresh_lines.py`, GitHub Actions on main: "Intraday line refresh").** Normal days run at 10 AM, 1 PM,
 4 PM and 7 PM CT; light days (fewer than `LIGHT_DAY_MAX_GAMES` = 20 D-I games on today's slate) at 12 PM and 5 PM CT. The workflow
-fires at every UTC hour that can be one of those CT hours in CST or CDT; the script gates on the America/Chicago hour. Each run pulls
+fires at :05 of every UTC hour that can be one of those CT hours in CST or CDT; the script gates on America/Chicago time: a run
+counts for slot H from H:00 to H+1:05 CT (a firing up to 60 min late still runs), deciding the day type from a HEAD count of today's games. Each run pulls
 current lines (ESPN first, the Odds API 'refresh' slot only for games ESPN lacks), inserts a new vegas `current` market_lines row only
 when a line/price changed, and writes a new projections row per model with the 7:15 projections unchanged and the edges, skip codes
 and skip reasons recomputed by `daily_run.attach_skip_reasons` (edges_as_of = created_at). New-coach holds are carried over from the

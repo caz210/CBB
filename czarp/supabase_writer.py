@@ -93,6 +93,16 @@ class Client:
         self._check(r, table)
         return r.json()
 
+    def count(self, table: str, **params) -> int:
+        """Exact row count for PostgREST filters without fetching rows (HEAD + Prefer: count=exact)."""
+        r = self.s.head(f"{self.base}/{table}", params={"select": "id", **params},
+                        headers={"Prefer": "count=exact"}, timeout=30)
+        self._check(r, table)
+        total = (r.headers.get("Content-Range") or "").rsplit("/", 1)[-1]
+        if not total.isdigit():
+            raise RuntimeError(f"{table}: no exact count in Content-Range")
+        return int(total)
+
     def upsert(self, table: str, rows: list[dict], on_conflict: str | None = None,
                returning: bool = True, ignore_duplicates: bool = False) -> list[dict]:
         if not rows:

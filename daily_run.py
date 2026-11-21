@@ -372,7 +372,14 @@ def odds_api_claim(job: str) -> tuple[bool, str]:
                 return False, f"daily budget used ({total}/{ODDS_API_MAX_CALLS_PER_DAY} across all jobs)"
             if used >= slot:
                 return False, f"{job} slot used ({used}/{slot}; the other slot is reserved)"
-            if u.get("remaining") is not None and float(u["remaining"]) < ODDS_API_RESERVE:
+            if job == "refresh" and u.get("created_on") == day:
+                # the counter was created today (first run, or the Actions cache was missing/evicted): it cannot
+                # see refresh calls already made today, so the refresh job stays ESPN-only until tomorrow.
+                return False, "counter created today (no history): refresh is ESPN-only today"
+            if u.get("remaining") is None:
+                # unknown credits never skip the reserve check: no call until 'remaining' is known
+                return False, "credits left unknown (no 'remaining' recorded); not calling"
+            if float(u["remaining"]) < ODDS_API_RESERVE:
                 return False, f"{u['remaining']} credits left (< reserve {ODDS_API_RESERVE})"
             u["calls"][day] = total + 1
             by[job] = used + 1
@@ -387,6 +394,38 @@ def odds_api_claim(job: str) -> tuple[bool, str]:
         why = f"usage counter error ({type(e).__name__})"
     ODDS_API_COUNTER_ISSUES.append(why)
     return False, f"REFUSED (fail closed) — {why}"
+
+
+ODDS_API_SPORTS_URL = "https://api.the-odds-api.com/v4/sports/"   # free: does not count against the quota
+
+
+def odds_api_seed_remaining(key: str, get=None) -> None:
+    """When the counter has no 'remaining', read it from The Odds API's FREE /v4/sports endpoint (0 credits;
+    x-requests-remaining header) and record it, so the reserve check has a real number. Never counts a call.
+    Any failure leaves 'remaining' unknown, which means no paid call (odds_api_claim refuses)."""
+    try:
+        with _usage_lock():
+            if _usage().get("remaining") is not None:
+                return
+    except Exception:
+        return                                  # the claim reports counter problems
+    try:
+        r = (get or _S.get)(ODDS_API_SPORTS_URL, headers={"x-api-key": key}, timeout=20)
+        rem = r.headers.get("x-requests-remaining") if r.status_code == 200 else None
+        rem = float(rem) if rem is not None else None
+        if rem is None or not math.isfinite(rem):
+            return
+    except Exception:
+        return
+    try:
+        with _usage_lock():
+            u = _usage()
+            if u.get("remaining") is None:
+                u["remaining"] = rem
+                _write_usage(u)
+                log(f"  Odds API: credits left read from the free /sports endpoint: {rem:g}")
+    except Exception as e:
+        log(f"  Odds API: could not record credits ({type(e).__name__}); usage file left untouched")
 
 
 def _odds_api_record(remaining) -> None:
@@ -425,6 +464,7 @@ def odds_api_fallback(games: list[dict], today: str, allow: bool, job: str = "da
     if not of.ODDS_API_KEY:
         log("  Odds API: no ODDS_API_KEY — skipped")
         return 0
+    odds_api_seed_remaining(of.ODDS_API_KEY)
     ok, why = odds_api_claim(job)
     if not ok:
         log(f"  Odds API: skipped — {why}")

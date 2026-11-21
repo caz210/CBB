@@ -1,8 +1,10 @@
 """Intraday line refresh (refresh_lines.py): hour gating, light-day threshold, Odds API 'refresh' slot,
 no-picks guarantee, edge recompute, idempotency, and the pre-tip fill routing through the same recompute."""
 import json
+import re
 import types
 import sys
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
 import pandas as pd
@@ -54,29 +56,78 @@ def test_gate_uses_chicago_local_hour_in_cst_and_cdt():
     assert RL.should_run(datetime(2026, 11, 22, 1, 5, tzinfo=timezone.utc), 60)[0]
 
 
+WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "line-refresh.yml"
+# Snapshot of the schedule on main (PR #66, approved at 404b1c2). czarp-v2 checkouts don't carry the workflow
+# file, so the test compares against this; a checkout that has the file is parsed instead.
+WORKFLOW_CRON_SNAPSHOT = "5 0,1,15-19,21-23 * * *"
+
+
+def _cron_from_workflow() -> str:
+    if WORKFLOW.exists():
+        crons = re.findall(r'^\s*-\s*cron:\s*["\']([^"\']+)["\']', WORKFLOW.read_text(), flags=re.M)
+        assert len(crons) == 1, crons
+        return crons[0]
+    return WORKFLOW_CRON_SNAPSHOT
+
+
+def _parse(cron: str) -> tuple[int, set]:
+    minute, hours = cron.split()[:2]
+    hs = set()
+    for part in hours.split(","):
+        a, _, b = part.partition("-")
+        hs |= set(range(int(a), int(b or a) + 1))
+    return int(minute), hs
+
+
+def test_workflow_cron_matches_the_script():
+    cron = _cron_from_workflow()
+    assert cron == RL.WORKFLOW_CRON == WORKFLOW_CRON_SNAPSHOT
+    minute, hours = _parse(cron)
+    assert minute == RL.CRON_MINUTE and hours == set(RL.CRON_UTC_HOURS)
+
+
 def test_cron_hours_cover_every_run_hour_in_cst_and_cdt():
+    _, hours = _parse(_cron_from_workflow())
     for offset in (6, 5):                                   # CST, CDT
         for h in RL.ALL_RUN_HOURS_CT:
-            assert (h + offset) % 24 in RL.CRON_UTC_HOURS
+            assert (h + offset) % 24 in hours
     # and nothing fires that can never be a run hour
-    for u in RL.CRON_UTC_HOURS:
+    for u in hours:
         assert any((u - off) % 24 in RL.ALL_RUN_HOURS_CT for off in (6, 5))
 
 
+def test_late_cron_still_runs_within_its_slot_and_never_reaches_the_next_firing():
+    minute, _ = _parse(_cron_from_workflow())
+    # a firing up to 60 min late still counts for its slot (>= 55 min required)
+    assert RL.SLOT_GRACE_MIN - minute >= 55
+    assert RL.should_run(ct(10, minute) + timedelta(minutes=55), 60)[0]
+    assert RL.should_run(ct(10, minute) + timedelta(minutes=59), 60)[0]
+    assert "min late" in RL.should_run(ct(10, 59), 60)[1]
+    # the next hour's own firing (11:05, never early) is outside the 10 AM window
+    assert not RL.should_run(ct(11, minute), 60)[0]
+    assert RL.slot_for(ct(11, 4), RL.NORMAL_RUN_HOURS_CT) == 10
+    assert RL.slot_for(ct(9, 59), RL.NORMAL_RUN_HOURS_CT) is None
+    # light-day 5 PM slot, late
+    assert RL.should_run(ct(17, 58), 12)[0] and not RL.should_run(ct(18, 5), 12)[0]
+    # 7 PM slot ends 8:05 PM CT, same CT date
+    assert RL.slot_for(ct(20, 4), RL.NORMAL_RUN_HOURS_CT) == 19
+
+
 def test_main_off_hour_exits_before_any_network(monkeypatch, capsys):
-    monkeypatch.setattr(dr, "now_ct", lambda: ct(11))
+    monkeypatch.setattr(dr, "now_ct", lambda: ct(11, 30))
     monkeypatch.setattr(sw, "Client", lambda *a, **k: pytest.fail("no Supabase off-hours"))
     assert RL.main([]) == 0
-    assert "not a refresh hour" in capsys.readouterr().out
+    assert "not inside a refresh slot" in capsys.readouterr().out
 
 
 # ── Odds API budget ─────────────────────────────────────────────────────────────
 @pytest.fixture
 def usage(monkeypatch, tmp_path):
     u = tmp_path / "odds_api_usage.json"
-    u.write_text(json.dumps({"calls": {}, "remaining": 500}))
+    u.write_text(json.dumps({"calls": {}, "remaining": 500, "created_on": "2026-11-20"}))
     monkeypatch.setattr(dr, "USAGE", str(u))
     monkeypatch.setattr(dr, "now_ct", lambda: ct(10))
+    monkeypatch.setattr(dr, "log", lambda *a, **k: None)
     return u
 
 
@@ -101,6 +152,61 @@ def test_refresh_cannot_spend_daily_or_pretip_slots(usage):
 
 def test_unknown_job_gets_no_slot(usage):
     assert dr.odds_api_claim("something-else")[0] is False
+
+
+def test_counter_created_today_means_refresh_is_espn_only(usage, tmp_path, monkeypatch):
+    from czarp import odds_usage as ou
+    fresh = tmp_path / "fresh" / "odds_api_usage.json"
+    assert ou.init(str(fresh), today=TODAY) == "created"          # missing / evicted cache in Actions
+    monkeypatch.setattr(dr, "USAGE", str(fresh))
+    u = json.loads(fresh.read_text())
+    u["remaining"] = 500
+    fresh.write_text(json.dumps(u))
+    assert dr.odds_api_claim("refresh") == (False, "counter created today (no history): refresh is ESPN-only today")
+    assert json.loads(fresh.read_text())["calls"] == {}
+    monkeypatch.setattr(dr, "now_ct", lambda: ct(10, day=22))     # next day, restored counter: slots apply
+    assert dr.odds_api_claim("refresh")[0] is True
+
+
+def test_unknown_remaining_never_skips_the_reserve_check(usage):
+    usage.write_text(json.dumps({"calls": {}, "remaining": None, "created_on": "2026-11-20"}))
+    for job in ("daily", "pretip", "refresh"):
+        assert dr.odds_api_claim(job) == (False, "credits left unknown (no 'remaining' recorded); not calling")
+    assert json.loads(usage.read_text())["calls"] == {}
+
+
+class _Resp:
+    def __init__(self, status, headers):
+        self.status_code, self.headers = status, headers
+
+
+def test_free_sports_endpoint_seeds_remaining_without_counting_a_call(usage):
+    usage.write_text(json.dumps({"calls": {}, "remaining": None, "created_on": "2026-11-20"}))
+    seen = []
+
+    def get(url, headers=None, timeout=None):
+        seen.append((url, headers))
+        return _Resp(200, {"x-requests-remaining": "19980"})
+    dr.odds_api_seed_remaining("k", get=get)
+    u = json.loads(usage.read_text())
+    assert u["remaining"] == 19980 and u["calls"] == {} and "last_call_ct" not in u
+    assert seen == [(dr.ODDS_API_SPORTS_URL, {"x-api-key": "k"})]   # key in a header, not the URL
+    dr.odds_api_seed_remaining("k", get=lambda *a, **k: pytest.fail("already known: no request"))
+    assert dr.odds_api_claim("refresh")[0] is True
+
+
+@pytest.mark.parametrize("resp", [_Resp(401, {}), _Resp(200, {}), _Resp(200, {"x-requests-remaining": "nan"})])
+def test_seed_failure_leaves_remaining_unknown_so_no_call(usage, resp):
+    usage.write_text(json.dumps({"calls": {}, "remaining": None, "created_on": "2026-11-20"}))
+    dr.odds_api_seed_remaining("k", get=lambda *a, **k: resp)
+    assert json.loads(usage.read_text())["remaining"] is None
+    assert dr.odds_api_claim("refresh")[0] is False
+
+
+def test_low_seeded_credits_hit_the_reserve(usage):
+    usage.write_text(json.dumps({"calls": {}, "remaining": None, "created_on": "2026-11-20"}))
+    dr.odds_api_seed_remaining("k", get=lambda *a, **k: _Resp(200, {"x-requests-remaining": "50"}))
+    assert dr.odds_api_claim("refresh")[1].startswith("50.0 credits left (< reserve")
 
 
 def test_refresh_uses_odds_api_only_for_games_espn_lacks(usage, monkeypatch):
@@ -138,6 +244,11 @@ class FakeDB:
         self.tables = {"games": list(games), "projections": list(projections), "market_lines": list(lines),
                        "picks": list(picks)}
         self.writes = []
+        self.reads = []
+
+    def count(self, table, **params):
+        self.reads.append(("count", table))
+        return len(self._rows(table, **params))
 
     @staticmethod
     def _ids(params):
@@ -145,6 +256,10 @@ class FakeDB:
         return {int(x) for x in f[4:-1].split(",")} if f.startswith("in.(") else None
 
     def get(self, table, **params):
+        self.reads.append(("get", table))
+        return self._rows(table, **params)
+
+    def _rows(self, table, **params):
         rows = [dict(r) for r in self.tables[table]]
         ids = self._ids(params)
         if ids is not None:
@@ -253,6 +368,8 @@ def test_off_hour_and_light_day_gate_inside_run():
     db = FakeDB(games, projs, lines)
     out = RL.run(ct(10), db, scoreboard=lambda d: pytest.fail("no ESPN when gated"), log=QUIET)
     assert out["ran"] is False and "light day (10 games)" in out["reason"] and db.writes == []
+    # a gated run decides from a count alone: no full games read
+    assert db.reads == [("count", "games")]
     out = _run(db, games, lambda e: {}, now=ct(12))
     assert out["ran"] is True
     # --force runs off-hour
@@ -403,3 +520,20 @@ def test_supabase_url_is_normalized(url, monkeypatch):
     monkeypatch.delenv("SUPABASE_REST_URL", raising=False)
     assert sw.rest_base(url) == "https://abc.supabase.co/rest/v1"
     assert sw.Client(url=url, key="k").base == "https://abc.supabase.co/rest/v1"
+
+
+def test_client_count_uses_head_with_exact_count(monkeypatch):
+    c = sw.Client(url="https://abc.supabase.co", key="k")
+    seen = {}
+
+    class R:
+        status_code, text = 206, ""
+        headers = {"Content-Range": "0-0/51"}
+
+    def head(url, params=None, headers=None, timeout=None):
+        seen.update(url=url, params=params, headers=headers)
+        return R()
+    monkeypatch.setattr(c.s, "head", head)
+    assert c.count("games", date="eq.2026-11-21", league="eq.ncaam") == 51
+    assert seen["url"].endswith("/rest/v1/games") and seen["headers"] == {"Prefer": "count=exact"}
+    assert seen["params"]["date"] == "eq.2026-11-21"
