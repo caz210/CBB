@@ -1,6 +1,7 @@
 /** "As of" stamp for the line a game's ladder ratings use. Only REAL stored timestamps; never a
  *  made-up or hard-coded time. Sources, first readable one wins:
- *    1. projections.edges_as_of   when the pipeline computed edge_now (czarp-v2; may not exist yet)
+ *    1. edges_as_of   when the pipeline computed edge_now: slate_games.edges_as_of, else
+ *       projections.edges_as_of (czarp-v2, PR #65; may not exist yet)
  *    2. slate_games.market_fetched_at  when the line on the card was fetched (may not exist yet)
  *    3. newest market_lines.fetched_at for source='vegas', line_type='current' (the row slate_games
  *       shows, readable with anon today)

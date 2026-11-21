@@ -115,6 +115,7 @@ function toSlateGame(r: Row): SlateGame {
     lean_total: r.lean_total == null ? null : r.lean_total === true,
     // present once the pipeline adds it; absent today, which just leaves this null
     market_fetched_at: typeof r.market_fetched_at === "string" ? r.market_fetched_at : null,
+    edges_as_of: typeof r.edges_as_of === "string" ? r.edges_as_of : null,
   };
 }
 
@@ -520,28 +521,33 @@ async function attachTeamTags(sb: SB, games: SlateGame[], gameRows: Row[]) {
 type SB = NonNullable<Awaited<ReturnType<typeof createSupabaseServerClient>>>;
 
 /** Stamp each game with the real "as of" time of the line its ratings use (lib/linesAsOf.ts).
- *  One read per source for the whole slate. projections.edges_as_of may not exist yet: that read
- *  then errors and is ignored, so this upgrades by itself once the column appears. Never throws. */
+ *  One read per source for the whole slate. slate_games.edges_as_of / market_fetched_at come on the
+ *  select('*') row once the pipeline adds them; projections.edges_as_of may not exist yet: that read
+ *  then errors and is ignored, so this upgrades by itself once the columns appear. Never throws. */
 export async function attachLinesAsOf(sb: SB, games: SlateGame[]): Promise<void> {
   if (!games.length) return;
   const ids = games.map((g) => g.game_id);
   type Res = { data: unknown[] | null; error: unknown } | null;
   const safe = async (q: () => PromiseLike<Res>): Promise<Res> => { try { return await q(); } catch { return null; } };
   const [ea, ml] = await Promise.all([
-    safe(() => sb.from("projections").select("game_id,model_version,created_at,edges_as_of").in("game_id", ids)
-      .not("edges_as_of", "is", null).order("created_at", { ascending: false })),
+    games.every((g) => g.edges_as_of) ? Promise.resolve(null) : safe(() => sb.from("projections").select("game_id,model_version,created_at,edges_as_of").in("game_id", ids)
+      .eq("model_version", V2).order("created_at", { ascending: false })),
     games.some((g) => !g.market_fetched_at)
       ? safe(() => sb.from("market_lines").select("game_id,fetched_at").in("game_id", ids).eq("source", "vegas").eq("line_type", "current"))
       : Promise.resolve(null),
   ]);
-  // edges_as_of from the newest default-model (czarp-v2) row, else the newest row with a stamp.
-  const edgeRows = ea && !ea.error ? ((ea.data ?? []) as Row[]) : [];
-  const v2 = newestByGame(edgeRows.filter((r) => str(r.model_version) === V2), "edges_as_of");
-  const anyModel = newestByGame(edgeRows, "edges_as_of");
+  // edges_as_of of the NEWEST default-model (czarp-v2) row per game, the row slate_games reads.
+  // A 7 AM row leaves it null, so that game falls through to the next source.
+  const newestRow = new Map<number, Row>();
+  for (const r of ea && !ea.error ? ((ea.data ?? []) as Row[]) : []) {
+    const id = Number(r.game_id);
+    const cur = newestRow.get(id);
+    if (!cur || Date.parse(str(r.created_at)) > Date.parse(str(cur.created_at))) newestRow.set(id, r);
+  }
   const lines = ml && !ml.error ? newestByGame((ml.data ?? []) as Row[], "fetched_at") : new Map<number, string>();
   for (const g of games) {
     const p = pickLinesAsOf({
-      edgesAsOf: v2.get(g.game_id) ?? anyModel.get(g.game_id),
+      edgesAsOf: g.edges_as_of ?? newestRow.get(g.game_id)?.edges_as_of,
       marketFetchedAt: g.market_fetched_at,
       marketLinesFetchedAt: lines.get(g.game_id),
     });
