@@ -10,9 +10,10 @@ const pages = [
   ["02-login", "/login"],
   ["03-signup", "/signup"],
   ["04-cbb-slate", "/cbb/slate"],
-  ["05-cbb-results", "/cbb/results"],
-  ["06-my-models", "/models"],
-  ["07-pricing", "/pricing"],
+  ["05-cbb-rankings", "/cbb/rankings"],
+  ["06-cbb-results", "/cbb/results"],
+  ["07-my-models", "/models"],
+  ["08-pricing", "/pricing"],
 ];
 
 const browser = await chromium.launch();

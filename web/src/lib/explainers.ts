@@ -36,6 +36,10 @@ export const EXPLAINERS = {
     title: "TV Rating",
     body: "How watchable the game looks, 0–100.",
   },
+  rating: {
+    title: "Rating",
+    body: "Projected margin vs an average D-I team on a neutral court.",
+  },
 } as const;
 
 export type ExplainerKey = keyof typeof EXPLAINERS;

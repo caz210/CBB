@@ -8,6 +8,13 @@ import type { Archetypes, GameInsight, LedgerRow, SlateGame, TierRecord, ValueBe
 import { portfolioRisk, computedLineEdge, type PortfolioRisk } from "./portfolio";
 import { parseTagList, type ArchetypeTag } from "./archetypes";
 import { teamSlug, type ModelGrade, type TeamModelRecord, type TeamProfile } from "./teams";
+import {
+  RANKING_SNAPSHOT_COLUMNS,
+  sortRankings,
+  withMovement,
+  type RankingRow,
+  type RankingsData,
+} from "./rankings";
 import { isPickTier, type Market, type MarketSource, type PickTier } from "./labels";
 import { wilsonCi, SMALL_SAMPLE_N } from "./stats";
 import { newCoachLock, type NewCoachLock } from "./coach";
@@ -816,4 +823,110 @@ export async function loadTeam(sport: Sport, slug: string): Promise<Loaded<TeamP
   for (const x of grades) x.neutral = neutral.has(x.game_id);
 
   return { state: "live", data: { profile, record, grades, next, tags } };
+}
+
+
+// ---- /[sport]/rankings -----------------------------------------------------
+
+export async function loadRankings(sport: Sport): Promise<Loaded<RankingsData>> {
+  const sb = await createSupabaseServerClient();
+  return loadRankingsFrom(sb, sport);
+}
+
+function teamNameOf(r: Row): string {
+  const emb = r.teams;
+  if (emb && typeof emb === "object" && !Array.isArray(emb) && (emb as Row).name != null) {
+    return str((emb as Row).name);
+  }
+  if (Array.isArray(emb) && emb[0] && (emb[0] as Row).name != null) return str((emb[0] as Row).name);
+  return r.team_name != null ? str(r.team_name) : "";
+}
+
+/** Latest official poll for this league, plus movement vs the previous week_of.
+ *  A failed or missing prior-week read never fails the page: we fall back to
+ *  stored prev_rank, then to a dash. 0 rows is a live empty payload, not an error. */
+export async function loadRankingsFrom(sb: SB | null, sport: Sport): Promise<Loaded<RankingsData>> {
+  if (!sb) return { state: "unconfigured" };
+  const latest = await sb
+    .from("ranking_snapshots")
+    .select("week_of,as_of")
+    .eq("league", sport.league)
+    .order("week_of", { ascending: false })
+    .order("as_of", { ascending: false })
+    .limit(1);
+  if (latest.error) return fail("ranking_snapshots", latest.error);
+  const head = (latest.data ?? [])[0] as Row | undefined;
+  const weekOf = head?.week_of ? str(head.week_of) : "";
+  if (!weekOf) {
+    return { state: "live", data: { week_of: "", as_of: "", season: null, rows: [] } };
+  }
+
+  const snap = await sb
+    .from("ranking_snapshots")
+    .select(`${RANKING_SNAPSHOT_COLUMNS},teams(name)`)
+    .eq("league", sport.league)
+    .eq("week_of", weekOf)
+    .order("rank")
+    .range(0, 999);
+  if (snap.error) return fail("ranking_snapshots", snap.error);
+
+  const raw = (snap.data ?? []) as Row[];
+  const asOf = raw[0]?.as_of ? str(raw[0].as_of) : (head?.as_of ? str(head.as_of) : "");
+  const season = raw[0] ? num(raw[0].season) : null;
+
+  let previous: { team_id: number; rank: number }[] | null | undefined = undefined;
+  try {
+    const prevWeek = await sb
+      .from("ranking_snapshots")
+      .select("week_of")
+      .eq("league", sport.league)
+      .lt("week_of", weekOf)
+      .order("week_of", { ascending: false })
+      .limit(1);
+    if (prevWeek.error) {
+      previous = undefined;
+    } else {
+      const pw = (prevWeek.data ?? [])[0] as Row | undefined;
+      if (!pw?.week_of) {
+        previous = [];
+      } else {
+        const prevRows = await sb
+          .from("ranking_snapshots")
+          .select("team_id,rank")
+          .eq("league", sport.league)
+          .eq("week_of", str(pw.week_of))
+          .range(0, 999);
+        previous = prevRows.error
+          ? undefined
+          : ((prevRows.data ?? []) as Row[])
+              .map((r) => ({ team_id: Number(r.team_id), rank: Number(r.rank) }))
+              .filter((r) => Number.isFinite(r.team_id) && Number.isFinite(r.rank));
+      }
+    }
+  } catch {
+    previous = undefined;
+  }
+
+  const current = raw
+    .map((r) => {
+      const team = teamNameOf(r).trim();
+      const team_id = Number(r.team_id);
+      const rank = Number(r.rank);
+      const rating = num(r.rating);
+      if (!team || !Number.isFinite(team_id) || !Number.isFinite(rank) || rank < 1 || rating == null) return null;
+      const prev = num(r.prev_rank);
+      return {
+        team_id,
+        team,
+        rank,
+        prev_rank: prev != null && prev >= 1 ? prev : null,
+        rating,
+        di_wins: num(r.di_wins),
+        di_losses: num(r.di_losses),
+      };
+    })
+    .filter((r): r is NonNullable<typeof r> => r != null);
+
+  const rows: RankingRow[] = sortRankings(withMovement(current, previous));
+  return { state: "live", data: { week_of: weekOf, as_of: asOf, season, rows } };
 }
