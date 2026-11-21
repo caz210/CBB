@@ -45,6 +45,8 @@ def test_sync_tipoff_central_and_projection_rounding():
     assert games["4"]["tipoff"] == "2026-11-02T18:00:00-06:00"          # 6 PM CST, not UTC
     assert pd.Timestamp(games["4"]["tipoff"]).tz_convert("UTC").hour == 0
     assert games["5"]["tipoff"] == "2026-11-04T00:00:00+00:00"
+    # ledger scores are not mirrored (they may be slot-flipped); sync_finals owns finals
+    assert "home_score" not in games["4"] and "away_score" not in games["4"]
     v2 = next(p for p in c.calls["projections"] if p["model_version"] == "czarp-v2")
     v1 = next(p for p in c.calls["projections"] if p["model_version"] == sw.V1_VERSION)
     assert v2["spread"] == -7.2 and v2["total"] == 143.7 and v2["proj_home"] == 76.1 and v2["proj_away"] == 68.9

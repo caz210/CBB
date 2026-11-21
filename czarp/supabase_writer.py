@@ -287,15 +287,41 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
             return "final"
         return {"pre": "scheduled", "in": "in_progress"}.get(g.get("state"), "scheduled")
 
-    grows = [{**base, "season": _season(g["game_date"]), "date": g["game_date"], "home": g["kp_home"],
-              "away": g["kp_away"], "home_team_id": tid.get(g["kp_home"]), "away_team_id": tid.get(g["kp_away"]),
-              "tipoff": tipoff_iso(g.get("tip_utc"), bool(g.get("time_tbd"))),
-              "neutral": bool(g.get("neutral")), "external_id": str(g["event_id"]),
-              "external_ids": {"espn": str(g["event_id"])}, "status": status(g),
-              "home_score": int(g["home_score"]) if g.get("home_score") is not None and g.get("completed") else None,
-              "away_score": int(g["away_score"]) if g.get("away_score") is not None and g.get("completed") else None,
-              "updated_at": ts} for g in gl]
-    # ledger games from earlier days (keeps graded scores in sync)
+    # Today's slate: map ESPN scores onto kp_home/kp_away by name (neutral flips).
+    # Do not fall back to slot order; omit scores if the names cannot be matched.
+    from czarp.sync_finals import map_espn_scores
+    from backtest import NameMatcher
+    slate_names = {g.get("kp_home") for g in gl} | {g.get("kp_away") for g in gl}
+    slate_names.discard(None); slate_names.discard("")
+    slate_match = NameMatcher(slate_names) if slate_names else None
+
+    def _slate_scores(g):
+        if not g.get("completed") or g.get("home_score") is None or g.get("away_score") is None:
+            return None, None
+        aligned = map_espn_scores(g.get("kp_home"), g.get("kp_away"),
+                                  g.get("home"), g.get("away"),
+                                  g.get("home_score"), g.get("away_score"),
+                                  match=slate_match)
+        if aligned is None:
+            log(f"  games sync espn={g.get('event_id')}: ESPN teams {g.get('away')} / {g.get('home')} "
+                f"do not match stored {g.get('kp_away')} / {g.get('kp_home')} — scores omitted")
+            return None, None
+        return aligned
+
+    grows = []
+    for g in gl:
+        hs, aws = _slate_scores(g)
+        grows.append({**base, "season": _season(g["game_date"]), "date": g["game_date"], "home": g["kp_home"],
+                      "away": g["kp_away"], "home_team_id": tid.get(g["kp_home"]), "away_team_id": tid.get(g["kp_away"]),
+                      "tipoff": tipoff_iso(g.get("tip_utc"), bool(g.get("time_tbd"))),
+                      "neutral": bool(g.get("neutral")), "external_id": str(g["event_id"]),
+                      "external_ids": {"espn": str(g["event_id"])}, "status": status(g),
+                      "home_score": hs, "away_score": aws, "updated_at": ts})
+    # Ledger games from earlier days: never copy ledger scores into games.
+    # grade() used to write ESPN slot scores into the ledger, so a merge-upsert
+    # of those values would undo a name-aligned backfill (game 1550 / WIU-Albany).
+    # sync_finals owns final scores. Omit the keys so an UPDATE leaves existing
+    # games.home_score / games.away_score alone. Do not edit ledger.csv here.
     seen = {r["external_id"] for r in grows}
     for _, r in ledger.drop_duplicates("event_id").iterrows():
         if str(r.event_id) in seen:
@@ -304,9 +330,7 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
         grows.append({**base, "season": _season(r.game_date), "date": r.game_date, "home": r.home, "away": r.away,
                       "neutral": str(r.neutral) == "True", "external_id": str(r.event_id),
                       "external_ids": {"espn": str(r.event_id)}, "status": "final" if done else "scheduled",
-                      "tipoff": _tip_ct_iso(r.get("tip_ct")),
-                      "home_score": int(r.home_score) if done else None,
-                      "away_score": int(r.away_score) if done else None, "updated_at": ts})
+                      "tipoff": _tip_ct_iso(r.get("tip_ct")), "updated_at": ts})
     gid = {x["external_id"]: x["id"] for x in c.upsert("games", grows, on_conflict="league,external_id")}
 
     # TV Rating: only when KenPom ratings were passed in (data=). Omit the

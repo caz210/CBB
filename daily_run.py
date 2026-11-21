@@ -1183,7 +1183,13 @@ def grade(ledger: pd.DataFrame, now: datetime) -> list[int]:
         except Exception as e:
             log(f"  grading {d}: ESPN scoreboard failed ({type(e).__name__}) — will retry next run")
             continue
-        for i in open_[open_.game_date == d].index:
+        from backtest import NameMatcher
+        from czarp.sync_finals import align_espn_box
+        day_rows = open_[open_.game_date == d]
+        names = set(day_rows["home"].dropna().astype(str)) | set(day_rows["away"].dropna().astype(str))
+        names.discard("")
+        matcher = NameMatcher(names) if names else None
+        for i in day_rows.index:
             r = ledger.loc[i]
             g = sb.get(str(r.event_id))
             if g is None:
@@ -1194,16 +1200,29 @@ def grade(ledger: pd.DataFrame, now: datetime) -> list[int]:
                 graded.append(i); continue
             if not g["completed"] or g["home_score"] is None:
                 continue
+            aligned = align_espn_box(r.home, r.away, g.get("home"), g.get("away"),
+                                     g["home_score"], g["away_score"], match=matcher)
+            if aligned is None:
+                log(f"  grading {d} event {r.event_id}: ESPN teams {g.get('away')} / {g.get('home')} "
+                    f"do not match ledger {r.away} / {r.home} — leaving open")
+                continue
+            hs, as_, flipped = aligned
             ln = espn_dk_lines(str(r.event_id))
-            hs, as_ = g["home_score"], g["away_score"]
             line = float(r.line)
             if r.market == "spread":
                 home = r.side == r.home
                 diff = (hs - as_) if home else (as_ - hs)
                 res = diff + line
                 cl = ln.get("close_home_spread")
+                if cl is not None and flipped:
+                    cl = -float(cl)
+                elif cl is not None:
+                    cl = float(cl)
                 close = (cl if home else -cl) if cl is not None else None
-                cpx = ln.get("close_home_spread_price" if home else "close_away_spread_price")
+                home_px, away_px = "close_home_spread_price", "close_away_spread_price"
+                if flipped:
+                    home_px, away_px = away_px, home_px
+                cpx = ln.get(home_px if home else away_px)
                 clv = (line - close) if close is not None else None
             else:
                 over = r.side == "Over"
@@ -2197,8 +2216,13 @@ def main(argv=None) -> int:
         try:
             from czarp.sync_finals import DEFAULT_LOOKBACK, sync_finals
             s = sync_finals(lookback=DEFAULT_LOOKBACK, now=now, log=log)
+            extra = (f", {s['name_mismatch']} name-mismatch skipped"
+                     if s.get("name_mismatch") else "")
             log(f"  finals: {s['updated']} updated, {s['matched']} matched, "
-                f"{s['unmatched_espn']} ESPN games not in db")
+                f"{s['unmatched_espn']} ESPN games not in db{extra}")
+            if s.get("name_mismatch"):
+                notes.append(f"Finals sync skipped {s['name_mismatch']} game(s) whose ESPN "
+                             "team names did not match stored home/away; scores were not applied.")
         except Exception as e:
             log(f"  finals sync failed ({type(e).__name__}: {e}) — will retry next run")
             notes.append("Finals sync failed this run; scores will retry next run.")

@@ -73,8 +73,10 @@ def test_append_seal_grade_and_records(tmp_path, monkeypatch):
     again = dr.append_picks(led, [dict(led.iloc[1].to_dict(), pick_id="5-spread")], _now())
     assert len(again) == 2
     dr.write_ledger(led)
-    sb = [{"event_id": "9", "state": "post", "completed": True, "home_score": 80.0, "away_score": 70.0},
-          {"event_id": "5", "state": "post", "completed": True, "home_score": 100.0, "away_score": 57.0}]
+    sb = [{"event_id": "9", "state": "post", "completed": True, "home": "H", "away": "A",
+           "home_score": 80.0, "away_score": 70.0},
+          {"event_id": "5", "state": "post", "completed": True, "home": "L", "away": "U",
+           "home_score": 100.0, "away_score": 57.0}]
     monkeypatch.setattr(dr, "espn_scoreboard", lambda d: sb)
     monkeypatch.setattr(dr, "espn_dk_lines", lambda e: {"close_home_spread": -24.5 if e == "5" else -5.0})
     led = dr.read_ledger()
@@ -163,7 +165,8 @@ def test_backfill_from_snapshot(tmp_path, monkeypatch):
               current_total=159.5, v1_total=158.0, tip_ct="2029-12-31 19:00", game_date="2029-12-31")
     g.pop("tip_utc")
     pd.DataFrame([dict(g, snapshot_ct="2029-12-31T07:18:13-06:00")]).to_csv(tmp_path / "2029-12-31_0718.csv", index=False)
-    sb = [{"event_id": "5", "state": "post", "completed": True, "home_score": 100.0, "away_score": 57.0}]
+    sb = [{"event_id": "5", "state": "post", "completed": True, "home": "LSU", "away": "UNO",
+           "home_score": 100.0, "away_score": 57.0}]
     monkeypatch.setattr(dr, "espn_scoreboard", lambda d: sb)
     monkeypatch.setattr(dr, "espn_dk_lines", lambda e: {"close_home_spread": -24.5})
     monkeypatch.setattr(dr, "now_ct", lambda: pd.Timestamp("2030-01-01 08:00", tz=dr.CENTRAL).to_pydatetime())
