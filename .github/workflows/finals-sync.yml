@@ -1,0 +1,82 @@
+# Evening ESPN finals sync for the public slate.
+#
+# Scheduled workflows only run from the repository default branch (main).
+# The Python pipeline lives on czarp-v2, so this job checks out that branch
+# and runs `python -m czarp.sync_finals`. This file can stay on main alone.
+#
+# sync_finals reads ESPN (free) and PATCHes only games.status / home_score /
+# away_score / final_at / final_at_estimated. It never writes picks or the
+# ledger, and it does not use KenPom or the Odds API.
+#
+# Cron is UTC. The window covers ~5 PM–12:30 AM CT in both CST and CDT:
+#   22:00 UTC = 4:00 PM CST / 5:00 PM CDT
+#   06:30 UTC = 12:30 AM CST / 1:30 AM CDT
+# GitHub may start a scheduled run a few minutes late, which is fine.
+
+name: Evening finals sync
+
+on:
+  schedule:
+    # Every 30 minutes, 22:00–23:30 and 00:00–06:30 UTC.
+    - cron: "0,30 0-6,22-23 * * *"
+  workflow_dispatch:
+    inputs:
+      lookback:
+        description: "Days before today (America/Chicago) to include, plus today. 2 means today and the previous 2 days."
+        type: string
+        default: "2"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: finals-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync ESPN finals
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - name: Checkout czarp-v2
+        uses: actions/checkout@v4
+        with:
+          ref: czarp-v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install requests pandas numpy python-dotenv
+
+      - name: Check required secrets
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_KEY" ]; then
+            echo "Missing SUPABASE_URL or SUPABASE_SERVICE_KEY repo secret."
+            echo "Add both under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+
+      - name: Sync finals
+        env:
+          LOOKBACK_INPUT: ${{ github.event.inputs.lookback }}
+        run: |
+          LOOKBACK="${LOOKBACK_INPUT:-2}"
+          case "$LOOKBACK" in
+            ''|*[!0-9]*)
+              echo "lookback must be a non-negative integer."
+              exit 2
+              ;;
+          esac
+          python -m czarp.sync_finals --lookback "$LOOKBACK"
