@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { pricingCta, type PricingTierKey } from "@/lib/accounts";
+import { redirect } from "next/navigation";
+import { pricingCta, SHOW_ACCOUNTS, type PricingTierKey } from "@/lib/accounts";
 
 export const metadata: Metadata = { title: "Pricing" };
 
@@ -37,6 +38,7 @@ const COMPARE: [string, string, string][] = [
 ];
 
 export default function PricingPage() {
+  if (!SHOW_ACCOUNTS) redirect("/");
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 md:px-6 md:py-16">
       <div className="text-center">

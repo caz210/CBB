@@ -7,7 +7,7 @@
  *  Keep this module free of heavy imports so middleware can read SHOW_ACCOUNTS.
  */
 
-/** Account, login, and signup UI. Auth routes and AuthForm stay in the tree.
- *  Flip to true to bring Log in / Sign up and the account CTAs back.
+/** Account, login, signup, My Models, and Pricing UI. Auth and models/pricing
+ *  routes stay in the tree. Flip to true to bring them back.
  */
 export const SHOW_ACCOUNTS = false;

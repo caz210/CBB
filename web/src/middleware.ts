@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { authRouteRedirect } from "./lib/accounts";
+import { hiddenAccountRedirect } from "./lib/accounts";
 
-/** Bounce hidden auth surfaces (login, signup, and future callback/account routes) to /. */
+/** Bounce hidden account surfaces (login, signup, models, pricing, and future callback/account routes). */
 export function middleware(req: NextRequest) {
-  const to = authRouteRedirect(req.nextUrl.pathname);
+  const to = hiddenAccountRedirect(req.nextUrl.pathname);
   if (to) return NextResponse.redirect(new URL(to, req.url));
   return NextResponse.next();
 }
@@ -21,5 +21,9 @@ export const config = {
     "/account/:path*",
     "/callback",
     "/callback/:path*",
+    "/models",
+    "/models/:path*",
+    "/pricing",
+    "/pricing/:path*",
   ],
 };
