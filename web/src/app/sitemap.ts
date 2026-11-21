@@ -9,6 +9,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${SITE_URL}/`, lastModified: now, changeFrequency: "daily", priority: 1 },
     ...live.flatMap((s) => [
       { url: `${SITE_URL}/${s.key}/slate`, lastModified: now, changeFrequency: "hourly" as const, priority: 0.9 },
+      { url: `${SITE_URL}/${s.key}/rankings`, lastModified: now, changeFrequency: "weekly" as const, priority: 0.8 },
       { url: `${SITE_URL}/${s.key}/matchup`, lastModified: now, changeFrequency: "weekly" as const, priority: 0.7 },
       { url: `${SITE_URL}/${s.key}/results`, lastModified: now, changeFrequency: "daily" as const, priority: 0.8 },
     ]),

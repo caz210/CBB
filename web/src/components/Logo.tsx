@@ -7,7 +7,7 @@ export function Logo() {
         CZ
       </span>
       <span className="text-base md:text-lg">
-        CZarp<span className="text-court-400">Analytics</span>
+        CZarp<span className="hidden min-[360px]:inline text-court-400">Analytics</span>
       </span>
     </Link>
   );

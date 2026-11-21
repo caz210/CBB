@@ -25,13 +25,19 @@ export function NewCoachBadge({ lock, name = false, className = "" }: { lock: Ne
   );
 }
 
-/** Compact amber chip that opens a bottom-sheet explainer. Hidden once the team is fully clear. */
-export function NewCoachChip({ lock, name = false, market, className = "" }: { lock: NewCoachLock; name?: boolean; market?: Market | null; className?: string }) {
+/** Compact amber chip that opens a bottom-sheet explainer. Hidden once the team is fully clear.
+ *  Pass `locks` with two (or more) active pauses to render a single "Both teams paused" chip;
+ *  the sheet still uses each team's existing tap-to-learn copy. */
+export function NewCoachChip({ lock, locks, name = false, market, className = "" }: {
+  lock?: NewCoachLock; locks?: NewCoachLock[] | null; name?: boolean; market?: Market | null; className?: string;
+}) {
+  const shown = lockedCoachLocks(locks ?? (lock ? [lock] : []));
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const id = useId();
-  const copy = newCoachSheetCopy(lock);
-  const label = pausedChipLabel(lock, name, market);
+  const copies = shown.map(newCoachSheetCopy);
+  const copy = { title: copies[0]?.title ?? "New coach", body: copies.map((c) => c.body).join(" ") };
+  const label = shown.length > 1 ? "Both teams paused" : shown.length ? pausedChipLabel(shown[0], name, market) : "New coach";
 
   useEffect(() => setMounted(true), []);
   useEffect(() => {
@@ -46,6 +52,8 @@ export function NewCoachChip({ lock, name = false, market, className = "" }: { l
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [open]);
+
+  if (!shown.length) return null;
 
   const sheet = open && mounted
     ? createPortal(
@@ -103,12 +111,8 @@ export function NewCoachChip({ lock, name = false, market, className = "" }: { l
 export function NewCoachChips({ locks, name, market, className = "" }: { locks?: NewCoachLock[] | null; name?: boolean; market?: Market | null; className?: string }) {
   const shown = lockedCoachLocks(locks);
   if (!shown.length) return null;
-  const showName = name ?? shown.length > 1;
-  return (
-    <span className={`inline-flex flex-wrap items-center gap-1 ${className}`}>
-      {shown.map((l) => <NewCoachChip key={l.team} lock={l} name={showName} market={market} />)}
-    </span>
-  );
+  // One chip even when both teams are paused (see pickStatusTags).
+  return <NewCoachChip locks={shown} name={name ?? shown.length > 1} market={market} className={className} />;
 }
 
 /** @deprecated skip-code labels now live in lib/verdict.ts (no lock wording). */
