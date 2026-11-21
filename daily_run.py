@@ -2202,13 +2202,15 @@ def main(argv=None) -> int:
         except Exception as e:
             log(f"  finals sync failed ({type(e).__name__}: {e}) — will retry next run")
             notes.append("Finals sync failed this run; scores will retry next run.")
-        # Official CZarp rankings: Monday 7 AM CT only. Skips if already published
-        # today or if ranking_snapshots has not been migrated yet. Never blocks picks.
+        # Official CZarp rankings: publish once for the current week after
+        # Monday 7 AM CT (catches up later in the week if Monday was missed).
+        # Skips if that week already has a snapshot. Never blocks picks.
         try:
             from weekly_rankings import maybe_publish
             maybe_publish(now, log=log)
         except Exception as e:
             log(f"  rankings skipped ({type(e).__name__}: {e})")
+            notes.append("Official rankings were not published this run; they will retry next run.")
         # BIG MOVE tracker (info only; never picks): store today's flags, grade finished ones, read the record
         try:
             from czarp.supabase_writer import Client

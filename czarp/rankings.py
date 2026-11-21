@@ -6,8 +6,9 @@ played a league-average opponent at a neutral site (czarp.matchup._v2_margin
 themselves come from KenPom.
 
 Official snapshots are intended for Monday 7 AM America/Chicago, written by
-weekly_rankings.py (also invoked from the daily run on Mondays). This module
-does not write picks or touch the hash chain.
+weekly_rankings.py (also invoked from the daily run once that week's Monday
+7 AM has passed, including mid-week catch-up). This module does not write
+picks or touch the hash chain.
 """
 from __future__ import annotations
 
