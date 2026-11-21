@@ -223,6 +223,7 @@ def test_resync_never_grades_logs_picks_or_writes_ledger(monkeypatch, tmp_path):
     def boom(*a, **k):
         raise AssertionError("must not run under --resync")
 
+    monkeypatch.chdir(tmp_path)          # cwd-relative writes (data/ledger/big_moves) land in tmp, not the repo
     monkeypatch.setenv("SUPABASE_URL", "http://example.invalid")
     monkeypatch.setenv("SUPABASE_SERVICE_KEY", "x")
     monkeypatch.setattr(dr, "OUT_DIR", str(tmp_path))
@@ -268,6 +269,8 @@ def test_odds_api_fallback_runs_when_any_game_missing_and_keeps_cap_and_reserve(
                                   source_book="draftkings")])
     fake.fetch_vegas_lines = fetch
     monkeypatch.setitem(sys.modules, "odds_fetcher", fake)
+    clock = {"now": dr.datetime(2026, 11, 21, 7, 13, tzinfo=dr.CENTRAL)}
+    monkeypatch.setattr(dr, "now_ct", lambda: clock["now"])          # budget day = real CT date
     usage = tmp_path / "usage.json"
     usage.write_text(json.dumps({"calls": {}, "remaining": 500}))
     monkeypatch.setattr(dr, "USAGE", str(usage))
@@ -287,6 +290,7 @@ def test_odds_api_fallback_runs_when_any_game_missing_and_keeps_cap_and_reserve(
     # daily cap: a second run the same day does not call again
     assert dr.odds_api_fallback(slate(), "2026-11-21", allow=True) == 0 and len(calls) == 1
     # credit reserve: below it, no call even on a new day
+    clock["now"] = dr.datetime(2026, 11, 22, 7, 13, tzinfo=dr.CENTRAL)
     usage.write_text(json.dumps({"calls": {}, "remaining": dr.ODDS_API_RESERVE - 1}))
     assert dr.odds_api_fallback(slate(), "2026-11-22", allow=True) == 0 and len(calls) == 1
     # every game has a line: no call
