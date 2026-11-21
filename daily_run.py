@@ -16,7 +16,7 @@ daily_run.py — fully automated daily PAPER-trading pipeline (no real bets are 
 Steps
   (a) refresh KenPom ratings / prior / per-team HCA (cached) and scrape FanMatch (KenPom predictions)
   (b) prices: DraftKings open + current lines from ESPN's free odds feed (primary); The Odds API
-      only as a budget-aware fallback (max ODDS_API_MAX_CALLS_PER_DAY calls/day, never below
+      as a fallback whenever any D-I game lacks a DK line, budget-aware (max ODDS_API_MAX_CALLS_PER_DAY calls/day, never below
       ODDS_API_RESERVE credits); Kalshi board prices recorded as a reference
   (c) project every game with v2 (sides) and the original v1 formula (totals)
   (d) flag plays with the rules below; quarter-Kelly paper stakes on a notional bankroll
@@ -187,7 +187,8 @@ def apply_pace_fix(games, today: str, data_dir: str = "data") -> int:
 
 ODDS_API_MAX_CALLS_PER_DAY = 1
 ODDS_API_RESERVE = 100
-ODDS_API_MIN_MISSING = 0.25     # use the Odds API only if ESPN lacks lines for >= 25% of games
+ODDS_API_MIN_MISSING = 0.0      # use the Odds API whenever ANY D-I game lacks an ESPN/DK line (0 = any);
+                                # the per-day call cap and the credit reserve still apply
 
 SB_URL = "https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard"
 ODDS_URL = ("https://sports.core.api.espn.com/v2/sports/basketball/leagues/mens-college-basketball/"
