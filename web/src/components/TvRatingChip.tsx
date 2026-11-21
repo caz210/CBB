@@ -20,8 +20,9 @@ function FlameIcon({ className = "h-3 w-3" }: { className?: string }) {
 
 /**
  * Informational venue-style chip (not a verdict tag — doesn't count toward the 2-tag max).
- * Hidden when the rating is null. Highlighted = flame accent for the day's 50+ games
- * or its top 5 by rating, whichever set is larger (see tvHighlightIds).
+ * Hidden when the rating is null. Highlighted = flame accent when the rounded
+ * displayed rating is 50+, or it is in the day's top 5 by rating with a
+ * displayed rating of at least 25 (see tvHighlightIds).
  */
 export function TvRatingChip({ rating, highlight, className = "" }: { rating: number | null | undefined; highlight: boolean; className?: string }) {
   const n = fmtTvRating(rating);

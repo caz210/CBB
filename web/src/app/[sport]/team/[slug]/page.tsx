@@ -7,12 +7,13 @@ import { getSport } from "@/lib/sports";
 import { loadTeam } from "@/lib/data";
 import { teamHref } from "@/lib/teams";
 import { matchupHref } from "@/lib/matchup";
-import { GAME_STATUS_LABEL, TIER_BADGE, edgeTier, finalLabel, fmtGameDate, fmtLine, fmtPlayPct, fmtTipoff } from "@/lib/labels";
+import { GAME_STATUS_LABEL, finalLabel, fmtGameDate, fmtLine, fmtPlayPct, fmtTipoff } from "@/lib/labels";
 import { ComingSoon } from "@/components/ComingSoon";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
 import { ArchetypeChip } from "@/components/ArchetypeChip";
-import { InfoTip, TermLabel } from "@/components/InfoTip";
+import { TermLabel } from "@/components/InfoTip";
+import { StatusChips } from "@/components/StatusChips";
 import { NewCoachBadge } from "@/components/NewCoachBadge";
 import { newCoachLock } from "@/lib/coach";
 import { cardHeadline, notAPlayLine } from "@/lib/verdict";
@@ -133,19 +134,7 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
             <div className="text-right">
               <div className="flex flex-wrap items-center justify-end gap-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
                 <TermLabel term="edge">Edge</TermLabel>
-                {nextEdge?.verdict === "official"
-                  ? <span className="rounded-md bg-edge-400/15 px-1.5 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-edge-400">Official play</span>
-                  : <span className="rounded-md bg-ink-800 px-1.5 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-zinc-400">Low value</span>}
-                {nextEdge?.verdict === "official" && nextEdge.officialBet && edgeTier(nextEdge.officialBet.line_edge_pct, nextEdge.officialBet.market) && (
-                  <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold normal-case tracking-normal ${TIER_BADGE[edgeTier(nextEdge.officialBet.line_edge_pct, nextEdge.officialBet.market)!]}`}>
-                    {edgeTier(nextEdge.officialBet.line_edge_pct, nextEdge.officialBet.market)}
-                  </span>
-                )}
-                {nextEdge?.verdict === "low_value" && nextEdge.lean && (
-                  <InfoTip term="lean" triggerClassName="rounded-md bg-ink-800 px-1.5 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-zinc-400 hover:bg-ink-700 hover:text-zinc-200">
-                    Lean
-                  </InfoTip>
-                )}
+                <StatusChips g={next} bets={next.officialBets ?? []} />
               </div>
               <div className={`font-mono text-4xl font-black ${nextEdge?.edgePct == null ? "text-zinc-700" : nextEdge.verdict === "official" ? "text-edge-400" : "text-zinc-500"}`}>
                 {nextEdge?.edgePct == null ? "—" : fmtPlayPct(nextEdge.edgePct)}

@@ -36,26 +36,47 @@ export function compareTvRating(a: TvSortable, z: TvSortable): number {
 }
 
 /**
- * Highlight rule: a game is highlighted when its rating is >= 50, OR it is in the
- * day's top 5 by rating (nulls ignored). That's the union, so we always show at
- * least the top 5 when five or more ratings exist, and every 50+ game even when
- * that's more than five. Ties at the 5th-place rating are included, so a sixth
- * game with the same rating isn't dropped at random.
+ * Highlight is decided on the rounded integer the chip shows (fmtTvRating), so a
+ * 49.6 that displays as 50 gets a flame, and a 49.4 that displays as 49 does not
+ * from the 50+ rule.
+ *
+ * A game is highlighted when its displayed rating is >= TV_HIGHLIGHT_MIN (50),
+ * OR it is in the day's top TV_HIGHLIGHT_TOP_N (5) by actual rating — but the
+ * top-N half also requires a displayed rating of at least TV_HIGHLIGHT_FLOOR
+ * (25). A 12 with only three rated games on the slate does not get a flame.
+ * Ties at the 5th-place displayed (rounded) rating are included, then the floor is applied.
+ * A 40.4 and a 40.3 both show 40, so they get the same highlight treatment.
+ *
+ * Call this on the day's full slate, not the hidden or filtered subset.
+ * Hide-completed (and the watchlist filter) can leave fewer than 5 flames
+ * visible; that is intended.
  */
 export const TV_HIGHLIGHT_MIN = 50;
 export const TV_HIGHLIGHT_TOP_N = 5;
+/** Rounded displayed floor for the top-N half of the highlight rule. */
+export const TV_HIGHLIGHT_FLOOR = 25;
 
 export function tvHighlightIds(games: TvSortable[]): Set<number> {
-  const rated = games.filter((g) => isRated(g.tv_rating)).sort(compareTvRating);
+  const shown = (g: TvSortable) => fmtTvRating(g.tv_rating) as number;
+  // Rank by the rounded displayed rating so ties at the same shown integer stay together.
+  const rated = games.filter((g) => isRated(g.tv_rating)).sort((a, z) => {
+    const d = shown(z) - shown(a);
+    if (d) return d;
+    return compareTvRating(a, z);
+  });
   const out = new Set<number>();
+
   for (const g of rated) {
-    if ((g.tv_rating as number) >= TV_HIGHLIGHT_MIN) out.add(g.game_id);
+    if (shown(g) >= TV_HIGHLIGHT_MIN) out.add(g.game_id);
   }
+
   const nth = rated[Math.min(TV_HIGHLIGHT_TOP_N, rated.length) - 1];
   if (nth && isRated(nth.tv_rating)) {
-    const cutoff = nth.tv_rating;
+    const cutoff = shown(nth);
     for (const g of rated) {
-      if ((g.tv_rating as number) >= cutoff) out.add(g.game_id);
+      if (shown(g) >= cutoff && shown(g) >= TV_HIGHLIGHT_FLOOR) {
+        out.add(g.game_id);
+      }
     }
   }
   return out;

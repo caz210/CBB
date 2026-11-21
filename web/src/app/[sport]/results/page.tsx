@@ -3,11 +3,12 @@ import { retitle } from "@/lib/gameTitle";
 import type { ReactNode } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { getSport } from "@/lib/sports";
 import { RANGES, loadResults, rowUnits, type RangeKey } from "@/lib/data";
 import type { LedgerRow } from "@/lib/types";
 import { LOCKED_NOTE, MARKET_LABEL, PICK_TIER_LABEL, RESULT_LABEL, fmtClv, fmtGameDate, fmtOdds, fmtPostedStamp, fmtUnits, pct, shortHash, signedPct, type PickTier } from "@/lib/labels";
+import { SHOW_TRACKED_TIER, resolvePortfolioTier, resultsHref, resultsUrlStrippingTier, shouldStripPortfolioTierParam } from "@/lib/pickTier";
 import { SMALL_SAMPLE_N } from "@/lib/stats";
 import { ComingSoon } from "@/components/ComingSoon";
 import { EmptyState } from "@/components/EmptyState";
@@ -33,7 +34,7 @@ export default async function ResultsPage({
   params, searchParams,
 }: {
   params: Promise<{ sport: string }>;
-  searchParams: Promise<{ range?: string; tier?: string }>;
+  searchParams: Promise<{ range?: string; tier?: string } & Record<string, string | string[] | undefined>>;
 }) {
   const { sport: key } = await params;
   const sport = getSport(key);
@@ -42,16 +43,16 @@ export default async function ResultsPage({
 
   const sp = await searchParams;
   const range: RangeKey = sp.range && sp.range in RANGES ? (sp.range as RangeKey) : "season";
-  const tier: PickTier = sp.tier === "track" ? "track" : "official";
+  const requestedTier = Array.isArray(sp.tier) ? sp.tier[0] : sp.tier;
+  const tier: PickTier = resolvePortfolioTier(requestedTier);
+  // Don't leave ?tier=track (or any other non-official value) on the URL when it would
+  // not match the official book we render. redirect() is a 307, which replaces the URL.
+  // Keep every other query param (range, utm_source, …).
+  if (shouldStripPortfolioTierParam(requestedTier)) {
+    redirect(resultsUrlStrippingTier(sport.key, sp));
+  }
   const res = await loadResults(sport, range, tier);
-  const mkHref = (r: RangeKey, t: PickTier) => {
-    const q = new URLSearchParams();
-    if (t !== "official") q.set("tier", t);
-    if (r !== "season") q.set("range", r);
-    const qs = q.toString();
-    return `/${sport.key}/results${qs ? `?${qs}` : ""}`;
-  };
-  const rangeHref = (r: RangeKey) => mkHref(r, tier);
+  const rangeHref = (r: RangeKey) => resultsHref(sport.key, r, tier);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-5 md:px-6 md:py-10">
@@ -74,15 +75,17 @@ export default async function ResultsPage({
         }
       />
 
-      <div role="tablist" aria-label="Portfolio" className="mt-4 grid grid-cols-2 gap-1 rounded-xl border border-ink-700 bg-ink-900 p-1 md:mt-6 md:inline-grid md:w-auto">
-        {(["official", "track"] as PickTier[]).map((t) => (
-          <Link key={t} role="tab" aria-selected={t === tier} href={mkHref(range, t)}
-            className={`flex min-h-10 items-center justify-center rounded-lg px-5 text-sm font-semibold ${t === tier ? "bg-court-500/15 text-court-400" : "text-zinc-400 hover:bg-ink-800"}`}>
-            {PICK_TIER_LABEL[t]}
-          </Link>
-        ))}
-      </div>
-      <p className="mt-2 text-xs text-zinc-500">
+      {SHOW_TRACKED_TIER && (
+        <div role="tablist" aria-label="Portfolio" className="mt-4 grid grid-cols-2 gap-1 rounded-xl border border-ink-700 bg-ink-900 p-1 md:mt-6 md:inline-grid md:w-auto">
+          {(["official", "track"] as PickTier[]).map((t) => (
+            <Link key={t} role="tab" aria-selected={t === tier} href={resultsHref(sport.key, range, t)}
+              className={`flex min-h-10 items-center justify-center rounded-lg px-5 text-sm font-semibold ${t === tier ? "bg-court-500/15 text-court-400" : "text-zinc-400 hover:bg-ink-800"}`}>
+              {PICK_TIER_LABEL[t]}
+            </Link>
+          ))}
+        </div>
+      )}
+      <p className={`text-xs text-zinc-500 ${SHOW_TRACKED_TIER ? "mt-2" : "mt-4 md:mt-6"}`}>
         {tier === "official"
           ? "Official portfolio: the picks CZarp actually stakes (¼-Kelly units)."
           : "Tracked picks: paper-only, flat 1u, never bet. Logged to test ideas in public — not the official portfolio."}

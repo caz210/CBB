@@ -410,6 +410,7 @@ async function attachNewCoaches(sb: SB, games: SlateGame[], gameRows: Row[]) {
   }
 }
 
+
 type SB = NonNullable<Awaited<ReturnType<typeof createSupabaseServerClient>>>;
 
 /** Which of these game ids are neutral-site games (games.neutral). slate_games has no such column. Never throws:
@@ -818,6 +819,8 @@ export async function loadTeam(sport: Sport, slug: string): Promise<Loaded<TeamP
       }
     } catch { /* Total FV is hidden without v1 */ }
     g.neutral = (await neutralP).has(g.game_id);
+    // Same pause chips as the slate card / game sheet (name lookup is enough if game rows have no ids).
+    await attachNewCoaches(sb, [g], []);
     next = { ...g, officialBets };
   }
   const neutral = await neutralP;
