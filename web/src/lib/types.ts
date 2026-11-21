@@ -25,6 +25,8 @@ export type SlateGame = {
   game: string; // 'Away @ Home' as stored; render titles with gameTitle() so neutral games read 'vs'
   /** games.neutral. Missing or null means a normal home game. */
   neutral?: boolean;
+  /** slate_games.tv_rating, 0–100. Null/missing means unknown, not 0. */
+  tv_rating?: number | null;
   // null when the default model has no projection for the game yet
   proj_home: number | null;
   proj_away: number | null;

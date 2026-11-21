@@ -61,6 +61,8 @@ function toSlateGame(r: Row): SlateGame {
     tipoff: r.tipoff ? str(r.tipoff) : null,
     game: str(r.game) || `${str(r.away)} @ ${str(r.home)}`,
     neutral: r.neutral === true,
+    // present on select('*'); a missing column just leaves this null — the slate still loads
+    tv_rating: num(r.tv_rating),
     proj_home: num(r.proj_home),
     proj_away: num(r.proj_away),
     proj_spread: num(r.proj_spread),
