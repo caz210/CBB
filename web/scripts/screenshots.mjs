@@ -13,7 +13,6 @@ const pages = [
   ["05-cbb-results", "/cbb/results"],
   ["06-my-models", "/models"],
   ["07-pricing", "/pricing"],
-  ["08-nba-coming-soon", "/nba/slate"],
 ];
 
 const browser = await chromium.launch();

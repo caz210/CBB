@@ -3,22 +3,25 @@ import { Logo } from "./Logo";
 import { NavLinks } from "./NavLinks";
 import { SportSwitcher } from "./SportSwitcher";
 import { TeamSearch } from "./TeamSearch";
-import { DEFAULT_SPORT } from "@/lib/sports";
+import { DEFAULT_SPORT, SPORTS } from "@/lib/sports";
 import { matchupHref } from "@/lib/matchup";
 
 export function SiteHeader() {
+  // The switcher (and the row it used below xl) only appear when a second sport is enabled in SPORTS.
+  const many = SPORTS.length > 1;
   return (
     <header className="sticky top-0 z-30 border-b border-ink-700/70 bg-ink-950/90 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-7xl items-center gap-2 px-4 sm:gap-3 md:h-16 md:gap-6 md:px-6">
         <Logo />
         <NavLinks />
-        <div className="ml-auto hidden xl:block">
-          <SportSwitcher />
-        </div>
-        <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1 md:gap-2 xl:ml-0 xl:gap-3">
+        {many && (
+          <div className="ml-auto hidden xl:block">
+            <SportSwitcher />
+          </div>
+        )}
+        <div className={`flex shrink-0 items-center gap-0.5 sm:gap-1 md:gap-2 ${many ? "ml-auto xl:ml-0 xl:gap-3" : "ml-auto xl:gap-3"}`}>
           {/* Team search: icon + full-screen sheet below xl, inline box on xl+ (1280px).
-              Below xl the sport switcher is its own row; below lg the tab bar replaces the top nav.
-              The footer slot carries the "Build a matchup" link. */}
+              Below lg the tab bar replaces the top nav. */}
           <TeamSearch
             footerSlot={
               <Link href={matchupHref(DEFAULT_SPORT)} className="flex min-h-11 items-center justify-between rounded-xl border border-ink-600 px-4 text-sm font-semibold text-white hover:bg-ink-800">
@@ -35,10 +38,11 @@ export function SiteHeader() {
           </Link>
         </div>
       </div>
-      {/* below xl: sport switcher as its own scrollable row */}
-      <div className="no-scrollbar overflow-x-auto border-t border-ink-700/50 px-4 py-2 md:px-6 xl:hidden">
-        <SportSwitcher />
-      </div>
+      {many && (
+        <div className="no-scrollbar overflow-x-auto border-t border-ink-700/50 px-4 py-2 md:px-6 xl:hidden">
+          <SportSwitcher />
+        </div>
+      )}
     </header>
   );
 }
