@@ -1,7 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
 
 from czarp.sync_finals import (
-    DEFAULT_LOOKBACK, date_window, espn_end_utc, game_status, main,
+    DEFAULT_LOOKBACK, EspnScoreboardError, date_window, espn_end_utc, game_status, main,
     parse_espn_time, resolve_final_at, should_apply, sync_finals, today_ct,
 )
 import czarp.sync_finals as sf
@@ -27,6 +27,7 @@ class FakeClient:
 
     def patch(self, table, row, **params):
         rec = dict(row)
+        rec["_filters"] = dict(params)
         # recover identity filters so tests can key by external_id
         for k, v in params.items():
             if isinstance(v, str) and v.startswith("eq."):
@@ -100,6 +101,12 @@ def test_sync_updates_finals_skips_unknown_and_does_not_downgrade():
     assert "11" not in rows
     assert rows["12"]["status"] == "in_progress" and rows["12"]["home_score"] == 40
     assert "final_at" not in rows["12"]
+    # new finals have no status=neq.final guard so a first-time final can write
+    assert rows["10"]["_filters"] == {"league": "eq.ncaam", "external_id": "eq.10"}
+    # non-final writes carry the guard so a race cannot downgrade a final
+    assert rows["12"]["_filters"] == {
+        "league": "eq.ncaam", "external_id": "eq.12", "status": "neq.final",
+    }
 
 
 def test_sync_leaves_final_without_scores_and_marks_postponed():
@@ -118,6 +125,7 @@ def test_sync_leaves_final_without_scores_and_marks_postponed():
     rows = {r["external_id"]: r for r in c.calls.get("games", [])}
     assert "1" not in rows and s["unchanged"] == 1
     assert rows["2"]["status"] == "postponed" and rows["2"]["home_score"] is None
+    assert rows["2"]["_filters"]["status"] == "neq.final"
 
 
 def test_sync_lookback_fetches_each_day():
@@ -203,6 +211,8 @@ def test_sync_backfills_final_at_on_already_final_without_bumping_scores_or_upda
     assert row["final_at"] == (TIP + timedelta(hours=2)).isoformat()
     assert row["final_at_estimated"] is True
     assert "status" not in row and "home_score" not in row and "updated_at" not in row
+    assert "status" not in row["_filters"]
+    assert row["_filters"] == {"league": "eq.ncaam", "external_id": "eq.10"}
 
 
 def test_sync_does_not_overwrite_existing_final_at():
@@ -303,3 +313,56 @@ def test_sync_counts_name_mismatch_separately_and_skips_scores():
     written = c.calls.get("games") or []
     assert all(r.get("external_id") != "9" or r.get("home_score") is None for r in written)
 
+
+
+def test_sync_corrects_final_scores_without_neq_final_guard():
+    """An already-final row can still have its scores corrected."""
+    existing = [
+        dict(external_id="10", date="2026-11-08", status="final",
+             home_score=80, away_score=70, home="H", away="A", league="ncaam",
+             final_at=END.isoformat(), final_at_estimated=False),
+    ]
+    c = FakeClient(existing)
+    s = sync_finals(lookback=0, day=date(2026, 11, 8), client=c, log=lambda *_: None,
+                    scoreboard=lambda d: [_espn(event_id="10", home_score=81, away_score=70)],
+                    end_time=lambda eid: END)
+    row = c.calls["games"][0]
+    assert s["updated"] == 1
+    assert row["status"] == "final" and row["home_score"] == 81 and row["away_score"] == 70
+    # no status=neq.final: the correction must still match the final row
+    assert row["_filters"] == {"league": "eq.ncaam", "external_id": "eq.10"}
+
+
+def test_sync_raises_when_every_espn_date_fails():
+    def sb(d):
+        raise RuntimeError("espn down")
+
+    c = FakeClient([])
+    try:
+        sync_finals(lookback=1, day=date(2026, 11, 9), client=c, log=lambda *_: None,
+                    scoreboard=sb, end_time=lambda eid: None)
+    except EspnScoreboardError as e:
+        assert "2026-11-08" in str(e) and "2026-11-09" in str(e)
+    else:
+        raise AssertionError("expected EspnScoreboardError")
+    assert "games" not in c.calls
+
+
+def test_sync_continues_when_only_some_dates_fail():
+    def sb(d):
+        if d == date(2026, 11, 8):
+            raise RuntimeError("espn down")
+        return []
+
+    c = FakeClient([])
+    s = sync_finals(lookback=1, day=date(2026, 11, 9), client=c, log=lambda *_: None,
+                    scoreboard=sb, end_time=lambda eid: None)
+    assert s["dates"] == 2 and s["errors"] == 1 and s["updated"] == 0
+
+
+def test_cli_exits_nonzero_when_every_espn_date_fails(monkeypatch):
+    def boom(**kw):
+        raise EspnScoreboardError("ESPN scoreboard failed for every date")
+
+    monkeypatch.setattr(sf, "sync_finals", boom)
+    assert main(["--date", "2026-11-08"]) == 1

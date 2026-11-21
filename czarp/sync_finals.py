@@ -35,6 +35,10 @@ _POSTPONED = {"STATUS_POSTPONED", "STATUS_POSTPONE"}
 _CANCELED = {"STATUS_CANCELED", "STATUS_CANCELLED"}
 
 
+class EspnScoreboardError(RuntimeError):
+    """Raised when every date in the window fails to fetch from ESPN."""
+
+
 def today_ct(now: datetime | None = None) -> date:
     return (now or datetime.now(CENTRAL)).astimezone(CENTRAL).date()
 
@@ -312,8 +316,17 @@ def sync_finals(lookback: int = DEFAULT_LOOKBACK, day: date | None = None, *,
         for row in rows:
             body = {k: v for k, v in row.items() if k not in ("league", "external_id")}
             # never bump updated_at — ingest time is not when the game ended
-            c.patch("games", body,
-                    league=f"eq.{row['league']}", external_id=f"eq.{row['external_id']}")
+            filters = {
+                "league": f"eq.{row['league']}",
+                "external_id": f"eq.{row['external_id']}",
+            }
+            # Defense in depth: a stale scheduled/in_progress/postponed write
+            # must not downgrade a row that became final after we read it.
+            # Score corrections and final_at backfills keep or omit
+            # status="final", so they still match an already-final row.
+            if body.get("status") not in (None, "final"):
+                filters["status"] = "neq.final"
+            c.patch("games", body, **filters)
         summary["updated"] += len(rows)
 
     log(f"  finals {summary['start']}..{summary['end']}: updated {summary['updated']} of "
@@ -322,6 +335,10 @@ def sync_finals(lookback: int = DEFAULT_LOOKBACK, day: date | None = None, *,
         + (f", final_at {summary['final_at_actual']} actual / {summary['final_at_estimated']} estimated"
            if summary["final_at_set"] else "")
         + (f", {summary['errors']} date errors" if summary["errors"] else "") + ")")
+    if summary["dates"] and summary["errors"] == summary["dates"]:
+        raise EspnScoreboardError(
+            f"ESPN scoreboard failed for every date in {summary['start']}..{summary['end']}"
+        )
     return summary
 
 
