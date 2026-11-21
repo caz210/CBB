@@ -39,10 +39,10 @@ def _f(v):
         return None
 
 
-def get_all(c: Client, table: str, page: int = 1000, **params) -> list[dict]:
+def get_all(c: Client, table: str, page: int = 1000, order: str = "id", **params) -> list[dict]:
     out, off = [], 0
     while True:
-        rows = c.get(table, limit=str(page), offset=str(off), order="id", **params)
+        rows = c.get(table, limit=str(page), offset=str(off), order=order, **params)
         out.extend(rows)
         if len(rows) < page:
             return out
@@ -104,7 +104,7 @@ def main():
     c = Client()
     games = get_all(c, "games", select="id,date,home,away,neutral,status", date=f"gte.{a.start}")
     teams = get_all(c, "teams", select="id,name")
-    inputs = get_all(c, "matchup_inputs", select="team_id,oe,de")
+    inputs = get_all(c, "matchup_inputs", select="team_id,oe,de", order="team_id")
     qmap = quality_from_inputs(inputs, teams)
     ids = [int(g["id"]) for g in games]
     proj = []
