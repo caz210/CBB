@@ -4,7 +4,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { SlateGame, ValueBet } from "@/lib/types";
 import { LOCKED_NOTE, MARKET_LABEL, TIER_BADGE, edgeTier, finalLabel, fmtLine, fmtPostedStamp, fmtPlayPct, fmtWinProb, fmtTipoff, pct, signedPct } from "@/lib/labels";
 import { useWatchlist } from "@/lib/watchlist";
-import { weaknessesOnly } from "@/lib/archetypes";
+import { compactSlateTags, visibleCopy, visibleNotes, visibleTags, type ArchetypeTag } from "@/lib/archetypes";
 import { teamHref } from "@/lib/teams";
 import Link from "next/link";
 import { ArchetypeChip, ArchetypeLegend } from "./ArchetypeChip";
@@ -238,6 +238,37 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
   );
 }
 
+
+function TeamStyleTags({ tags, top, onMore }: {
+  tags: ArchetypeTag[];
+  top?: ArchetypeTag[];
+  onMore: (e: { stopPropagation: () => void }) => void;
+}) {
+  const vis = visibleTags(tags);
+  if (!vis.length) return null;
+  const compact = compactSlateTags(vis, top ?? [], 2);
+  return (
+    <>
+      <div className="mt-2 hidden min-w-0 flex-wrap gap-1.5 pl-12 min-[360px]:flex">
+        {vis.map((tag) => <ArchetypeChip key={`${tag.kind}-${tag.name}`} tag={tag} />)}
+      </div>
+      <div className="mt-2 flex min-w-0 flex-wrap gap-1.5 pl-12 min-[360px]:hidden">
+        {compact.shown.map((tag) => <ArchetypeChip key={`${tag.kind}-${tag.name}`} tag={tag} />)}
+        {compact.more > 0 && (
+          <button
+            type="button"
+            onClick={onMore}
+            aria-label={`${compact.more} more style tags`}
+            className="inline-flex items-center whitespace-nowrap rounded-md border border-ink-600 px-1.5 py-0.5 text-[11px] font-semibold text-zinc-300 hover:bg-ink-800"
+          >
+            +{compact.more}
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
 function Star({ filled, className = "h-4 w-4" }: { filled: boolean; className?: string }) {
   return (
     <svg viewBox="0 0 24 24" className={className} fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
@@ -253,8 +284,8 @@ function GameCard({ g, sportKey, bets, watched, tvHot, onWatch, onOpen, onGame }
   const awayCover = g.home_cover_prob == null ? null : 1 - g.home_cover_prob;
   const final = finalScore(g);
   const rows = [
-    { side: sideLabel("Away", g.neutral), name: g.away, proj: g.proj_away, win: awayWin, cover: awayCover, tags: g.archetypes.away, tent: g.archetypes.away_tentative, score: final?.away ?? null, won: final ? final.away > final.home : false },
-    { side: sideLabel("Home", g.neutral), name: g.home, proj: g.proj_home, win: g.home_win_prob, cover: g.home_cover_prob, tags: g.archetypes.home, tent: g.archetypes.home_tentative, score: final?.home ?? null, won: final ? final.home > final.away : false },
+    { side: sideLabel("Away", g.neutral), name: g.away, proj: g.proj_away, win: awayWin, cover: awayCover, tags: g.archetypes.away, top: g.archetypes.awayTop, tent: g.archetypes.away_tentative, score: final?.away ?? null, won: final ? final.away > final.home : false },
+    { side: sideLabel("Home", g.neutral), name: g.home, proj: g.proj_home, win: g.home_win_prob, cover: g.home_cover_prob, tags: g.archetypes.home, top: g.archetypes.homeTop, tent: g.archetypes.home_tentative, score: final?.home ?? null, won: final ? final.home > final.away : false },
   ];
   const edge = cardHeadline(g, bets);
   const hasEdge = edge.edgePct != null;
@@ -331,11 +362,11 @@ function GameCard({ g, sportKey, bets, watched, tvHot, onWatch, onOpen, onGame }
                 </>
               )}
             </div>
-            {weaknessesOnly(r.tags, 2).length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1.5 pl-12">
-                {weaknessesOnly(r.tags, 2).map((tag) => <ArchetypeChip key={tag.name} tag={tag} />)}
-              </div>
-            )}
+            <TeamStyleTags
+              tags={r.tags}
+              top={r.top}
+              onMore={(e) => { e.stopPropagation(); onGame(); }}
+            />
           </div>
         ))}
       </div>
@@ -367,17 +398,17 @@ function GameCard({ g, sportKey, bets, watched, tvHot, onWatch, onOpen, onGame }
         />
       </div>
 
-      {(g.archetypes.notes.length > 0 || g.reason) && (
+      {(visibleNotes(g.archetypes.notes).length > 0 || visibleCopy(g.reason)) && (
         <div className="space-y-1 border-t border-ink-700/60 px-4 py-2 text-[11px] text-zinc-400">
-          {g.archetypes.notes.length > 0 && (
+          {visibleNotes(g.archetypes.notes).length > 0 && (
             <div>
-              <span className="font-semibold text-zinc-500">Matchup: </span>{g.archetypes.notes.join(" · ")}
+              <span className="font-semibold text-zinc-500">Matchup: </span>{visibleNotes(g.archetypes.notes).join(" · ")}
               {g.archetypes.tentative && <span className="text-zinc-600"> (tentative)</span>}
             </div>
           )}
-          {g.reason && (
-            <div><span className="font-semibold text-zinc-500">Why: </span>{g.reason}</div>
-          )}
+          {visibleCopy(g.reason) ? (
+            <div><span className="font-semibold text-zinc-500">Why: </span>{visibleCopy(g.reason)}</div>
+          ) : null}
         </div>
       )}
 
@@ -547,7 +578,9 @@ function GameSheet({ g, sportKey, bets, tvHot, onClose }: { g: SlateGame | null;
         )}
         {(i?.upset_alert || g.upset_alert) && (
           <div className="mt-2 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-amber-300">Upset alert</div>
+            <div className="text-[10px] font-bold uppercase tracking-wider text-amber-300">
+              <InfoTip term="upset-alert" triggerClassName="font-bold uppercase tracking-wider text-amber-300">Upset alert</InfoTip>
+            </div>
             <div className="mt-0.5 text-[13px] text-amber-50/90">{i?.upset_reason || g.upset_reason || "Underdog style matchup flagged by the model."}</div>
           </div>
         )}
@@ -620,18 +653,18 @@ function GameSheet({ g, sportKey, bets, tvHot, onClose }: { g: SlateGame | null;
         </div>
         {(i?.proj_possessions ?? g.proj_possessions) != null && <p className="mt-2 text-xs text-zinc-400">Projected pace: <b className="font-mono text-white">{(i?.proj_possessions ?? g.proj_possessions)!.toFixed(1)}</b> possessions</p>}
 
-        {(g.archetypes.away.length > 0 || g.archetypes.home.length > 0) && (
+        {(visibleTags(g.archetypes.away).length > 0 || visibleTags(g.archetypes.home).length > 0) && (
           <div className="mt-4 space-y-2">
-            {[{ n: g.away, t: g.archetypes.away }, { n: g.home, t: g.archetypes.home }].filter((r) => r.t.length).map((r) => (
+            {[{ n: g.away, t: visibleTags(g.archetypes.away) }, { n: g.home, t: visibleTags(g.archetypes.home) }].filter((r) => r.t.length).map((r) => (
               <div key={r.n}>
                 <div className="mb-1 text-[11px] font-semibold text-zinc-500">{r.n}</div>
-                <div className="flex flex-wrap gap-1.5">{r.t.map((tag) => <ArchetypeChip key={`${tag.kind}-${tag.name}`} tag={tag} />)}</div>
+                <div className="flex min-w-0 flex-wrap gap-1.5">{r.t.map((tag) => <ArchetypeChip key={`${tag.kind}-${tag.name}`} tag={tag} />)}</div>
               </div>
             ))}
-            {g.archetypes.notes.length > 0 && <p className="text-[11px] text-zinc-400">{g.archetypes.notes.join(" · ")}</p>}
+            {visibleNotes(g.archetypes.notes).length > 0 && <p className="text-[11px] text-zinc-400">{visibleNotes(g.archetypes.notes).join(" · ")}</p>}
           </div>
         )}
-        {(i?.reason || g.reason) && <div className="mt-4 rounded-xl bg-ink-850 p-3 text-sm text-zinc-300"><div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">Why CZarp likes it</div>{i?.reason || g.reason}</div>}
+        {(visibleCopy(i?.reason || g.reason)) && <div className="mt-4 rounded-xl bg-ink-850 p-3 text-sm text-zinc-300"><div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">Why CZarp likes it</div>{visibleCopy(i?.reason || g.reason)}</div>}
 
         {bets.length > 0 && (
           <div className="mt-4 space-y-1.5">

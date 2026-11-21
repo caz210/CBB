@@ -6,7 +6,7 @@ import { createSupabaseServerClient } from "./supabase/server";
 import type { Sport } from "./sports";
 import type { Archetypes, GameInsight, LedgerRow, SlateGame, TierRecord, ValueBet } from "./types";
 import { portfolioRisk, computedLineEdge, type PortfolioRisk } from "./portfolio";
-import { parseTagList, type ArchetypeTag } from "./archetypes";
+import { parseTagList, visibleTags, type ArchetypeTag } from "./archetypes";
 import { teamSlug, type ModelGrade, type TeamModelRecord, type TeamProfile } from "./teams";
 import {
   RANKING_SNAPSHOT_COLUMNS,
@@ -49,9 +49,13 @@ function toArchetypes(v: unknown): Archetypes {
   const a = (v && typeof v === "object" ? v : {}) as Row;
   const homeTent = Boolean(a.home_tentative);
   const awayTent = Boolean(a.away_tentative);
+  const home = parseTagList(a.home, homeTent);
+  const away = parseTagList(a.away, awayTent);
   return {
-    home: parseTagList(a.home, homeTent),
-    away: parseTagList(a.away, awayTent),
+    home,
+    away,
+    homeTop: home,
+    awayTop: away,
     home_tentative: homeTent,
     away_tentative: awayTent,
     tentative: Boolean(a.tentative),
@@ -294,6 +298,7 @@ export async function loadSlateFrom(sb: SB, sport: Sport, date: string): Promise
     // Pause chips read the team's CURRENT profile, so only show them on today's and future slates.
     // Past slates keep the reason that was stored with that day's projection instead.
     if (date >= todayCT()) await attachNewCoaches(sb, games, st.data ?? []);
+    await attachTeamTags(sb, games, st.data ?? []);
     const ins = await loadInsights(sb, ids);
     for (const x of games) {
       x.insight = ins.get(x.game_id);
@@ -407,6 +412,61 @@ async function attachNewCoaches(sb: SB, games: SlateGame[], gameRows: Row[]) {
     const ids = idByGame.get(g.game_id);
     const locks = [lockFor(g.away, ids?.away), lockFor(g.home, ids?.home)].filter((x): x is NewCoachLock => x != null);
     g.coachLocks = locks;
+  }
+}
+
+
+/** Replace each team's capped slate tags with every fired public tag from team_profile_latest.tags_all.
+ *  The stored top-2 list is kept as homeTop/awayTop for the 320px compact card. Failures are non-fatal. */
+async function attachTeamTags(sb: SB, games: SlateGame[], gameRows: Row[]) {
+  const idByGame = new Map<number, { home?: number | null; away?: number | null }>();
+  for (const r of gameRows) {
+    idByGame.set(Number(r.id), { home: num(r.home_team_id), away: num(r.away_team_id) });
+  }
+  const tids = new Set<number>();
+  const names = new Set<string>();
+  for (const g of games) {
+    const ids = idByGame.get(g.game_id);
+    if (ids?.home) tids.add(ids.home);
+    else names.add(g.home);
+    if (ids?.away) tids.add(ids.away);
+    else names.add(g.away);
+  }
+  const profiles: Row[] = [];
+  try {
+    if (tids.size) {
+      const q = await sb.from("team_profile_latest").select("team_id,team_name,tags,tags_all,tentative").in("team_id", [...tids]);
+      if (!q.error) profiles.push(...((q.data ?? []) as Row[]));
+    }
+    if (names.size) {
+      const q = await sb.from("team_profile_latest").select("team_id,team_name,tags,tags_all,tentative").in("team_name", [...names]);
+      if (!q.error) profiles.push(...((q.data ?? []) as Row[]));
+    }
+  } catch { /* cards keep the stored (capped) tags */ }
+  const byId = new Map<number, Row>();
+  const byName = new Map<string, Row>();
+  for (const r of profiles) {
+    byId.set(Number(r.team_id), r);
+    byName.set(str(r.team_name).toLowerCase(), r);
+  }
+  const apply = (g: SlateGame, side: "home" | "away", name: string, tid?: number | null) => {
+    const r = (tid != null ? byId.get(tid) : null) ?? byName.get(name.toLowerCase());
+    if (!r) return;
+    const tent = r.tentative === true || (side === "home" ? g.archetypes.home_tentative : g.archetypes.away_tentative);
+    const storedTop = visibleTags(parseTagList(r.tags ?? (side === "home" ? g.archetypes.homeTop ?? g.archetypes.home : g.archetypes.awayTop ?? g.archetypes.away), tent));
+    const all = visibleTags(parseTagList(r.tags_all ?? r.tags ?? (side === "home" ? g.archetypes.home : g.archetypes.away), tent));
+    if (side === "home") {
+      if (storedTop.length) g.archetypes.homeTop = storedTop;
+      if (all.length) g.archetypes.home = all;
+    } else {
+      if (storedTop.length) g.archetypes.awayTop = storedTop;
+      if (all.length) g.archetypes.away = all;
+    }
+  };
+  for (const g of games) {
+    const ids = idByGame.get(g.game_id);
+    apply(g, "away", g.away, ids?.away);
+    apply(g, "home", g.home, ids?.home);
   }
 }
 
@@ -795,7 +855,7 @@ export async function loadTeam(sport: Sport, slug: string): Promise<Loaded<TeamP
   // games.neutral for the game log and the next game (neither source view carries it)
   // started now, awaited after the next-game reads below, so it adds no round trip; failure only affects titles
   const neutralP = neutralIds(sb, [...grades.map((x) => x.game_id), ...(nextRowRaw ? [Number(nextRowRaw.game_id)] : [])]);
-  const tags = parseTagList(profile?.tags ?? [], profile?.tentative ?? false);
+  const tags = visibleTags(parseTagList(profile?.tags_all ?? profile?.tags ?? [], profile?.tentative ?? false));
 
   let next: TeamPageData["next"] = null;
   const nextRow = (nx.data ?? []).find((r) => str(r.home) === teamName || str(r.away) === teamName);

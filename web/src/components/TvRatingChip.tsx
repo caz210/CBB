@@ -1,4 +1,6 @@
+"use client";
 import { fmtTvRating } from "@/lib/tvRating";
+import { InfoTip } from "./InfoTip";
 
 function TvIcon({ className = "h-3 w-3" }: { className?: string }) {
   return (
@@ -28,18 +30,18 @@ export function TvRatingChip({ rating, highlight, className = "" }: { rating: nu
   const n = fmtTvRating(rating);
   if (n == null) return null;
   return (
-    <span
-      className={`inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-md border px-1.5 py-px align-middle text-[10px] font-semibold leading-4 ${className} ${
+    <InfoTip
+      term="tv-rating"
+      className={className}
+      triggerClassName={`inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-md border px-1.5 py-px align-middle text-[10px] font-semibold leading-4 ${
         highlight
           ? "border-amber-400/50 bg-amber-400/10 text-amber-200"
           : "border-ink-600 text-zinc-400"
       }`}
-      title={highlight ? `TV Rating ${n} · one of the day's most watchable games` : `TV Rating ${n}`}
-      aria-label={`TV Rating ${n}${highlight ? ", one of the day's most watchable games" : ""}`}
     >
       {highlight && <FlameIcon />}
       <TvIcon />
       {n}
-    </span>
+    </InfoTip>
   );
 }

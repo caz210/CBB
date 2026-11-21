@@ -14,7 +14,11 @@ function StatusTagView({ tag }: { tag: StatusTag }) {
     return <NewCoachChip locks={tag.locks} market={tag.market} className={CHIP} />;
   }
   if (tag.kind === "verdict" && tag.verdict === "official") {
-    return <span className={`rounded-md bg-edge-400/15 px-1.5 py-0.5 text-[10px] font-semibold text-edge-400 ${CHIP}`}>Official play</span>;
+    return (
+      <InfoTip term="official-play" triggerClassName={`rounded-md bg-edge-400/15 px-1.5 py-0.5 text-[10px] font-semibold text-edge-400 ${CHIP}`}>
+        Official play
+      </InfoTip>
+    );
   }
   if (tag.kind === "verdict" && tag.verdict === "lean") {
     return (
