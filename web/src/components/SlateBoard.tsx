@@ -13,6 +13,7 @@ import { StatusChips } from "./StatusChips";
 import { NeutralChip, TitleLine } from "./NeutralChip";
 import { TvRatingChip } from "./TvRatingChip";
 import { compareTvRating, tvHighlightIds, type SlateSort } from "@/lib/tvRating";
+import { SHOW_TRACKED_TIER } from "@/lib/pickTier";
 import { gameTitle, sideLabel, spreadNotationNote } from "@/lib/gameTitle";
 import { cardHeadline, notAPlayAlso, notAPlayLine } from "@/lib/verdict";
 import { evPer100, fmtEv100 } from "@/lib/stats";
@@ -155,7 +156,7 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
         ))}
       </div>
 
-      {tracked.length > 0 && (
+      {SHOW_TRACKED_TIER && tracked.length > 0 && (
         <section className="mt-6 rounded-2xl border border-dashed border-ink-700 p-3 md:p-4" aria-label="Tracked picks">
           <div className="mb-2 flex flex-wrap items-baseline gap-x-2">
             <h2 className="text-sm font-semibold text-zinc-400">Tracked · {tracked.length}</h2>

@@ -42,3 +42,29 @@ export function resultsHref(
   const qs = q.toString();
   return `/${sportKey}/results${qs ? `?${qs}` : ""}`;
 }
+
+export type QueryValue = string | string[] | undefined;
+
+/** Copy every query param except `tier`. The path is always /{sport}/results (no open redirect). */
+export function resultsUrlStrippingTier(
+  sportKey: string,
+  sp: URLSearchParams | Record<string, QueryValue>,
+): string {
+  const q = sp instanceof URLSearchParams ? new URLSearchParams(sp) : recordToSearchParams(sp);
+  q.delete("tier");
+  const qs = q.toString();
+  return `/${sportKey}/results${qs ? `?${qs}` : ""}`;
+}
+
+function recordToSearchParams(sp: Record<string, QueryValue>): URLSearchParams {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(sp)) {
+    if (v == null) continue;
+    if (Array.isArray(v)) {
+      for (const item of v) q.append(k, item);
+    } else {
+      q.append(k, v);
+    }
+  }
+  return q;
+}

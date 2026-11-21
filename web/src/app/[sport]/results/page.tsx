@@ -8,7 +8,7 @@ import { getSport } from "@/lib/sports";
 import { RANGES, loadResults, rowUnits, type RangeKey } from "@/lib/data";
 import type { LedgerRow } from "@/lib/types";
 import { LOCKED_NOTE, MARKET_LABEL, PICK_TIER_LABEL, RESULT_LABEL, fmtClv, fmtGameDate, fmtOdds, fmtPostedStamp, fmtUnits, pct, shortHash, signedPct, type PickTier } from "@/lib/labels";
-import { SHOW_TRACKED_TIER, resolvePortfolioTier, resultsHref, shouldStripPortfolioTierParam } from "@/lib/pickTier";
+import { SHOW_TRACKED_TIER, resolvePortfolioTier, resultsHref, resultsUrlStrippingTier, shouldStripPortfolioTierParam } from "@/lib/pickTier";
 import { SMALL_SAMPLE_N } from "@/lib/stats";
 import { ComingSoon } from "@/components/ComingSoon";
 import { EmptyState } from "@/components/EmptyState";
@@ -34,7 +34,7 @@ export default async function ResultsPage({
   params, searchParams,
 }: {
   params: Promise<{ sport: string }>;
-  searchParams: Promise<{ range?: string; tier?: string }>;
+  searchParams: Promise<{ range?: string; tier?: string } & Record<string, string | string[] | undefined>>;
 }) {
   const { sport: key } = await params;
   const sport = getSport(key);
@@ -43,11 +43,13 @@ export default async function ResultsPage({
 
   const sp = await searchParams;
   const range: RangeKey = sp.range && sp.range in RANGES ? (sp.range as RangeKey) : "season";
-  const tier: PickTier = resolvePortfolioTier(sp.tier);
+  const requestedTier = Array.isArray(sp.tier) ? sp.tier[0] : sp.tier;
+  const tier: PickTier = resolvePortfolioTier(requestedTier);
   // Don't leave ?tier=track (or any other non-official value) on the URL when it would
   // not match the official book we render. redirect() is a 307, which replaces the URL.
-  if (shouldStripPortfolioTierParam(sp.tier)) {
-    redirect(resultsHref(sport.key, range));
+  // Keep every other query param (range, utm_source, …).
+  if (shouldStripPortfolioTierParam(requestedTier)) {
+    redirect(resultsUrlStrippingTier(sport.key, sp));
   }
   const res = await loadResults(sport, range, tier);
   const rangeHref = (r: RangeKey) => resultsHref(sport.key, r, tier);

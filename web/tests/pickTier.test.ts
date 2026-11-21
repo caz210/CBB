@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { SHOW_TRACKED_TIER, resolvePortfolioTier, resultsHref, shouldStripPortfolioTierParam } from "../src/lib/pickTier";
+import { SHOW_TRACKED_TIER, resolvePortfolioTier, resultsHref, resultsUrlStrippingTier, shouldStripPortfolioTierParam } from "../src/lib/pickTier";
 
 test("SHOW_TRACKED_TIER is the single flag that hides the tracked portfolio book", () => {
   assert.equal(SHOW_TRACKED_TIER, false);
@@ -46,4 +46,22 @@ test("resultsHref never writes ?tier=track while the flag is off, and keeps rang
   assert.equal(resultsHref("cbb", "season", "track", true), "/cbb/results?tier=track");
   assert.equal(resultsHref("cbb", "30d", "track", true), "/cbb/results?tier=track&range=30d");
   assert.equal(resultsHref("cbb", "season", "official", true), "/cbb/results");
+});
+
+test("the tier redirect keeps every query param except tier", () => {
+  assert.equal(resultsUrlStrippingTier("cbb", { tier: "track" }), "/cbb/results");
+  assert.equal(resultsUrlStrippingTier("cbb", { tier: "track", range: "30d" }), "/cbb/results?range=30d");
+  assert.equal(
+    resultsUrlStrippingTier("cbb", { tier: "track", range: "30d", utm_source: "newsletter" }),
+    "/cbb/results?range=30d&utm_source=newsletter",
+  );
+  assert.equal(
+    resultsUrlStrippingTier("cbb", { utm_source: "x", range: "7d", tier: "paper" }),
+    "/cbb/results?utm_source=x&range=7d",
+  );
+  // repeated non-tier params are kept; every tier param is dropped
+  const q = new URLSearchParams("tier=track&utm_source=a&utm_source=b&range=30d&tier=paper");
+  assert.equal(resultsUrlStrippingTier("cbb", q), "/cbb/results?utm_source=a&utm_source=b&range=30d");
+  // path is always /{sport}/results — query values cannot change the path
+  assert.equal(resultsUrlStrippingTier("cbb", { tier: "//evil.com", next: "/elsewhere" }), "/cbb/results?next=%2Felsewhere");
 });

@@ -44,7 +44,8 @@ export function compareTvRating(a: TvSortable, z: TvSortable): number {
  * OR it is in the day's top TV_HIGHLIGHT_TOP_N (5) by actual rating — but the
  * top-N half also requires a displayed rating of at least TV_HIGHLIGHT_FLOOR
  * (25). A 12 with only three rated games on the slate does not get a flame.
- * Ties at the 5th-place actual rating are included, then the floor is applied.
+ * Ties at the 5th-place displayed (rounded) rating are included, then the floor is applied.
+ * A 40.4 and a 40.3 both show 40, so they get the same highlight treatment.
  *
  * Call this on the day's full slate, not the hidden or filtered subset.
  * Hide-completed (and the watchlist filter) can leave fewer than 5 flames
@@ -56,9 +57,14 @@ export const TV_HIGHLIGHT_TOP_N = 5;
 export const TV_HIGHLIGHT_FLOOR = 25;
 
 export function tvHighlightIds(games: TvSortable[]): Set<number> {
-  const rated = games.filter((g) => isRated(g.tv_rating)).sort(compareTvRating);
-  const out = new Set<number>();
   const shown = (g: TvSortable) => fmtTvRating(g.tv_rating) as number;
+  // Rank by the rounded displayed rating so ties at the same shown integer stay together.
+  const rated = games.filter((g) => isRated(g.tv_rating)).sort((a, z) => {
+    const d = shown(z) - shown(a);
+    if (d) return d;
+    return compareTvRating(a, z);
+  });
+  const out = new Set<number>();
 
   for (const g of rated) {
     if (shown(g) >= TV_HIGHLIGHT_MIN) out.add(g.game_id);
@@ -66,9 +72,9 @@ export function tvHighlightIds(games: TvSortable[]): Set<number> {
 
   const nth = rated[Math.min(TV_HIGHLIGHT_TOP_N, rated.length) - 1];
   if (nth && isRated(nth.tv_rating)) {
-    const cutoff = nth.tv_rating as number;
+    const cutoff = shown(nth);
     for (const g of rated) {
-      if ((g.tv_rating as number) >= cutoff && shown(g) >= TV_HIGHLIGHT_FLOOR) {
+      if (shown(g) >= cutoff && shown(g) >= TV_HIGHLIGHT_FLOOR) {
         out.add(g.game_id);
       }
     }

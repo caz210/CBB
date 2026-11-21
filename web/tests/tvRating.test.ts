@@ -93,6 +93,18 @@ test("highlight stays on the full slate, so hide-completed can show fewer than 5
   assert.ok(tvHighlightIds(visible).has(6), "documents the wrong result if someone recomputes on the visible subset");
 });
 
+test("top-5 ties use the rounded displayed value, so 40.4 and 40.3 (both shown as 40) get the same treatment", () => {
+  assert.equal(fmtTvRating(40.4), 40);
+  assert.equal(fmtTvRating(40.3), 40);
+  const day = [g(1, 80), g(2, 70), g(3, 60), g(4, 50), g(5, 40.4), g(6, 40.3)];
+  assert.deepEqual([...tvHighlightIds(day)].sort((a, b) => a - b), [1, 2, 3, 4, 5, 6]);
+  // 39.6 also displays as 40, so it ties with the group; 39.4 displays as 39 and does not
+  const more = [g(1, 80), g(2, 70), g(3, 60), g(4, 50), g(5, 40.4), g(6, 40.3), g(7, 39.6), g(8, 39.4)];
+  const ids = tvHighlightIds(more);
+  assert.ok(ids.has(7), "39.6 shows 40 and ties the 5th-place displayed rating");
+  assert.ok(!ids.has(8), "39.4 shows 39, below the displayed cutoff");
+});
+
 function fakeClient(withRating: boolean) {
   const N = 61;
   const slateRows = Array.from({ length: N }, (_, i) => {
