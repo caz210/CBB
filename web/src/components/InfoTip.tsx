@@ -2,17 +2,30 @@
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { EXPLAINERS, type ExplainerKey } from "@/lib/explainers";
+import { glossaryEntry } from "@/lib/glossary";
+
+export type TipTerm = ExplainerKey | string;
+
+
+function tipCopy(term?: TipTerm, title?: string, body?: string): { title: string; body: string } | null {
+  if (title && body) return { title, body };
+  if (!term) return null;
+  if (term in EXPLAINERS) return EXPLAINERS[term as ExplainerKey];
+  const g = glossaryEntry(term);
+  return g ? { title: g.title, body: g.body } : null;
+}
 
 /** Small ⓘ that opens a bottom sheet via portal (never clipped by card/table overflow).
  *  With children, the children become the tap target (e.g. a chip) with a small ⓘ inside it;
- *  style that trigger with triggerClassName. Taps and keys never reach the card underneath. */
-export function InfoTip({ term, className = "", children, triggerClassName = "" }: {
-  term: ExplainerKey; className?: string; children?: ReactNode; triggerClassName?: string;
+ *  style that trigger with triggerClassName. Taps and keys never reach the card underneath.
+ *  `term` may be an explainer key or a glossary id/title. Or pass title + body directly. */
+export function InfoTip({ term, title, body, className = "", children, triggerClassName = "" }: {
+  term?: TipTerm; title?: string; body?: string; className?: string; children?: ReactNode; triggerClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const id = useId();
-  const e = EXPLAINERS[term];
+  const e = tipCopy(term, title, body);
 
   useEffect(() => setMounted(true), []);
   useEffect(() => {
@@ -33,7 +46,7 @@ export function InfoTip({ term, className = "", children, triggerClassName = "" 
     };
   }, [open]);
 
-  const sheet = open && mounted
+  const sheet = open && mounted && e
     ? createPortal(
         <div className="fixed inset-0 z-[80] flex items-end justify-center sm:items-center" role="presentation">
           <button
@@ -66,6 +79,10 @@ export function InfoTip({ term, className = "", children, triggerClassName = "" 
         document.body,
       )
     : null;
+
+  if (!e) {
+    return children != null ? <>{children}</> : null;
+  }
 
   return (
     <span

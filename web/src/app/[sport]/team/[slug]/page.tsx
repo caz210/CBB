@@ -19,6 +19,9 @@ import { ComingSoon } from "@/components/ComingSoon";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
 import { ArchetypeChip } from "@/components/ArchetypeChip";
+import { InfoTip } from "@/components/InfoTip";
+import { GLOSSARY_HREF } from "@/lib/glossary";
+import { visibleCopy, visibleTags } from "@/lib/archetypes";
 import { TermLabel } from "@/components/InfoTip";
 import { StatusChips } from "@/components/StatusChips";
 import { NewCoachBadge } from "@/components/NewCoachBadge";
@@ -101,10 +104,15 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
     <div className="mt-4 space-y-4 md:mt-6 md:space-y-6">
       {coach && <NewCoachBadge lock={coach} />}
 
-      {/* Tags */}
-      {data.tags.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {data.tags.map((t) => <ArchetypeChip key={`${t.kind}-${t.name}`} tag={t} />)}
+      {/* Tags — every fired public tag from tags_all */}
+      {visibleTags(data.tags).length > 0 && (
+        <div>
+          <div className="flex min-w-0 flex-wrap gap-1.5">
+            {visibleTags(data.tags).map((t) => <ArchetypeChip key={`${t.kind}-${t.name}`} tag={t} />)}
+          </div>
+          <Link href={GLOSSARY_HREF} className="mt-2 inline-block text-xs font-semibold text-court-400 hover:text-court-300">
+            What do these tags mean?
+          </Link>
         </div>
       )}
 
@@ -132,7 +140,8 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
               </div>
               {next.upset_alert && (
                 <div className="mt-2 inline-block rounded-md border border-amber-400/40 bg-amber-400/10 px-2 py-1 text-[11px] text-amber-200">
-                  Upset alert{next.upset_reason ? `: ${next.upset_reason}` : ""}
+                  <InfoTip term="upset-alert" triggerClassName="text-[11px] text-amber-200">Upset alert</InfoTip>
+                  {visibleCopy(next.upset_reason) ? `: ${visibleCopy(next.upset_reason)}` : ""}
                 </div>
               )}
               {nextWhy && (

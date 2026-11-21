@@ -28,6 +28,10 @@ export const EXPLAINERS = {
     title: "Lean",
     body: "The edge at today's line clears our bar, but the edge vs the opening line doesn't, so it's not an official play. Bars: 4% sides, 3% totals.",
   },
+  officialPlay: {
+    title: "Official play",
+    body: "A posted pick. Official plays are time-stamped and graded in the public record.",
+  },
   openLineRule: {
     title: "Why we use the opening line",
     body: "We only play edges that were there at the open, so we're never chasing line moves. A number that looks good vs the current price can still be low value if it wasn't there when the market opened.",
