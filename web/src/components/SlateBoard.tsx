@@ -9,7 +9,7 @@ import { teamHref } from "@/lib/teams";
 import Link from "next/link";
 import { ArchetypeChip, ArchetypeLegend } from "./ArchetypeChip";
 import { InfoTip, TermLabel } from "./InfoTip";
-import { NewCoachChips } from "./NewCoachBadge";
+import { StatusChips } from "./StatusChips";
 import { NeutralChip, TitleLine } from "./NeutralChip";
 import { TvRatingChip } from "./TvRatingChip";
 import { compareTvRating, tvHighlightIds, type SlateSort } from "@/lib/tvRating";
@@ -60,7 +60,8 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
           return ez - ea; // no raw edge sorts last
         }
       : sort === "tv" ? compareTvRating : byTime);
-  // highlight is computed on the day's full slate, not the hidden/filtered subset
+  // Highlight is computed on the day's full slate, not the hidden/filtered subset.
+  // Hide-completed can leave fewer than 5 flames visible; that is intended.
   const tvHot = tvHighlightIds(games);
   const officialShown = bets.filter((b) => !hide || !games.find((g) => g.game_id === b.game_id)?.completed);
 
@@ -198,25 +199,6 @@ function Star({ filled, className = "h-4 w-4" }: { filled: boolean; className?: 
   );
 }
 
-function VerdictChips({ g, bets }: { g: SlateGame; bets: ValueBet[] }) {
-  const h = cardHeadline(g, bets);
-  const official = h.verdict === "official";
-  const tier = official && h.officialBet ? edgeTier(h.officialBet.line_edge_pct, h.officialBet.market) : null;
-  return (
-    <>
-      {official
-        ? <span className="rounded-md bg-edge-400/15 px-1.5 py-0.5 text-[10px] font-semibold text-edge-400">Official play</span>
-        : <span className="rounded-md bg-ink-800 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-400">Low value</span>}
-      {tier && <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${TIER_BADGE[tier]}`}>{tier}</span>}
-      {!official && h.lean && (
-        <InfoTip term="lean" triggerClassName="rounded-md bg-ink-800 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-400 hover:bg-ink-700 hover:text-zinc-200">
-          Lean
-        </InfoTip>
-      )}
-    </>
-  );
-}
-
 function GameCard({ g, sportKey, bets, watched, tvHot, onWatch, onOpen, onGame }: {
   g: SlateGame; sportKey: string; bets: ValueBet[]; watched: boolean; tvHot: boolean; onWatch: () => void; onOpen: (b: ValueBet) => void; onGame: () => void;
 }) {
@@ -253,8 +235,7 @@ function GameCard({ g, sportKey, bets, watched, tvHot, onWatch, onOpen, onGame }
           <span className="font-semibold text-zinc-300">{timeLabel}</span>
           {g.neutral && <NeutralChip />}
           <TvRatingChip rating={g.tv_rating} highlight={tvHot} />
-          <VerdictChips g={g} bets={bets} />
-          <NewCoachChips locks={g.coachLocks} market={edge.market} />
+          <StatusChips g={g} bets={bets} />
         </div>
         <button
           type="button"
@@ -528,9 +509,7 @@ function GameSheet({ g, sportKey, bets, tvHot, onClose }: { g: SlateGame | null;
         <div className="mt-4 flex items-end justify-between rounded-2xl border border-ink-700 bg-ink-850 px-4 py-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-1.5">
-              <VerdictChips g={g} bets={bets} />
-              {/* Same market as the card so the chip matches the "Not a play" line; the chip's sheet still lists both pause lengths. */}
-              <NewCoachChips locks={g.coachLocks} market={edge.market} />
+              <StatusChips g={g} bets={bets} />
             </div>
             <div className="mt-1 truncate text-sm text-zinc-300">
               {edge.officialBet ? `${edge.officialBet.side} · ${MARKET_LABEL[edge.officialBet.market]}` : edge.market ? `${MARKET_LABEL[edge.market]} · fair vs price` : "Fair value vs price"}

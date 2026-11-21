@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { compareTvRating, fmtTvRating, parseSlateSort, tvHighlightIds, TV_HIGHLIGHT_MIN, TV_HIGHLIGHT_TOP_N } from "../src/lib/tvRating";
+import { compareTvRating, fmtTvRating, parseSlateSort, tvHighlightIds, TV_HIGHLIGHT_FLOOR, TV_HIGHLIGHT_MIN, TV_HIGHLIGHT_TOP_N } from "../src/lib/tvRating";
 import { loadSlateFrom } from "../src/lib/data";
 
 test("fmtTvRating shows an integer and treats null as unknown, not 0", () => {
@@ -36,22 +36,61 @@ test("TV Rating sort is highest first, nulls last, then earlier tip", () => {
 test("highlight is 50+ or the day's top 5 by rating, whichever set is larger; nulls never count", () => {
   assert.equal(TV_HIGHLIGHT_MIN, 50);
   assert.equal(TV_HIGHLIGHT_TOP_N, 5);
-  // only 3 games at/above 50 → still highlight the next two (top 5)
+  assert.equal(TV_HIGHLIGHT_FLOOR, 25);
+  // only 3 games at/above 50 → still highlight the next two (top 5), all above the floor
   const day = [g(1, 77.3), g(2, 67.6), g(3, 60.3), g(4, 47.3), g(5, 43.0), g(6, 40.3), g(7, null)];
   assert.deepEqual([...tvHighlightIds(day)].sort((a, b) => a - b), [1, 2, 3, 4, 5]);
   // eight games at 50+ → all eight, not just the top 5
   const many = Array.from({ length: 8 }, (_, i) => g(i + 1, 50 + i));
   assert.deepEqual([...tvHighlightIds(many)].sort((a, b) => a - b), [1, 2, 3, 4, 5, 6, 7, 8]);
-  // every rating below 50 → just the top 5
+  // below 50: top 5 that also meet the rounded floor of 25 (20 and under drop out)
   const low = [g(1, 40), g(2, 30), g(3, 20), g(4, 10), g(5, 5), g(6, 1), g(7, null)];
-  assert.deepEqual([...tvHighlightIds(low)].sort((a, b) => a - b), [1, 2, 3, 4, 5]);
-  // ties at 5th place are included
+  assert.deepEqual([...tvHighlightIds(low)].sort((a, b) => a - b), [1, 2]);
+  // ties at 5th place are included when they meet the floor; 10 does not
   const ties = [g(1, 80), g(2, 70), g(3, 60), g(4, 40), g(5, 40), g(6, 40), g(7, 10)];
   assert.deepEqual([...tvHighlightIds(ties)].sort((a, b) => a - b), [1, 2, 3, 4, 5, 6]);
-  // fewer than 5 rated games: all rated are highlighted; nulls are not
+  // fewer than 5 rated games: a 12 or 8 is below the floor, so no flame; nulls never count
   const few = [g(1, 12), g(2, 8), g(3, null)];
-  assert.deepEqual([...tvHighlightIds(few)].sort((a, b) => a - b), [1, 2]);
+  assert.deepEqual([...tvHighlightIds(few)], []);
   assert.equal(tvHighlightIds([]).size, 0);
+});
+
+test("highlight uses the rounded displayed value, so 49.6 shows 50 and gets a flame", () => {
+  assert.equal(fmtTvRating(49.6), 50);
+  assert.equal(fmtTvRating(49.4), 49);
+  // 49.6 is not in the top 5 by actual rating, but displays as 50 so it is highlighted
+  const day = [g(1, 80), g(2, 70), g(3, 60), g(4, 55), g(5, 54), g(6, 53), g(7, 49.6), g(8, 40)];
+  const ids = tvHighlightIds(day);
+  assert.ok(ids.has(7), "49.6 displays as 50 and must get a flame");
+  assert.ok(!ids.has(8), "40 is below 50 and outside the top 5");
+  // 49.4 displays as 49: no 50+ flame, and outside the top 5
+  const justUnder = [g(1, 80), g(2, 70), g(3, 60), g(4, 55), g(5, 54), g(6, 53), g(7, 49.4)];
+  assert.ok(!tvHighlightIds(justUnder).has(7));
+});
+
+test("top-5 floor is the rounded displayed value (~25); below that never gets a flame", () => {
+  // 24.6 displays as 25 → eligible for a top-5 flame; 24.4 displays as 24 → never
+  assert.equal(fmtTvRating(24.6), 25);
+  assert.equal(fmtTvRating(24.4), 24);
+  const atFloor = [g(1, 40), g(2, 30), g(3, 28), g(4, 26), g(5, 24.6), g(6, 20)];
+  assert.deepEqual([...tvHighlightIds(atFloor)].sort((a, b) => a - b), [1, 2, 3, 4, 5]);
+  const below = [g(1, 40), g(2, 30), g(3, 28), g(4, 26), g(5, 24.4), g(6, 20)];
+  assert.deepEqual([...tvHighlightIds(below)].sort((a, b) => a - b), [1, 2, 3, 4]);
+  // even with fewer than 5 rated games, a sub-floor rating is not flamed
+  assert.deepEqual([...tvHighlightIds([g(1, 24.4), g(2, 10)])], []);
+  assert.deepEqual([...tvHighlightIds([g(1, 24.6)])], [1]);
+});
+
+test("highlight stays on the full slate, so hide-completed can show fewer than 5 flames", () => {
+  // game 1 is a completed 80; the live games are 40, 35, 30, 28, 26.
+  // Full-slate top 5 are 1-5; 26 is 6th and below 50, so it stays unhighlighted
+  // even after game 1 is hidden. Recomputing on the visible subset would wrongly flame 26.
+  const slate = [g(1, 80), g(2, 40), g(3, 35), g(4, 30), g(5, 28), g(6, 26)];
+  const ids = tvHighlightIds(slate);
+  assert.deepEqual([...ids].sort((a, b) => a - b), [1, 2, 3, 4, 5]);
+  assert.ok(!ids.has(6));
+  const visible = slate.filter((x) => x.game_id !== 1);
+  assert.ok(tvHighlightIds(visible).has(6), "documents the wrong result if someone recomputes on the visible subset");
 });
 
 function fakeClient(withRating: boolean) {

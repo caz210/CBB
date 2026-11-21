@@ -34,7 +34,7 @@ export const EXPLAINERS = {
   },
   tvRating: {
     title: "TV Rating",
-    body: "How watchable the game looks, 0–100.",
+    body: "How watchable the game looks, 0–100: higher when both teams are good, CZarp expects a close game, and the pace is quick. Not a pick.",
   },
 } as const;
 
