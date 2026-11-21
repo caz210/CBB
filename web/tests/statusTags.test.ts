@@ -67,12 +67,12 @@ test("Cal Baptist vs LMU (pause + Lean) keeps 2 tags: Lean first, then pause", (
   assert.equal(pickStatusTags(g, []).length, 2);
 });
 
-test("one pause plus an official play keeps Official Play + pause", () => {
+test("one pause plus an Official Play keeps Official Play + pause", () => {
   const g = game({ coachLocks: [lock()] });
   assert.deepEqual(labels(g, [officialBet()]), ["official", "pause"]);
 });
 
-test("no value badge ever: an official play with no pause is Official Play alone, at any edge", () => {
+test("no value badge ever: an Official Play with no pause is Official Play alone, at any edge", () => {
   for (const e of [0.02, 0.04, 0.055, 0.09]) {
     assert.deepEqual(labels(game({ coachLocks: [] }), [officialBet({ line_edge_pct: e, edge_at_post_pct: e })]), ["official"]);
   }

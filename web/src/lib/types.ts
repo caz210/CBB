@@ -9,6 +9,9 @@ import type { Market, MarketSource, PickTier, Tier } from "./labels";
 export type Archetypes = {
   home: ArchetypeTag[];
   away: ArchetypeTag[];
+  /** Stored top-2 (pipeline extremity), used to pick the compact slate chips. */
+  homeTop?: ArchetypeTag[];
+  awayTop?: ArchetypeTag[];
   home_tentative: boolean;
   away_tentative: boolean;
   tentative: boolean;

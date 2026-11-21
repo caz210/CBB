@@ -30,13 +30,13 @@ export const EXPLAINERS = {
   },
   percentile: {
     title: "Percentile",
-    body: "Where this team ranks among D1 teams this season, from 0 (worst) to 100 (best). We show percentiles — not KenPom ranks — so you can compare style without obsessing over a leaderboard.",
+    body: "Percentiles vs all D-I teams, from 0 (worst) to 100 (best). Use them to compare style, not as a leaderboard.",
   },
   lean: {
     title: "Lean",
     body: ladderTip("lean").body,
   },
-  /** Same key #61 (web-style-tags) reads; derived from lib/verdicts.ts so there is one source. */
+  /** Read by the slate chips and the methodology glossary; derived from lib/verdicts.ts (one source). */
   officialPlay: ladderTip("official"),
   openLineRule: {
     title: "Why we use the opening line",
@@ -49,6 +49,14 @@ export const EXPLAINERS = {
   rating: {
     title: "Rating",
     body: "Projected margin vs an average D-I team on a neutral court.",
+  },
+  teamRating: {
+    title: "Rating",
+    body: "Projected margin vs an average D-I team on a neutral floor.",
+  },
+  diRecord: {
+    title: "D-I record",
+    body: "Records count only games between two D-I teams.",
   },
 } as const;
 

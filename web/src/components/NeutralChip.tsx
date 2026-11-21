@@ -1,12 +1,18 @@
+"use client";
 import type { ReactNode } from "react";
 import { NEUTRAL_CHIP_LABEL } from "@/lib/gameTitle";
+import { InfoTip } from "./InfoTip";
 
 /** Same muted look as the "Neutral site: no home-court edge applied" note. Never shrinks or wraps. */
 export function NeutralChip({ className = "" }: { className?: string }) {
   return (
-    <span className={`inline-block shrink-0 whitespace-nowrap rounded-md border border-ink-600 px-1.5 py-px align-middle text-[10px] font-semibold leading-4 text-zinc-400 ${className}`}>
+    <InfoTip
+      term="neutral"
+      className={className}
+      triggerClassName="inline-block shrink-0 whitespace-nowrap rounded-md border border-ink-600 px-1.5 py-px align-middle text-[10px] font-semibold leading-4 text-zinc-400"
+    >
       {NEUTRAL_CHIP_LABEL}
-    </span>
+    </InfoTip>
   );
 }
 

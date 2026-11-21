@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ExampleBadge, ExampleBanner } from "@/components/ExampleBadge";
 import { ArchetypeChip } from "@/components/ArchetypeChip";
+import { visibleTags } from "@/lib/archetypes";
 import { EXAMPLE_SLATE, EXAMPLE_VALUE_BETS } from "@/lib/example-data";
 import { MARKET_LABEL, fmtLine, fmtTipoff, pct, signedPct, fmtUnits } from "@/lib/labels";
 import { SPORTS, getSport } from "@/lib/sports";
@@ -64,7 +65,7 @@ export default async function Landing() {
               <div key={r.n} className="flex items-center justify-between gap-3 border-b border-ink-700/60 py-3 last:border-0">
                 <div className="min-w-0">
                   <div className="font-semibold">{r.n}</div>
-                  <div className="mt-1.5 flex flex-wrap gap-1">{r.tags.map((a) => <ArchetypeChip key={a.name} tag={a} />)}</div>
+                  <div className="mt-1.5 flex flex-wrap gap-1">{visibleTags(r.tags).map((a) => <ArchetypeChip key={a.name} tag={a} />)}</div>
                 </div>
                 <div className="font-mono text-2xl font-bold">{r.p?.toFixed(1)}</div>
               </div>

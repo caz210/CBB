@@ -16,7 +16,7 @@ export const METHODOLOGY_SECTIONS: MethodologySection[] = [
   {
     title: "The models",
     placeholder: true,
-    body: "CZarp projects a spread and a total for every game. Describe features, inputs, and what is not used (for example KenPom ranks are never shown).",
+    body: "CZarp projects a spread and a total for every game. Describe features, inputs, and what is not used (third-party ranking lists are never shown).",
   },
   {
     title: "Fair value, price, and edge",
