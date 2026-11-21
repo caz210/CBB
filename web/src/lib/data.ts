@@ -16,6 +16,12 @@ import {
   type RankingRow,
   type RankingsData,
 } from "./rankings";
+import {
+  TEAM_RANKING_COLUMNS,
+  TEAM_RANKING_TIMEOUT_MS,
+  parseTeamRanking,
+  type TeamRankingSnapshot,
+} from "./teamPage";
 import { isPickTier, type Market, type MarketSource, type PickTier } from "./labels";
 import { wilsonCi, SMALL_SAMPLE_N } from "./stats";
 import { newCoachLock, type NewCoachLock } from "./coach";
@@ -658,6 +664,8 @@ export type TeamPageData = {
   grades: ModelGrade[];
   next: (SlateGame & { officialBets: ValueBet[] }) | null;
   tags: ArchetypeTag[];
+  /** Latest weekly snapshot for this team; null when missing or the read fails. */
+  ranking: TeamRankingSnapshot | null;
 };
 
 function toProfile(r: Row): TeamProfile {
@@ -743,6 +751,24 @@ function toGrade(r: Row): ModelGrade {
   };
 }
 
+/** Latest ranking_snapshots row for a team. Fail-safe: errors and empty results return null. */
+export async function loadTeamRanking(sb: SB, teamId: number, league: string): Promise<TeamRankingSnapshot | null> {
+  try {
+    const r = await sb
+      .from("ranking_snapshots")
+      .select(TEAM_RANKING_COLUMNS)
+      .eq("team_id", teamId)
+      .eq("league", league)
+      .order("week_of", { ascending: false })
+      .limit(1)
+      .abortSignal(AbortSignal.timeout(TEAM_RANKING_TIMEOUT_MS));
+    if (r.error || !r.data?.[0]) return null;
+    return parseTeamRanking(r.data[0] as Row);
+  } catch {
+    return null;
+  }
+}
+
 /** Resolve team by numeric id or name slug; load profile, record, grades, next slate game. */
 export async function loadTeam(sport: Sport, slug: string): Promise<Loaded<TeamPageData | null>> {
   const sb = await createSupabaseServerClient();
@@ -774,7 +800,7 @@ export async function loadTeam(sport: Sport, slug: string): Promise<Loaded<TeamP
     teamName = str(hit.team_name);
   }
 
-  const [pr, rec, gr, nx] = await Promise.all([
+  const [pr, rec, gr, nx, ranking] = await Promise.all([
     sb.from("team_profile_latest").select("*").eq("team_id", teamId).limit(1),
     sb.from("team_model_record").select("*").eq("team_id", teamId).limit(1),
     sb.from("model_grades").select("*").or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
@@ -782,6 +808,7 @@ export async function loadTeam(sport: Sport, slug: string): Promise<Loaded<TeamP
     // Filter by name in JS — PostgREST .or() breaks on apostrophes (St. John's).
     sb.from("slate_games").select("*").eq("sport", sport.key).gte("game_date", todayCT())
       .order("game_date", { ascending: true }).order("tipoff", { ascending: true, nullsFirst: false }).limit(120),
+    loadTeamRanking(sb, teamId, sport.league),
   ]);
   if (pr.error) return fail("team_profile_latest", pr.error);
   if (rec.error) return fail("team_model_record", rec.error);
@@ -826,7 +853,7 @@ export async function loadTeam(sport: Sport, slug: string): Promise<Loaded<TeamP
   const neutral = await neutralP;
   for (const x of grades) x.neutral = neutral.has(x.game_id);
 
-  return { state: "live", data: { profile, record, grades, next, tags } };
+  return { state: "live", data: { profile, record, grades, next, tags, ranking } };
 }
 
 
