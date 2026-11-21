@@ -32,6 +32,10 @@ export const EXPLAINERS = {
     title: "Why we use the opening line",
     body: "We only play edges that were there at the open, so we're never chasing line moves. A number that looks good vs the current price can still be low value if it wasn't there when the market opened.",
   },
+  tvRating: {
+    title: "TV Rating",
+    body: "How watchable the game looks, 0–100.",
+  },
 } as const;
 
 export type ExplainerKey = keyof typeof EXPLAINERS;

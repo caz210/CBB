@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getSport } from "@/lib/sports";
 import { isIsoDate, loadSlate, shiftDate, todayCT } from "@/lib/data";
+import { parseSlateSort } from "@/lib/tvRating";
 import { fmtGameDate } from "@/lib/labels";
 import { ComingSoon } from "@/components/ComingSoon";
 import { EmptyState } from "@/components/EmptyState";
@@ -41,12 +42,12 @@ export default async function SlatePage({
   const today = todayCT();
   const date = isIsoDate(sp.date) ? sp.date : today;
   const res = await loadSlate(sport, date);
-  const sort = sp.sort === "value" ? "value" : "time";
+  const sort = parseSlateSort(sp.sort);
   const hide = sp.hide === "1";
   const href = (d: string) => {
     const q = new URLSearchParams();
     if (d !== today) q.set("date", d);
-    if (sort === "value") q.set("sort", "value");
+    if (sort !== "time") q.set("sort", sort);
     if (hide) q.set("hide", "1");
     const qs = q.toString();
     return `/${sport.key}/slate${qs ? `?${qs}` : ""}`;

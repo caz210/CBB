@@ -11,6 +11,8 @@ import { ArchetypeChip, ArchetypeLegend } from "./ArchetypeChip";
 import { InfoTip, TermLabel } from "./InfoTip";
 import { NewCoachChips } from "./NewCoachBadge";
 import { NeutralChip, TitleLine } from "./NeutralChip";
+import { TvRatingChip } from "./TvRatingChip";
+import { compareTvRating, tvHighlightIds, type SlateSort } from "@/lib/tvRating";
 import { gameTitle, sideLabel, spreadNotationNote } from "@/lib/gameTitle";
 import { cardHeadline, notAPlayAlso, notAPlayLine } from "@/lib/verdict";
 import { evPer100, fmtEv100 } from "@/lib/stats";
@@ -19,7 +21,7 @@ import { betCoverProb, postedFairVsProjections, postedVsNow, totalFair } from "@
 type Sel = { game: SlateGame; bet: ValueBet } | null;
 
 export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = false, sportKey = "cbb" }: {
-  games: SlateGame[]; bets: ValueBet[]; tracked?: ValueBet[]; sort?: "time" | "value"; hide?: boolean; sportKey?: string;
+  games: SlateGame[]; bets: ValueBet[]; tracked?: ValueBet[]; sort?: SlateSort; hide?: boolean; sportKey?: string;
 }) {
   const [sel, setSel] = useState<Sel>(null);
   const [gameSel, setGameSel] = useState<SlateGame | null>(null);
@@ -57,20 +59,25 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
           if (ea === ez) return byTime(a, z);
           return ez - ea; // no raw edge sorts last
         }
-      : byTime);
+      : sort === "tv" ? compareTvRating : byTime);
+  // highlight is computed on the day's full slate, not the hidden/filtered subset
+  const tvHot = tvHighlightIds(games);
   const officialShown = bets.filter((b) => !hide || !games.find((g) => g.game_id === b.game_id)?.completed);
 
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <div role="radiogroup" aria-label="Sort games" className="flex flex-1 rounded-xl border border-ink-600 bg-ink-900 p-1 sm:flex-none">
-          {(["time", "value"] as const).map((k) => (
-            <button key={k} role="radio" aria-checked={sort === k}
-              onClick={() => setParam("sort", k === "time" ? null : "value")}
-              className={`min-h-11 flex-1 rounded-lg px-4 text-sm font-semibold transition sm:flex-none ${sort === k ? "bg-court-500/20 text-court-400" : "text-zinc-400 hover:bg-ink-800"}`}>
-              {k === "time" ? "Game time" : "Edge"}
-            </button>
-          ))}
+        <div className="flex w-full min-w-0 items-center gap-1 sm:w-auto">
+          <div role="radiogroup" aria-label="Sort games" className="flex min-w-0 flex-1 rounded-xl border border-ink-600 bg-ink-900 p-1 sm:flex-none">
+            {(["time", "value", "tv"] as const).map((k) => (
+              <button key={k} role="radio" aria-checked={sort === k}
+                onClick={() => setParam("sort", k === "time" ? null : k)}
+                className={`min-h-11 flex-1 whitespace-nowrap rounded-lg px-2 text-sm font-semibold transition sm:flex-none sm:px-4 ${sort === k ? "bg-court-500/20 text-court-400" : "text-zinc-400 hover:bg-ink-800"}`}>
+                {k === "time" ? "Game time" : k === "value" ? "Edge" : "TV Rating"}
+              </button>
+            ))}
+          </div>
+          <InfoTip term="tvRating" />
         </div>
         <button role="switch" aria-checked={hide} onClick={() => setParam("hide", hide ? null : "1")}
           className="flex min-h-11 items-center gap-2.5 rounded-xl border border-ink-600 px-3 text-sm font-semibold text-zinc-300 hover:bg-ink-800">
@@ -139,6 +146,7 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
             sportKey={sportKey}
             bets={byGame(g.game_id)}
             watched={ready && has(g.game_id)}
+            tvHot={tvHot.has(g.game_id)}
             onWatch={() => toggle(g.game_id)}
             onOpen={(bet) => setSel({ game: g, bet })}
             onGame={() => setGameSel(g)}
@@ -177,7 +185,7 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
       </p>
 
       <ValueSheet sel={sel} onClose={() => setSel(null)} />
-      <GameSheet g={gameSel} sportKey={sportKey} bets={gameSel ? byGame(gameSel.game_id) : []} onClose={closeGame} />
+      <GameSheet g={gameSel} sportKey={sportKey} bets={gameSel ? byGame(gameSel.game_id) : []} tvHot={gameSel ? tvHot.has(gameSel.game_id) : false} onClose={closeGame} />
     </div>
   );
 }
@@ -209,8 +217,8 @@ function VerdictChips({ g, bets }: { g: SlateGame; bets: ValueBet[] }) {
   );
 }
 
-function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
-  g: SlateGame; sportKey: string; bets: ValueBet[]; watched: boolean; onWatch: () => void; onOpen: (b: ValueBet) => void; onGame: () => void;
+function GameCard({ g, sportKey, bets, watched, tvHot, onWatch, onOpen, onGame }: {
+  g: SlateGame; sportKey: string; bets: ValueBet[]; watched: boolean; tvHot: boolean; onWatch: () => void; onOpen: (b: ValueBet) => void; onGame: () => void;
 }) {
   const awayWin = g.home_win_prob == null ? null : 1 - g.home_win_prob;
   const awayCover = g.home_cover_prob == null ? null : 1 - g.home_cover_prob;
@@ -244,6 +252,7 @@ function GameCard({ g, sportKey, bets, watched, onWatch, onOpen, onGame }: {
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
           <span className="font-semibold text-zinc-300">{timeLabel}</span>
           {g.neutral && <NeutralChip />}
+          <TvRatingChip rating={g.tv_rating} highlight={tvHot} />
           <VerdictChips g={g} bets={bets} />
           <NewCoachChips locks={g.coachLocks} market={edge.market} />
         </div>
@@ -474,7 +483,7 @@ function ValueSheet({ sel, onClose }: { sel: Sel; onClose: () => void }) {
   );
 }
 
-function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportKey: string; bets: ValueBet[]; onClose: () => void }) {
+function GameSheet({ g, sportKey, bets, tvHot, onClose }: { g: SlateGame | null; sportKey: string; bets: ValueBet[]; tvHot: boolean; onClose: () => void }) {
   useEffect(() => {
     const k = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", k);
@@ -503,6 +512,7 @@ function GameSheet({ g, sportKey, bets, onClose }: { g: SlateGame | null; sportK
           <span className="text-zinc-500"> {gameTitle(g.away, g.home, g.neutral).sep} </span>
           <Link href={teamHref(sportKey, g.home)} onClick={(e) => e.stopPropagation()} className="hover:text-court-400">{g.home}</Link>
           {g.neutral && <NeutralChip className="ml-2" />}
+          <TvRatingChip rating={g.tv_rating} highlight={tvHot} className={g.neutral ? "" : "ml-2"} />
         </h3>
         {finalScore(g) && (
           <div className="mt-1 font-mono text-sm font-semibold text-zinc-200">Final: {g.away} {finalScore(g)!.away}, {g.home} {finalScore(g)!.home}</div>
