@@ -1,4 +1,3 @@
-import Link from "next/link";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getSport } from "@/lib/sports";
@@ -9,6 +8,7 @@ import { ComingSoon } from "@/components/ComingSoon";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
 import { SlateBoard } from "@/components/SlateBoard";
+import { SlateDateLinks, SlateDateNav } from "@/components/SlateDateNav";
 
 // Live data: render per request (RLS depends on the visitor's session).
 export const dynamic = "force-dynamic";
@@ -31,7 +31,7 @@ export default async function SlatePage({
   params, searchParams,
 }: {
   params: Promise<{ sport: string }>;
-  searchParams: Promise<{ date?: string; sort?: string; hide?: string }>;
+  searchParams: Promise<{ date?: string; sort?: string; hide?: string; q?: string }>;
 }) {
   const { sport: key } = await params;
   const sport = getSport(key);
@@ -44,14 +44,6 @@ export default async function SlatePage({
   const res = await loadSlate(sport, date);
   const sort = parseSlateSort(sp.sort);
   const hide = sp.hide === "1";
-  const href = (d: string) => {
-    const q = new URLSearchParams();
-    if (d !== today) q.set("date", d);
-    if (sort !== "time") q.set("sort", sort);
-    if (hide) q.set("hide", "1");
-    const qs = q.toString();
-    return `/${sport.key}/slate${qs ? `?${qs}` : ""}`;
-  };
   const navBtn = "flex min-h-10 flex-1 items-center justify-center rounded-lg border border-ink-600 px-3 text-zinc-300 hover:bg-ink-800 md:flex-none";
 
   return (
@@ -67,11 +59,14 @@ export default async function SlatePage({
         title={`${fmtGameDate(date)}${date === today ? " · Today" : ""}`}
         sub="Price vs fair value on every game. Edge % is the headline — star games to watch. Tap a card for insights."
         right={
-          <nav className="flex gap-2 text-sm" aria-label="Slate date">
-            <Link href={href(shiftDate(date, -1))} className={navBtn}>‹ Prev</Link>
-            {date !== today && <Link href={href(today)} className={navBtn}>Today</Link>}
-            <Link href={href(shiftDate(date, 1))} className={navBtn}>Next ›</Link>
-          </nav>
+          <SlateDateNav
+            sportKey={sport.key}
+            date={date}
+            today={today}
+            prevDate={shiftDate(date, -1)}
+            nextDate={shiftDate(date, 1)}
+            className={navBtn}
+          />
         }
       />
       <div className="mt-4 md:mt-6">
@@ -81,17 +76,23 @@ export default async function SlatePage({
         ) : res.state === "error" ? (
           <EmptyState tone="warn" title="Couldn't load the slate"
             body="The data service didn't respond. Please refresh in a minute."
-            actions={[{ href: href(date), label: "Try again" }]} />
+            footer={<SlateDateLinks sportKey={sport.key} today={today} items={[{ date, label: "Try again" }]} />} />
         ) : res.data.games.length === 0 ? (
           <EmptyState
             title={date < today ? "No slate stored for this date" : `No ${sport.label} games on ${fmtGameDate(date)}`}
             body={date < today
               ? "We don't have a stored slate for this date."
               : "Nothing has been posted for this date yet. The model publishes each morning, so check back later."}
-            actions={[
-              ...(res.data.prevDate ? [{ href: href(res.data.prevDate), label: `‹ ${fmtGameDate(res.data.prevDate)}` }] : []),
-              ...(res.data.nextDate ? [{ href: href(res.data.nextDate), label: `${fmtGameDate(res.data.nextDate)} ›` }] : []),
-            ]}
+            footer={(
+              <SlateDateLinks
+                sportKey={sport.key}
+                today={today}
+                items={[
+                  ...(res.data.prevDate ? [{ date: res.data.prevDate, label: `‹ ${fmtGameDate(res.data.prevDate)}` }] : []),
+                  ...(res.data.nextDate ? [{ date: res.data.nextDate, label: `${fmtGameDate(res.data.nextDate)} ›` }] : []),
+                ]}
+              />
+            )}
           />
         ) : (
           <>
