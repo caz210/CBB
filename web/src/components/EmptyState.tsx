@@ -3,11 +3,12 @@ import { fmtFinalAt, fmtUpdated, isStale } from "@/lib/labels";
 
 /** Clear, mobile-friendly empty / not-connected state for live data pages. */
 export function EmptyState({
-  title, body, actions = [], tone = "neutral",
+  title, body, actions = [], footer, tone = "neutral",
 }: {
   title: string;
   body: React.ReactNode;
   actions?: { href: string; label: string }[];
+  footer?: React.ReactNode;
   tone?: "neutral" | "warn";
 }) {
   const ring = tone === "warn" ? "border-amber-400/30 bg-amber-400/5" : "border-ink-700 bg-ink-900";
@@ -27,6 +28,7 @@ export function EmptyState({
           ))}
         </div>
       )}
+      {footer}
     </div>
   );
 }

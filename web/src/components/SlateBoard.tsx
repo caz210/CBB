@@ -14,7 +14,8 @@ import { NeutralChip, TitleLine } from "./NeutralChip";
 import { SlateSearch } from "./SlateSearch";
 import { TvRatingChip } from "./TvRatingChip";
 import { compareTvRating, tvHighlightIds, type SlateSort } from "@/lib/tvRating";
-import { filterSlateGames, isEmptySlateQuery, slateGameMatches } from "@/lib/slateSearch";
+import { aliasByNameFromIndex, echoSlateQuery, filterSlateGames, isEmptySlateQuery, slateGameMatches } from "@/lib/slateSearch";
+import { useTeamIndex } from "@/lib/useTeamIndex";
 import { gameTitle, sideLabel, spreadNotationNote } from "@/lib/gameTitle";
 import { cardHeadline, notAPlayAlso, notAPlayLine } from "@/lib/verdict";
 import { evPer100, fmtEv100 } from "@/lib/stats";
@@ -42,6 +43,10 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
   // without a history entry per keystroke (same pattern as the matchup page).
   const query = search.get("q") ?? "";
   const hasQuery = !isEmptySlateQuery(query);
+  // Reuse the header's cached /api/teams index (1,674 team_aliases). If it hasn't loaded
+  // or the request fails, matching falls back to localAliases only — same as before.
+  const teamLoad = useTeamIndex(sportKey, true);
+  const aliases = teamLoad.state === "ready" ? aliasByNameFromIndex(teamLoad.index) : undefined;
   const setQuery = (next: string) => {
     const q = new URLSearchParams(search.toString());
     if (next) q.set("q", next); else q.delete("q");
@@ -61,7 +66,7 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
   const tipMs = (g: SlateGame) => (g.tipoff ? Date.parse(g.tipoff) : Infinity);
   const byTime = (a: SlateGame, z: SlateGame) => tipMs(a) - tipMs(z) || a.game_id - z.game_id;
   const completedCount = games.filter((g) => g.completed).length;
-  const matched = filterSlateGames(games, query);
+  const matched = filterSlateGames(games, query, aliases);
   const shown = matched
     .filter((g) => !(hide && g.completed))
     .filter((g) => !(watchOnly && ready && !has(g.game_id)))
@@ -75,15 +80,19 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
       : sort === "tv" ? compareTvRating : byTime);
   // highlight is computed on the day's full slate, not the hidden/filtered subset
   const tvHot = tvHighlightIds(games);
-  const visibleBet = (b: ValueBet) => {
+  const officialShown = bets.filter((b) => {
     const g = games.find((x) => x.game_id === b.game_id);
     if (!g) return false;
     if (hide && g.completed) return false;
-    if (hasQuery && !slateGameMatches(g, query)) return false;
+    if (hasQuery && !slateGameMatches(g, query, aliases)) return false;
     return true;
-  };
-  const officialShown = bets.filter(visibleBet);
-  const trackedShown = tracked.filter(visibleBet);
+  });
+  // Hide completed must not hide tracked rows (same as main). A team query still filters them.
+  const trackedShown = tracked.filter((b) => {
+    const g = games.find((x) => x.game_id === b.game_id);
+    if (hasQuery && (!g || !slateGameMatches(g, query, aliases))) return false;
+    return true;
+  });
 
   return (
     <div>
@@ -117,12 +126,12 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
       </div>
 
       {shown.length === 0 && hasQuery && (
-        <div className="mb-4 rounded-xl border border-ink-700 bg-ink-900 px-3.5 py-3 text-sm text-zinc-400">
+        <div className="mb-4 min-w-0 overflow-hidden break-words rounded-xl border border-ink-700 bg-ink-900 px-3.5 py-3 text-sm text-zinc-400 [overflow-wrap:anywhere]">
           {matched.length === 0
-            ? <>No games match “{query.trim()}”.</>
+            ? <>No games match “{echoSlateQuery(query)}”.</>
             : watchOnly
-              ? <>No watched games match “{query.trim()}”.</>
-              : <>No open games match “{query.trim()}”.</>}
+              ? <>No watched games match “{echoSlateQuery(query)}”.</>
+              : <>No open games match “{echoSlateQuery(query)}”.</>}
           {" "}
           <button type="button" onClick={() => setQuery("")} className="font-semibold text-court-400">Clear search</button>
           {matched.length > 0 && hide && (
