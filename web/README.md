@@ -10,9 +10,9 @@ npm run dev                     # http://localhost:3000   (or: npm run build && 
 node scripts/screenshots.mjs    # server running → screenshots/mobile/*.png (390px) + screenshots/desktop/*.png
 ```
 
-Routes: `/`, `/login`, `/signup`, `/[sport]/slate`, `/[sport]/results`, `/models`, `/pricing`.
-Phone navigation is a bottom tab bar (Slate · Results · My Models · Plans); the sport switcher sits
-under the header. Sports registry: `src/lib/sports.ts` (cbb live; nba/wnba coming soon).
+Routes: `/`, `/login`, `/signup`, `/[sport]/slate`, `/[sport]/results`, `/[sport]/matchup`, `/models`, `/pricing`.
+Phone navigation is a bottom tab bar (Slate · Matchup · Portfolio · My Models · Plans).
+Sports registry: `src/lib/sports.ts` (CBB is live; flip `enabled` on a league to add it, and old `/nba` and `/wnba` URLs 307 to the CBB slate).
 Data wiring, view columns, and the saved-model limit trigger: `src/lib/supabase/README.md`.
 
 ## Tiers

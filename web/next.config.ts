@@ -1,7 +1,10 @@
 import type { NextConfig } from "next";
+import { sportRedirects } from "./src/lib/sports";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  async redirects() {
+    return sportRedirects();
+  },
 };
 
 export default nextConfig;
