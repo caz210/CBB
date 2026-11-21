@@ -29,10 +29,14 @@ test("normalize drops punctuation, case, ampersands and 'and'", () => {
   assert.equal(normalize("!!"), "");
 });
 
-test("expandSt: trailing st is State, leading st is Saint, middle st is either", () => {
+test("expandSt: leading st is Saint, trailing or mid st is State, a bare st is either", () => {
   assert.deepEqual(expandSt("texas st").sort(), ["texas st", "texas state"]);
   assert.deepEqual(expandSt("st johns").sort(), ["saint johns", "st johns"]);
-  assert.deepEqual(expandSt("cal st fullerton").sort(), ["cal saint fullerton", "cal st fullerton", "cal state fullerton"]);
+  assert.deepEqual(expandSt("cal st fullerton").sort(), ["cal st fullerton", "cal state fullerton"]);
+  assert.deepEqual(expandSt("wichita st shockers").sort(), ["wichita st shockers", "wichita state shockers"]);
+  assert.ok(!expandSt("wichita st shockers").includes("wichita saint shockers"));
+  assert.deepEqual(expandSt("mount st marys").sort(), ["mount saint marys", "mount st marys"]);
+  assert.ok(!expandSt("mount st marys").includes("mount state marys"));
   assert.deepEqual(expandSt("st").sort(), ["saint", "st", "state"]);
   assert.deepEqual(expandSt("stony brook"), ["stony brook"]);
 });
@@ -138,6 +142,27 @@ test("'state' finds only X St. teams and 'saint' only Saint schools", () => {
   const saint = find("saint", [], 40);
   assert.ok(saint.includes("St. John's") && saint.includes("Saint Louis") && saint.includes("St. Thomas"));
   for (const n of ["Ball St.", "Michigan St.", "Kent St."]) assert.ok(!saint.includes(n), n);
+});
+
+test("'saint' does not match a mid-alias 'st' on State schools", () => {
+  // Mid-alias "st" used to expand to "saint", so "saint" over-matched Wichita St. ("wichita st shockers") and the like.
+  const names = [...NAMES, "Washington St.", "Wichita St.", "Mount St. Mary's"];
+  const teams = names.map((name, i) => {
+    const base: SearchTeam = { id: i + 1, name, slug: teamSlug(name), next: null };
+    if (name === "Wichita St.") return { ...base, aliases: ["wichita st shockers", "shockers"] };
+    if (name === "Washington St.") return { ...base, aliases: ["washington st cougars"] };
+    if (name === "Michigan St.") return { ...base, aliases: ["michigan st spartans", "spartans"] };
+    if (name === "Cal St. Fullerton") return { ...base, aliases: ["cal saint fullerton", "csuf"] }; // stored mid-st expansion
+    return base;
+  });
+  const idx = buildIndex(teams);
+  const saint = searchTeams(idx, "saint", 100).map((t) => t.name);
+  for (const n of ["Wichita St.", "Washington St.", "Michigan St.", "Cal St. Fullerton"]) assert.ok(!saint.includes(n), n);
+  for (const n of ["St. John's", "Saint Mary's", "Saint Louis", "Saint Joseph's"]) assert.ok(saint.includes(n), n);
+  assert.ok(saint.includes("Mount St. Mary's"));
+  assert.equal(searchTeams(idx, "michigan st")[0].name, "Michigan St.");
+  assert.equal(searchTeams(idx, "michigan state")[0].name, "Michigan St.");
+  assert.equal(searchTeams(idx, "wichita st")[0].name, "Wichita St.");
 });
 
 test("short 'st' queries stay on St/Saint: 'st louis' does not find LSU", () => {
