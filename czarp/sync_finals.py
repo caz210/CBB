@@ -148,24 +148,24 @@ def _scoreboard(day: date):
 
 
 
-def map_espn_scores(stored_home, stored_away, espn_home, espn_away, home_score, away_score,
-                    match=None):
-    """Assign ESPN scores to our stored home/away by team name, not by slot.
+def align_espn_box(stored_home, stored_away, espn_home, espn_away, home_score, away_score,
+                   match=None):
+    """Assign ESPN scores (and close-line orientation) to our stored home/away labels.
 
     Neutral events often flip ESPN's homeAway between the morning slate (when we
     first persist games.home / games.away) and the final box. Copying ESPN's
     home_score into games.home_score then credits the points to the wrong team.
 
-    Returns (home_score, away_score) in *our* stored labels, or None if the
-    two ESPN teams cannot be matched to the stored pair. If stored names are
-    missing, falls back to the ESPN slots (same as the previous behavior).
+    Returns (home_score, away_score, flipped) in *our* stored labels, or None
+    if any name is missing or the two ESPN teams cannot be matched to the
+    stored pair. Never falls back to slot order. `flipped` is True when ESPN's
+    home is our stored away (the ESPN home-frame close must be negated).
     `match`, if given, maps an ESPN name to a KenPom / stored name.
     """
     if home_score is None or away_score is None:
         return None
-    hs, aws = int(home_score), int(away_score)
     if not stored_home or not stored_away or not espn_home or not espn_away:
-        return hs, aws
+        return None
 
     def _n(name):
         if match is not None:
@@ -175,11 +175,20 @@ def map_espn_scores(stored_home, stored_away, espn_home, espn_away, home_score, 
         return str(name)
 
     sh, sa, eh, ea = _n(stored_home), _n(stored_away), _n(espn_home), _n(espn_away)
+    hs, aws = int(home_score), int(away_score)
     if sh == eh and sa == ea:
-        return hs, aws
+        return hs, aws, False
     if sh == ea and sa == eh:
-        return aws, hs
+        return aws, hs, True
     return None
+
+
+def map_espn_scores(stored_home, stored_away, espn_home, espn_away, home_score, away_score,
+                    match=None):
+    """(home_score, away_score) in stored labels, or None. See align_espn_box."""
+    got = align_espn_box(stored_home, stored_away, espn_home, espn_away,
+                         home_score, away_score, match=match)
+    return None if got is None else (got[0], got[1])
 
 
 def sync_finals(lookback: int = DEFAULT_LOOKBACK, day: date | None = None, *,
@@ -204,7 +213,7 @@ def sync_finals(lookback: int = DEFAULT_LOOKBACK, day: date | None = None, *,
         get_end = end_time
     summary = {"start": days[0].isoformat(), "end": end.isoformat(), "dates": len(days),
                "espn_games": 0, "matched": 0, "updated": 0, "unchanged": 0,
-               "unmatched_espn": 0, "errors": 0,
+               "unmatched_espn": 0, "name_mismatch": 0, "errors": 0,
                "final_at_set": 0, "final_at_actual": 0, "final_at_estimated": 0}
 
     for d in days:
@@ -244,7 +253,7 @@ def sync_finals(lookback: int = DEFAULT_LOOKBACK, day: date | None = None, *,
                     log(f"  finals {d.isoformat()} espn={eid}: ESPN teams "
                         f"{g.get('away')} / {g.get('home')} do not match stored "
                         f"{cur.get('away')} / {cur.get('home')} — scores not applied")
-                    summary["unchanged"] += 1
+                    summary["name_mismatch"] += 1
                     continue
                 hs, as_ = aligned
             else:

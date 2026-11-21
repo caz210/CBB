@@ -9,7 +9,8 @@ def test_kelly_and_min_stake():
 
 
 def test_grade_spread_and_total(monkeypatch):
-    sb = [{"event_id": "1", "state": "post", "completed": True, "home_score": 80.0, "away_score": 70.0}]
+    sb = [{"event_id": "1", "state": "post", "completed": True,
+           "home": "H", "away": "A", "home_score": 80.0, "away_score": 70.0}]
     monkeypatch.setattr(dr, "espn_scoreboard", lambda d: sb)
     monkeypatch.setattr(dr, "espn_dk_lines", lambda e: {"close_home_spread": -8.0, "close_total": 148.0,
                                                          "close_over_price": -110, "close_away_spread_price": -110})
@@ -24,6 +25,58 @@ def test_grade_spread_and_total(monkeypatch):
     assert s.result == "loss" and s.pnl == -10 and s.clv_pts == -1.5      # took +6.5, closed +8
     assert t.result == "win" and abs(t.pnl - 9.09) < 0.01 and t.clv_pts == 2.5
     assert dr.bankroll(led) == 1000 - 10 + 9.09
+
+
+def test_grade_flipped_neutral_spread_wiu_albany(monkeypatch):
+    """ESPN flipped homeAway after the morning slate (ledger home is Albany).
+
+    Hypothetical official play: Albany -3.5. Albany won 65-60, so the spread
+    wins, and ESPN's close of WIU +6.5 is Albany -6.5 in the ledger frame (CLV +3.0).
+    """
+    sb = [{"event_id": "401919826", "state": "post", "completed": True, "neutral": True,
+           "home": "Western Illinois", "away": "Albany",
+           "home_score": 60.0, "away_score": 65.0}]
+    monkeypatch.setattr(dr, "espn_scoreboard", lambda d: sb)
+    monkeypatch.setattr(dr, "espn_dk_lines", lambda e: {
+        "close_home_spread": 6.5,  # ESPN home = WIU +6.5  =>  Albany -6.5
+        "close_home_spread_price": -105,
+        "close_away_spread_price": -115,
+    })
+    led = pd.DataFrame([{
+        "game_date": "2026-11-20", "event_id": "401919826", "tip_ct": "2026-11-20 12:00",
+        "away": "Western Illinois", "home": "Albany", "neutral": True,
+        "price": -110, "stake": 10.0, "status": "open",
+        "pick_id": "401919826-spread", "market": "spread", "side": "Albany", "line": -3.5,
+    }], columns=dr.LEDGER_COLS)
+    logs = []
+    # grade() uses module-level log
+    monkeypatch.setattr(dr, "log", logs.append)
+    dr.grade(led, pd.Timestamp("2026-11-21 08:00", tz=dr.CENTRAL).to_pydatetime())
+    r = led.iloc[0]
+    assert r.status == "graded" and r.result == "win"
+    assert int(r.home_score) == 65 and int(r.away_score) == 60  # Albany 65, WIU 60
+    assert r.close_line == -6.5 and r.clv_pts == 3.0
+    assert r.close_price == -115  # swapped: picked home uses ESPN's away price
+
+
+def test_grade_leaves_open_when_names_missing_or_unmatched(monkeypatch):
+    monkeypatch.setattr(dr, "espn_dk_lines", lambda e: {"close_home_spread": -3.5})
+    base = dict(game_date="2026-01-01", event_id="1", tip_ct="2026-01-01 18:00",
+                away="A", home="H", price=-110, stake=10.0, status="open",
+                pick_id="1-spread", market="spread", side="H", line=-3.5)
+    # missing ESPN names: do not fall back to slot order
+    monkeypatch.setattr(dr, "espn_scoreboard", lambda d: [
+        {"event_id": "1", "state": "post", "completed": True, "home_score": 80.0, "away_score": 70.0}])
+    led = pd.DataFrame([base], columns=dr.LEDGER_COLS)
+    dr.grade(led, pd.Timestamp("2026-01-02", tz=dr.CENTRAL).to_pydatetime())
+    assert led.iloc[0].status == "open" and pd.isna(led.iloc[0].result)
+    # unmatched names
+    monkeypatch.setattr(dr, "espn_scoreboard", lambda d: [
+        {"event_id": "1", "state": "post", "completed": True,
+         "home": "X", "away": "Y", "home_score": 80.0, "away_score": 70.0}])
+    led = pd.DataFrame([base], columns=dr.LEDGER_COLS)
+    dr.grade(led, pd.Timestamp("2026-01-02", tz=dr.CENTRAL).to_pydatetime())
+    assert led.iloc[0].status == "open" and pd.isna(led.iloc[0].result)
 
 
 def test_feature_config_parsing_and_custom_features():

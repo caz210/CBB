@@ -91,13 +91,20 @@ def main():
         espn.update(scoreboard(d))
         d += timedelta(days=1)
     ups = []
+    skipped = []
     for g in games:
         ev = espn.get(str(g.get("external_id") or ""))
-        if not ev or g.get("home_score") is None or g.get("away_score") is None:
+        if not ev:
+            skipped.append((g, "not on ESPN scoreboard"))
+            continue
+        if g.get("home_score") is None or g.get("away_score") is None:
+            skipped.append((g, "stored scores are missing"))
             continue
         aligned = map_espn_scores(g["home"], g["away"], ev["home"], ev["away"],
                                   ev["home_score"], ev["away_score"], match=match)
         if aligned is None:
+            skipped.append((g, f"names not matched: ESPN {ev['away']} / {ev['home']} "
+                            f"vs stored {g['away']} / {g['home']}"))
             continue
         nhs, nas = aligned
         if int(g["home_score"]) == nhs and int(g["away_score"]) == nas:
@@ -109,7 +116,10 @@ def main():
                         new=(nas, nhs),
                         espn=f"{ev['away_display']} {ev['away_score']} at {ev['home_display']} {ev['home_score']}"))
     print(f"{'APPLY' if a.apply else 'DRY RUN'}: finals {start}..{end}: {len(games)} games; "
-          f"score patches: {len(ups)}")
+          f"score patches: {len(ups)}; skipped: {len(skipped)}")
+    for g, why in skipped:
+        print(f"  SKIP {g.get('date')} {g.get('away')} @ {g.get('home')} "
+              f"espn={g.get('external_id')} id={g.get('id')}: {why}")
     for u in ups:
         oa, oh = u["old"]; na, nh = u["new"]
         old_w = u["game"].split(" @ ")[0] if oa > oh else u["game"].split(" @ ")[1]

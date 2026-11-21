@@ -36,6 +36,7 @@ class FakeClient:
 
 def _espn(**kw):
     g = dict(event_id="10", game_date="2026-11-08", state="post", completed=True,
+             home="H", away="A",
              home_score=80.0, away_score=70.0, status_name="STATUS_FINAL")
     g.update(kw)
     return g
@@ -73,9 +74,9 @@ def test_game_status_and_no_downgrade():
 
 def test_sync_updates_finals_skips_unknown_and_does_not_downgrade():
     existing = [
-        dict(external_id="10", date="2026-11-08", status="scheduled", home_score=None, away_score=None, league="ncaam"),
-        dict(external_id="11", date="2026-11-08", status="final", home_score=99, away_score=88, league="ncaam"),
-        dict(external_id="12", date="2026-11-08", status="scheduled", home_score=None, away_score=None, league="ncaam"),
+        dict(external_id="10", date="2026-11-08", status="scheduled", home_score=None, away_score=None, home="H", away="A", league="ncaam"),
+        dict(external_id="11", date="2026-11-08", status="final", home_score=99, away_score=88, home="H", away="A", league="ncaam"),
+        dict(external_id="12", date="2026-11-08", status="scheduled", home_score=None, away_score=None, home="H", away="A", league="ncaam"),
     ]
     espn = [
         _espn(event_id="10"),
@@ -103,8 +104,8 @@ def test_sync_updates_finals_skips_unknown_and_does_not_downgrade():
 
 def test_sync_leaves_final_without_scores_and_marks_postponed():
     existing = [
-        dict(external_id="1", date="2026-11-07", status="scheduled", home_score=None, away_score=None, league="ncaam"),
-        dict(external_id="2", date="2026-11-07", status="scheduled", home_score=None, away_score=None, league="ncaam"),
+        dict(external_id="1", date="2026-11-07", status="scheduled", home_score=None, away_score=None, home="H", away="A", league="ncaam"),
+        dict(external_id="2", date="2026-11-07", status="scheduled", home_score=None, away_score=None, home="H", away="A", league="ncaam"),
     ]
     espn = [
         _espn(event_id="1", game_date="2026-11-07", completed=True, home_score=None, away_score=None),
@@ -178,7 +179,7 @@ def test_espn_end_utc_reads_end_game_wallclock():
 
 def test_sync_uses_espn_end_time_and_never_writes_updated_at():
     existing = [dict(external_id="10", date="2026-11-08", status="scheduled",
-                     home_score=None, away_score=None, league="ncaam", tipoff=TIP.isoformat())]
+                     home_score=None, away_score=None, home="H", away="A", league="ncaam", tipoff=TIP.isoformat())]
     c = FakeClient(existing)
     s = sync_finals(lookback=0, day=date(2026, 11, 8), client=c, log=lambda *_: None,
                     scoreboard=lambda d: [_espn(event_id="10", tip_utc=TIP)],
@@ -191,7 +192,7 @@ def test_sync_uses_espn_end_time_and_never_writes_updated_at():
 
 def test_sync_backfills_final_at_on_already_final_without_bumping_scores_or_updated_at():
     existing = [dict(external_id="10", date="2026-11-08", status="final",
-                     home_score=80, away_score=70, league="ncaam", tipoff=TIP.isoformat(),
+                     home_score=80, away_score=70, home="H", away="A", league="ncaam", tipoff=TIP.isoformat(),
                      final_at=None)]
     c = FakeClient(existing)
     s = sync_finals(lookback=0, day=date(2026, 11, 8), client=c, log=lambda *_: None,
@@ -206,7 +207,7 @@ def test_sync_backfills_final_at_on_already_final_without_bumping_scores_or_upda
 
 def test_sync_does_not_overwrite_existing_final_at():
     existing = [dict(external_id="10", date="2026-11-08", status="final",
-                     home_score=80, away_score=70, league="ncaam",
+                     home_score=80, away_score=70, home="H", away="A", league="ncaam",
                      final_at=END.isoformat(), final_at_estimated=False)]
     c = FakeClient(existing)
     s = sync_finals(lookback=0, day=date(2026, 11, 8), client=c, log=lambda *_: None,
@@ -217,7 +218,7 @@ def test_sync_does_not_overwrite_existing_final_at():
 
 def test_sync_upgrades_estimate_to_espn_end_but_not_to_another_estimate():
     existing = [dict(external_id="10", date="2026-11-08", status="final",
-                     home_score=80, away_score=70, league="ncaam",
+                     home_score=80, away_score=70, home="H", away="A", league="ncaam",
                      final_at=(TIP + timedelta(hours=2)).isoformat(), final_at_estimated=True)]
     c = FakeClient(existing)
     s = sync_finals(lookback=0, day=date(2026, 11, 8), client=c, log=lambda *_: None,
@@ -258,8 +259,12 @@ def test_map_espn_scores_assigns_by_team_not_slot():
     assert map_espn_scores("Wichita St.", "USC", "USC", "Wichita State", 93, 86, match=m) == (86, 93)
     # cannot match → None (do not write slot scores)
     assert map_espn_scores("A", "B", "C", "D", 10, 20) is None
-    # missing stored names → slot fallback (legacy / incomplete rows)
-    assert map_espn_scores(None, None, "Houston", "California", 86, 68) == (86, 68)
+    # missing names → None (never fall back to slot order)
+    assert map_espn_scores(None, None, "Houston", "California", 86, 68) is None
+    assert map_espn_scores("Houston", "California", None, None, 86, 68) is None
+    from czarp.sync_finals import align_espn_box
+    assert align_espn_box("California", "Houston", "Houston", "California", 86, 68) == (68, 86, True)
+    assert align_espn_box("California", "Houston", "California", "Houston", 86, 68) == (86, 68, False)
 
 
 def test_sync_aligns_scores_when_espn_flips_neutral_home_away():
@@ -279,3 +284,22 @@ def test_sync_aligns_scores_when_espn_flips_neutral_home_away():
     assert s["updated"] == 1
     # stored home is still California: they scored 68, Houston 86
     assert row["home_score"] == 68 and row["away_score"] == 86
+
+
+def test_sync_counts_name_mismatch_separately_and_skips_scores():
+    existing = [
+        dict(external_id="9", date="2026-11-08", status="scheduled",
+             home="StoredHome", away="StoredAway", home_score=None, away_score=None, league="ncaam"),
+    ]
+    espn = [
+        _espn(event_id="9", game_date="2026-11-08",
+              home="OtherA", away="OtherB", home_score=86, away_score=68, completed=True),
+    ]
+    c = FakeClient(existing)
+    s = sync_finals(lookback=0, day=date(2026, 11, 8), client=c, log=lambda *_: None,
+                    scoreboard=lambda d: espn, end_time=lambda eid: None)
+    assert s["name_mismatch"] == 1 and s["updated"] == 0
+    # no score write for the unmatched game
+    written = c.calls.get("games") or []
+    assert all(r.get("external_id") != "9" or r.get("home_score") is None for r in written)
+
