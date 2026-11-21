@@ -31,7 +31,7 @@ export default async function SlatePage({
   params, searchParams,
 }: {
   params: Promise<{ sport: string }>;
-  searchParams: Promise<{ date?: string; sort?: string; hide?: string }>;
+  searchParams: Promise<{ date?: string; sort?: string; hide?: string; q?: string }>;
 }) {
   const { sport: key } = await params;
   const sport = getSport(key);
@@ -49,6 +49,7 @@ export default async function SlatePage({
     if (d !== today) q.set("date", d);
     if (sort !== "time") q.set("sort", sort);
     if (hide) q.set("hide", "1");
+    if (sp.q) q.set("q", sp.q);
     const qs = q.toString();
     return `/${sport.key}/slate${qs ? `?${qs}` : ""}`;
   };

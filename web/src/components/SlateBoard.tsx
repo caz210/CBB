@@ -11,8 +11,10 @@ import { ArchetypeChip, ArchetypeLegend } from "./ArchetypeChip";
 import { InfoTip, TermLabel } from "./InfoTip";
 import { NewCoachChips } from "./NewCoachBadge";
 import { NeutralChip, TitleLine } from "./NeutralChip";
+import { SlateSearch } from "./SlateSearch";
 import { TvRatingChip } from "./TvRatingChip";
 import { compareTvRating, tvHighlightIds, type SlateSort } from "@/lib/tvRating";
+import { filterSlateGames, isEmptySlateQuery, slateGameMatches } from "@/lib/slateSearch";
 import { gameTitle, sideLabel, spreadNotationNote } from "@/lib/gameTitle";
 import { cardHeadline, notAPlayAlso, notAPlayLine } from "@/lib/verdict";
 import { evPer100, fmtEv100 } from "@/lib/stats";
@@ -36,6 +38,16 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
     const qs = q.toString();
     router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false });
   };
+  // ?q= is the search box. replaceState keeps Back/Forward, reloads and shared links in sync
+  // without a history entry per keystroke (same pattern as the matchup page).
+  const query = search.get("q") ?? "";
+  const hasQuery = !isEmptySlateQuery(query);
+  const setQuery = (next: string) => {
+    const q = new URLSearchParams(search.toString());
+    if (next) q.set("q", next); else q.delete("q");
+    const qs = q.toString();
+    window.history.replaceState(null, "", `${pathname}${qs ? `?${qs}` : ""}`);
+  };
   // ?game=<id> opens that game's sheet (used by the header team search's "Next game" link).
   const gameParam = search.get("game");
   useEffect(() => {
@@ -49,7 +61,8 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
   const tipMs = (g: SlateGame) => (g.tipoff ? Date.parse(g.tipoff) : Infinity);
   const byTime = (a: SlateGame, z: SlateGame) => tipMs(a) - tipMs(z) || a.game_id - z.game_id;
   const completedCount = games.filter((g) => g.completed).length;
-  const shown = games
+  const matched = filterSlateGames(games, query);
+  const shown = matched
     .filter((g) => !(hide && g.completed))
     .filter((g) => !(watchOnly && ready && !has(g.game_id)))
     .slice()
@@ -62,10 +75,19 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
       : sort === "tv" ? compareTvRating : byTime);
   // highlight is computed on the day's full slate, not the hidden/filtered subset
   const tvHot = tvHighlightIds(games);
-  const officialShown = bets.filter((b) => !hide || !games.find((g) => g.game_id === b.game_id)?.completed);
+  const visibleBet = (b: ValueBet) => {
+    const g = games.find((x) => x.game_id === b.game_id);
+    if (!g) return false;
+    if (hide && g.completed) return false;
+    if (hasQuery && !slateGameMatches(g, query)) return false;
+    return true;
+  };
+  const officialShown = bets.filter(visibleBet);
+  const trackedShown = tracked.filter(visibleBet);
 
   return (
     <div>
+      <SlateSearch query={query} onQuery={setQuery} />
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <div className="flex w-full min-w-0 items-center gap-1 sm:w-auto">
           <div role="radiogroup" aria-label="Sort games" className="flex min-w-0 flex-1 rounded-xl border border-ink-600 bg-ink-900 p-1 sm:flex-none">
@@ -94,7 +116,22 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
         <div className="ml-auto hidden md:block"><ArchetypeLegend /></div>
       </div>
 
-      {watchOnly && ready && shown.length === 0 && (
+      {shown.length === 0 && hasQuery && (
+        <div className="mb-4 rounded-xl border border-ink-700 bg-ink-900 px-3.5 py-3 text-sm text-zinc-400">
+          {matched.length === 0
+            ? <>No games match “{query.trim()}”.</>
+            : watchOnly
+              ? <>No watched games match “{query.trim()}”.</>
+              : <>No open games match “{query.trim()}”.</>}
+          {" "}
+          <button type="button" onClick={() => setQuery("")} className="font-semibold text-court-400">Clear search</button>
+          {matched.length > 0 && hide && (
+            <>{" "}<button type="button" onClick={() => setParam("hide", null)} className="font-semibold text-court-400">Show completed</button></>
+          )}
+        </div>
+      )}
+
+      {watchOnly && ready && shown.length === 0 && !hasQuery && (
         <div className="mb-4 rounded-xl border border-ink-700 bg-ink-900 px-3.5 py-3 text-sm text-zinc-400">
           {watchCount === 0
             ? <>No starred games yet. Tap the star on a game card to watch it.</>
@@ -105,7 +142,7 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
         </div>
       )}
 
-      {shown.length === 0 && !watchOnly && (
+      {shown.length === 0 && !watchOnly && !hasQuery && (
         <div className="rounded-xl border border-ink-700 bg-ink-900 px-3.5 py-3 text-sm text-zinc-400">
           All {games.length} games on this slate are completed.{" "}
           <button onClick={() => setParam("hide", null)} className="font-semibold text-court-400">Show them</button>
@@ -154,14 +191,14 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
         ))}
       </div>
 
-      {tracked.length > 0 && (
+      {trackedShown.length > 0 && (
         <section className="mt-6 rounded-2xl border border-dashed border-ink-700 p-3 md:p-4" aria-label="Tracked picks">
           <div className="mb-2 flex flex-wrap items-baseline gap-x-2">
-            <h2 className="text-sm font-semibold text-zinc-400">Tracked · {tracked.length}</h2>
+            <h2 className="text-sm font-semibold text-zinc-400">Tracked · {trackedShown.length}</h2>
             <span className="text-[11px] text-zinc-500">Paper-only 1u, never bet. Not part of the official portfolio.</span>
           </div>
           <ul className="divide-y divide-ink-700/50">
-            {tracked.map((b) => {
+            {trackedShown.map((b) => {
               const g = games.find((x) => x.game_id === b.game_id);
               const proof = fmtPostedStamp(b.logged_at);
               return (
