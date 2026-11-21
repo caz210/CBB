@@ -1,26 +1,29 @@
 import Link from "next/link";
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
+import { pricingCta, SHOW_ACCOUNTS, type PricingTierKey } from "@/lib/accounts";
 
 export const metadata: Metadata = { title: "Pricing" };
 
 // Tier keys match profiles.tier ('free' | 'pro' | 'syndicate').
-const TIERS = [
+const TIERS: {
+  key: PricingTierKey; name: string; price: string; period: string;
+  blurb: string; highlight?: boolean; features: string[];
+}[] = [
   {
     key: "free", name: "Free", price: "$0", period: "forever",
     blurb: "Follow along while the model earns its track record.",
-    cta: "Create free account", href: "/signup",
     features: ["Daily CBB slate: score, spread, total", "Win & cover probabilities", "Team archetype tags", "Full public results ledger", "All value bets as soon as they post", "1 saved custom model"],
   },
   {
     key: "pro", name: "Pro", price: "$—", period: "/ mo (TBD)",
     blurb: "Real-time edges, stake sizing and unlimited models.",
-    cta: "Join the Pro waitlist", href: "/signup", highlight: true,
+    highlight: true,
     features: ["Everything in Free", "¼-Kelly stake sizing", "Unlimited saved custom models", "Line-move alerts", "New sports as they launch"],
   },
   {
     key: "syndicate", name: "Syndicate", price: "Let's talk", period: "",
     blurb: "Placeholder for a higher tier: API, exports, teams.",
-    cta: "Contact us", href: "/signup",
     features: ["Everything in Pro", "API / CSV data access", "Team seats"],
   },
 ];
@@ -35,6 +38,7 @@ const COMPARE: [string, string, string][] = [
 ];
 
 export default function PricingPage() {
+  if (!SHOW_ACCOUNTS) redirect("/");
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 md:px-6 md:py-16">
       <div className="text-center">
@@ -50,7 +54,9 @@ export default function PricingPage() {
       </div>
 
       <div className="mt-8 grid gap-4 md:mt-12 md:grid-cols-3 md:gap-6">
-        {TIERS.map((t) => (
+        {TIERS.map((t) => {
+          const cta = pricingCta(t.key);
+          return (
           <div key={t.key}
             className={`relative flex flex-col rounded-2xl border p-5 md:p-7 ${t.highlight ? "order-first border-court-500 bg-gradient-to-b from-court-500/10 to-ink-900 shadow-2xl shadow-court-500/10 md:order-none" : "border-ink-700 bg-ink-900/80"}`}>
             {t.highlight && <span className="absolute -top-3 left-5 rounded-full bg-court-500 px-3 py-1 text-[11px] font-bold uppercase text-ink-950 md:left-7">Most popular</span>}
@@ -67,12 +73,13 @@ export default function PricingPage() {
                 <li key={f} className="flex gap-2"><span className="text-edge-400">✓</span><span className={f.includes("custom model") ? "font-semibold text-white" : "text-zinc-300"}>{f}</span></li>
               ))}
             </ul>
-            <Link href={t.href}
+            <Link href={cta.href}
               className={`mt-6 flex min-h-12 items-center justify-center rounded-xl font-semibold md:mt-8 ${t.highlight ? "bg-court-500 text-ink-950 hover:bg-court-400" : "border border-ink-600 hover:bg-ink-800"}`}>
-              {t.cta}
+              {cta.label}
             </Link>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="card mt-8 overflow-hidden md:mt-12">

@@ -11,6 +11,7 @@ import { postedVsNow } from "@/lib/posted";
 import { verdictLabel } from "@/lib/verdicts";
 import { TitleLine } from "@/components/NeutralChip";
 import { gameTitle, retitle } from "@/lib/gameTitle";
+import { homeCtas, homePromoCtas } from "@/lib/accounts";
 
 // Hero shows today's top official play, so render per request.
 export const dynamic = "force-dynamic";
@@ -40,8 +41,17 @@ export default async function Landing() {
               Fair value vs market price on every D1 men&apos;s game. Edge % is the headline. A public portfolio grades every pick — wins, losses, and drawdowns.
             </p>
             <div className="mt-6 grid gap-3 sm:flex md:mt-8">
-              <Link href="/signup" className="flex min-h-12 items-center justify-center rounded-xl bg-court-500 px-5 font-semibold text-ink-950 hover:bg-court-400">Create free account</Link>
-              <Link href="/cbb/slate" className="flex min-h-12 items-center justify-center rounded-xl border border-ink-600 px-5 font-semibold hover:bg-ink-800">See today&apos;s slate →</Link>
+              {homeCtas().map((l) => (
+                <Link
+                  key={l.label}
+                  href={l.href}
+                  className={l.tone === "primary"
+                    ? "flex min-h-12 items-center justify-center rounded-xl bg-court-500 px-5 font-semibold text-ink-950 hover:bg-court-400"
+                    : "flex min-h-12 items-center justify-center rounded-xl border border-ink-600 px-5 font-semibold hover:bg-ink-800"}
+                >
+                  {l.label}
+                </Link>
+              ))}
             </div>
             <div className="mt-6 flex flex-wrap gap-2 text-xs text-zinc-500 md:mt-10">
               {SPORTS.map((sp) => (
@@ -132,14 +142,16 @@ export default async function Landing() {
           <Link href="/cbb/results" className="mt-4 flex min-h-11 items-center justify-center rounded-xl border border-ink-600 px-4 text-sm font-semibold hover:bg-ink-800 md:mt-0">Full portfolio →</Link>
         </div>
 
-        <div className="mt-6 rounded-2xl border border-court-500/30 bg-gradient-to-br from-court-500/10 to-transparent p-5 md:mt-10 md:flex md:items-center md:justify-between md:gap-6 md:p-8">
+        {homePromoCtas().map((l) => (
+        <div key={l.href} className="mt-6 rounded-2xl border border-court-500/30 bg-gradient-to-br from-court-500/10 to-transparent p-5 md:mt-10 md:flex md:items-center md:justify-between md:gap-6 md:p-8">
           <div>
             <div className="text-[11px] font-bold uppercase tracking-wider text-court-400">Free: 1 model · Pro: unlimited</div>
             <h3 className="mt-1.5 text-2xl font-bold">Build your own model</h3>
             <p className="mt-1.5 max-w-2xl text-sm text-zinc-400 md:text-base">Think pace matters more? Pick the features, set the weights, save it and compare it to CZarp night after night.</p>
           </div>
-          <Link href="/models" className="mt-4 flex min-h-12 shrink-0 items-center justify-center rounded-xl bg-white px-5 font-semibold text-ink-950 hover:bg-zinc-200 md:mt-0">Try My Models</Link>
+          <Link href={l.href} className="mt-4 flex min-h-12 shrink-0 items-center justify-center rounded-xl bg-white px-5 font-semibold text-ink-950 hover:bg-zinc-200 md:mt-0">{l.label}</Link>
         </div>
+        ))}
       </section>
     </div>
   );

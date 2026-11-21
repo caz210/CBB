@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/PageHeader";
-
-export const metadata: Metadata = { title: "My Models" };
 import { ModelsWorkspace } from "@/components/ModelsWorkspace";
 import { ExampleBanner } from "@/components/ExampleBadge";
+import { SHOW_ACCOUNTS, SLATE_HREF } from "@/lib/accounts";
+
+export const metadata: Metadata = { title: "My Models" };
 
 export default function ModelsPage() {
+  if (!SHOW_ACCOUNTS) redirect(SLATE_HREF);
   return (
     <>
     <ExampleBanner />
