@@ -3,26 +3,32 @@
 # Scheduled workflows only run from the repository default branch (main).
 # The Python pipeline lives on czarp-v2, so this job checks out that branch
 # and runs `python -m czarp.sync_finals`. This file can stay on main alone.
+# The checkout is not pinned to a SHA; branch protection on czarp-v2 is
+# what stops an unreviewed push from becoming the code this job runs.
 #
 # sync_finals reads ESPN (free) and PATCHes only games.status / home_score /
 # away_score / final_at / final_at_estimated. It never writes picks or the
 # ledger, and it does not use KenPom or the Odds API.
 #
-# Cron is UTC. The window covers ~5 PM–12:30 AM CT in both CST and CDT:
-#   22:00 UTC = 4:00 PM CST / 5:00 PM CDT
-#   06:30 UTC = 12:30 AM CST / 1:30 AM CDT
+# Cron is UTC, at :07 and :37 to stay off the top-of-hour rush.
+# Hours 21-23 and 0-7 UTC cover:
+#   CST (UTC-6, through mid-March): 3:07 PM to 1:37 AM CT
+#   CDT (UTC-5, mid-March through early November): 4:07 PM to 2:37 AM CT
+# The late end of the window is meant to catch Hawaii home games
+# (HST is UTC-10; a 9:30 PM HST final is 7:30 UTC / 1:30 AM CST / 2:30 AM CDT).
+# Early tips around 4 PM CT fall inside the CST start at 3:07 PM.
 # GitHub may start a scheduled run a few minutes late, which is fine.
 
 name: Evening finals sync
 
 on:
   schedule:
-    # Every 30 minutes, 22:00–23:30 and 00:00–06:30 UTC.
-    - cron: "0,30 0-6,22-23 * * *"
+    # Every 30 minutes at :07 and :37, 21:07-23:37 and 00:07-07:37 UTC.
+    - cron: "7,37 0-7,21-23 * * *"
   workflow_dispatch:
     inputs:
       lookback:
-        description: "Days before today (America/Chicago) to include, plus today. 2 means today and the previous 2 days."
+        description: "Days before today (America/Chicago) to include, plus today. 2 means today and the previous 2 days. Capped at 14."
         type: string
         default: "2"
 
@@ -39,14 +45,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
       PYTHONUNBUFFERED: "1"
     steps:
       - name: Checkout czarp-v2
         uses: actions/checkout@v4
         with:
           ref: czarp-v2
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -58,20 +63,27 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install requests pandas numpy python-dotenv
+          # Pin the packages this job actually exercises. czarp-v2's
+          # requirements.txt is lower-bound only and would otherwise
+          # pull pandas 3 and numpy 2.5. The rest of that file is
+          # installed so daily_run's import chain is complete.
+          python -m pip install -r requirements.txt \
+            "requests==2.34.2" \
+            "pandas==2.3.3" \
+            "numpy==2.4.6" \
+            "python-dotenv==1.2.4"
 
-      - name: Check required secrets
+      - name: Sync finals
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          LOOKBACK_INPUT: ${{ github.event.inputs.lookback }}
         run: |
           if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_KEY" ]; then
             echo "Missing SUPABASE_URL or SUPABASE_SERVICE_KEY repo secret."
             echo "Add both under Settings → Secrets and variables → Actions."
             exit 1
           fi
-
-      - name: Sync finals
-        env:
-          LOOKBACK_INPUT: ${{ github.event.inputs.lookback }}
-        run: |
           LOOKBACK="${LOOKBACK_INPUT:-2}"
           case "$LOOKBACK" in
             ''|*[!0-9]*)
@@ -79,4 +91,8 @@ jobs:
               exit 2
               ;;
           esac
+          if [ "$LOOKBACK" -gt 14 ]; then
+            echo "lookback capped at 14 (got $LOOKBACK)."
+            LOOKBACK=14
+          fi
           python -m czarp.sync_finals --lookback "$LOOKBACK"

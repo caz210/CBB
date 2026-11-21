@@ -79,11 +79,11 @@ function RankTable({
     <table className="w-full table-fixed text-sm">
       <caption className="sr-only">{caption}</caption>
       <colgroup>
-        <col className="w-8 sm:w-10" />
-        <col className="w-11 sm:w-12" />
+        <col className="w-9 sm:w-10" />
+        <col className="w-9 sm:w-12" />
         <col />
-        <col className="w-[4.25rem] sm:w-20" />
-        <col className="w-14 sm:w-16" />
+        <col className="w-14 sm:w-20" />
+        <col className="w-12 sm:w-16" />
       </colgroup>
       <thead className="bg-ink-850 text-left text-[11px] font-bold uppercase tracking-normal text-zinc-500 sm:tracking-wider">
         <tr>
@@ -109,7 +109,7 @@ function RankTable({
       <tbody>
         {rows.map((r) => (
           <tr key={r.team_id} className="border-t border-ink-700/60 hover:bg-ink-850">
-            <td className="whitespace-nowrap py-2.5 pl-2 pr-1 font-mono text-sm tabular-nums text-zinc-300 sm:pl-4 sm:py-3">
+            <td className="whitespace-nowrap py-2.5 pl-2 pr-1.5 font-mono text-sm tabular-nums text-zinc-300 sm:pl-4 sm:py-3">
               {r.rank}
             </td>
             <td className="whitespace-nowrap py-2.5 pr-1 sm:py-3">

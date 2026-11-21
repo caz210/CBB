@@ -1,10 +1,17 @@
 import { NeutralChip } from "@/components/NeutralChip";
-import { atsSideLabel, gameTitle, spreadRef } from "@/lib/gameTitle";
+import { gameTitle, spreadRef } from "@/lib/gameTitle";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getSport } from "@/lib/sports";
 import { loadTeam } from "@/lib/data";
+import {
+  czarpAtsLine,
+  czarpTotalLine,
+  officialMarketDisplay,
+  teamSubtitleParts,
+  type TeamSubtitlePart,
+} from "@/lib/teamPage";
 import { teamHref } from "@/lib/teams";
 import { matchupHref } from "@/lib/matchup";
 import { GAME_STATUS_LABEL, finalLabel, fmtGameDate, fmtLine, fmtPlayPct, fmtTipoff } from "@/lib/labels";
@@ -47,8 +54,8 @@ export default async function TeamPage({ params }: { params: Promise<{ sport: st
         eyebrow={`${sport.long} · Team`}
         title={res.state === "live" && res.data ? (res.data.profile?.team_name ?? res.data.record?.team_name ?? decodeSlug(slug)) : decodeSlug(slug)}
         sub={
-          res.state === "live" && res.data?.profile
-            ? `${res.data.profile.season - 1}–${String(res.data.profile.season).slice(2)} · ${res.data.profile.games_played ?? "—"} GP${res.data.profile.tentative ? " · tentative" : ""}`
+          res.state === "live" && res.data
+            ? <TeamPageSubtitle sportKey={sport.key} profile={res.data.profile} ranking={res.data.ranking} />
             : "Profile, CZarp record, and game log."
         }
         right={
@@ -86,6 +93,7 @@ function decodeSlug(slug: string) {
 function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extract<Awaited<ReturnType<typeof loadTeam>>, { state: "live" }>["data"]> }) {
   const p = data.profile;
   const r = data.record;
+  const teamName = p?.team_name ?? r?.team_name ?? "this team";
   const next = data.next;
   const coach = p ? newCoachLock(p.team_name, p) : null;
   const nextEdge = next ? cardHeadline(next, next.officialBets ?? []) : null;
@@ -158,7 +166,7 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
       <section className="card p-4 md:p-5">
         <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="flex items-center gap-1.5 font-bold"><TermLabel term="percentile">Profile</TermLabel></h2>
-          <span className="text-xs text-zinc-500">Percentiles only · not KenPom ranks</span>
+          <span className="text-xs text-zinc-500">Percentiles vs all D-I teams</span>
         </div>
         {!p ? (
           <p className="text-sm text-zinc-500">No profile row yet for this team.</p>
@@ -197,7 +205,8 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
 
       {/* CZarp record */}
       <section className="card p-4 md:p-5">
-        <h2 className="mb-3 font-bold">CZarp record</h2>
+        <h2 className="font-bold">How CZarp has done on {teamName}</h2>
+        <p className="mt-1 mb-3 text-sm text-zinc-500">CZarp&apos;s picks in {teamName} games, win or lose for CZarp — not whether {teamName} covered.</p>
         {!r ? (
           <p className="text-sm text-zinc-500">No graded games for this team yet.</p>
         ) : (
@@ -213,8 +222,8 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
               title="Official picks"
               rows={[
                 { l: "Overall", v: `${r.official_wins}-${r.official_losses}-${r.official_pushes}` },
-                { l: "ATS", v: `${r.official_ats_wins}-${r.official_ats_losses}` },
-                { l: "O/U", v: `${r.official_ou_wins}-${r.official_ou_losses}` },
+                officialMarketRow("ATS", r.official_ats_wins, r.official_ats_losses),
+                officialMarketRow("O/U", r.official_ou_wins, r.official_ou_losses),
               ]}
             />
           </div>
@@ -256,13 +265,13 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
                       </div>
                       <div className="mt-0.5 font-mono text-[11px] text-zinc-500">
                         FV {g.model_spread == null ? "—" : spreadRef(fmtLine(g.model_spread), g.home, g.neutral)} · Price {g.vegas_spread == null ? "—" : spreadRef(fmtLine(g.vegas_spread), g.home, g.neutral)}
-                        {g.model_ats_side ? ` · ATS ${atsSideLabel(g.model_ats_side, g.away, g.home, g.neutral)}` : ""}
-                        {g.model_ou_side ? ` · ${g.model_ou_side}` : ""}
                       </div>
-                    </div>
-                    <div className="shrink-0 text-right text-xs">
-                      <Result r={g.model_ats_result} label="ATS" />
-                      <Result r={g.model_ou_result} label="O/U" />
+                      <CzarpPickLines
+                        ats={czarpAtsLine({ side: g.model_ats_side, result: g.model_ats_result, away: g.away, home: g.home })}
+                        atsResult={g.model_ats_result}
+                        ou={czarpTotalLine({ side: g.model_ou_side, result: g.model_ou_result })}
+                        ouResult={g.model_ou_result}
+                      />
                     </div>
                   </div>
                 </li>
@@ -301,15 +310,27 @@ function Mini({ label, value, hint }: { label: string; value: string; hint?: str
   );
 }
 
-function RecordCard({ title, rows }: { title: string; rows: { l: string; v: string }[] }) {
+function officialMarketRow(label: string, wins: number, losses: number) {
+  const d = officialMarketDisplay(wins, losses);
+  return { l: label, v: d.value ?? "", hint: d.hint, quiet: d.quiet };
+}
+
+function RecordCard({ title, rows }: { title: string; rows: { l: string; v: string; hint?: string; quiet?: boolean }[] }) {
   return (
     <div className="rounded-xl border border-ink-700 bg-ink-850 p-3">
       <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">{title}</div>
       <div className="space-y-1.5">
         {rows.map((x) => (
-          <div key={x.l} className="flex items-center justify-between text-sm">
+          <div key={x.l} className="flex items-center justify-between gap-2 text-sm">
             <span className="text-zinc-400">{x.l}</span>
-            <span className="font-mono font-semibold">{x.v}</span>
+            {x.quiet ? (
+              <span className="text-xs text-zinc-500">{x.hint}</span>
+            ) : (
+              <span className="inline-flex items-baseline gap-1.5">
+                <span className="font-mono font-semibold">{x.v}</span>
+                {x.hint && <span className="text-[10px] font-medium text-zinc-500">{x.hint}</span>}
+              </span>
+            )}
           </div>
         ))}
       </div>
@@ -317,9 +338,79 @@ function RecordCard({ title, rows }: { title: string; rows: { l: string; v: stri
   );
 }
 
-function Result({ r, label }: { r: string | null; label: string }) {
-  if (!r) return <div className="text-zinc-600">{label} —</div>;
+function resultTone(r: string | null | undefined): string {
+  if (!r) return "text-zinc-500";
   const up = r.toLowerCase();
-  const cls = up.startsWith("w") ? "text-edge-400" : up.startsWith("l") ? "text-fade-400" : "text-zinc-400";
-  return <div className={`font-mono font-semibold ${cls}`}>{label} {r}</div>;
+  if (up.startsWith("w")) return "text-edge-400";
+  if (up.startsWith("l")) return "text-fade-400";
+  return "text-zinc-400";
+}
+
+function CzarpPickLines({
+  ats, atsResult, ou, ouResult,
+}: {
+  ats: string | null;
+  atsResult: string | null;
+  ou: string | null;
+  ouResult: string | null;
+}) {
+  if (!ats && !ou) return null;
+  return (
+    <div className="mt-1 min-w-0 space-y-0.5 text-xs font-semibold">
+      {ats && <div className={`break-words ${resultTone(atsResult)}`}>{ats}</div>}
+      {ou && <div className={`break-words ${resultTone(ouResult)}`}>{ou}</div>}
+    </div>
+  );
+}
+
+function TeamPageSubtitle({
+  sportKey, profile, ranking,
+}: {
+  sportKey: string;
+  profile: NonNullable<Extract<Awaited<ReturnType<typeof loadTeam>>, { state: "live" }>["data"]>["profile"];
+  ranking: NonNullable<Extract<Awaited<ReturnType<typeof loadTeam>>, { state: "live" }>["data"]>["ranking"];
+}) {
+  const parts = teamSubtitleParts({
+    season: profile?.season,
+    gamesPlayed: profile ? profile.games_played : undefined,
+    tentative: profile?.tentative,
+    ranking,
+  });
+  if (parts.length === 0) return "Profile, CZarp record, and game log.";
+  return (
+    <span className="inline-flex max-w-full min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
+      {parts.map((part, i) => (
+        <span key={part.key} className="inline-flex min-w-0 items-center gap-x-1.5">
+          {i > 0 && <span className="text-zinc-600" aria-hidden>·</span>}
+          <SubtitlePart sportKey={sportKey} part={part} />
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function SubtitlePart({ sportKey, part }: { sportKey: string; part: TeamSubtitlePart }) {
+  if (part.key === "rank") {
+    const [rank, ...rest] = part.text.split(" ");
+    const mark = rest.join(" ");
+    return (
+      <span className="inline-flex items-center gap-1 whitespace-nowrap">
+        <Link href={`/${sportKey}/rankings`} className="font-semibold text-zinc-300 hover:text-court-400">
+          {rank}
+        </Link>
+        {mark && (
+          <span className="text-zinc-500" aria-label={mark === "New" ? "New" : mark === "=" ? "No change" : mark.startsWith("▲") ? `Up ${mark.slice(1)}` : mark.startsWith("▼") ? `Down ${mark.slice(1)}` : mark}>
+            {mark}
+          </span>
+        )}
+      </span>
+    );
+  }
+  if (part.key === "rating") {
+    return <TermLabel term="teamRating"><span className="whitespace-nowrap font-mono">{part.text}</span></TermLabel>;
+  }
+  if (part.key === "record") {
+    return <TermLabel term="diRecord"><span className="whitespace-nowrap">{part.text}</span></TermLabel>;
+  }
+  return <span className="whitespace-nowrap">{part.text}</span>;
 }

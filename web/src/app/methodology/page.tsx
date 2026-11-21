@@ -38,7 +38,7 @@ export default function MethodologyPage() {
       eyebrow="How it works"
       title="Methodology"
     >
-      <p>This page will explain how CZarp builds projections, measures edge, and grades the public book. Until that copy lands, the glossary below defines the verdicts, game chips, and style tags you will see on the slate and team pages.</p>
+      <p>This page will explain how CZarp builds projections, measures edge, and grades the public book.</p>
       {sections.map((s) => (
         <div key={s.title}>
           <H>{s.title}</H>

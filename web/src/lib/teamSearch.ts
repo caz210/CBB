@@ -49,11 +49,19 @@ export function normalize(s: string): string {
     .join(" ");
 }
 
-/** "st" is ambiguous: leading ("St. John's") means Saint, trailing ("Texas St.") means State, and in the
- *  middle ("Cal St. Fullerton", "Mount St. Mary's") either. State and Saint are NOT interchangeable
- *  with each other: "state" never finds Saint schools and "saint" never finds X St. schools. */
+/** "st" is ambiguous: a leading "st" ("St. John's", "St. Mary's") means Saint, and so does "st" after
+ *  Mount/Mt ("Mount St. Mary's"). Everywhere else ("Texas St.", "Cal St. Fullerton", a mid-alias like
+ *  "wichita st shockers") it means State. A bare "st" can be either. State and Saint are NOT
+ *  interchangeable: "state" never finds Saint schools and "saint" never finds X St. schools. */
 const STATE = "state";
 const SAINT = "saint";
+
+/** True when the "st" at `i` should be read as Saint, not State. */
+function stMeansSaint(i: number, toks: string[]): boolean {
+  if (i === 0) return true;
+  const prev = toks[i - 1];
+  return prev === "mount" || prev === "mt";
+}
 
 /** Spellings of a normalised string where a standalone "st" may be written out as state/saint. */
 export function expandSt(n: string): string[] {
@@ -64,11 +72,31 @@ export function expandSt(n: string): string[] {
     let opts = [t];
     if (t === "st") {
       const lead = i === 0, trail = i === toks.length - 1;
-      opts = ["st", ...(lead && !trail ? [SAINT] : trail && !lead ? [STATE] : [STATE, SAINT])];
+      // A bare "st" can be either. Leading (or Mount/Mt + st) is Saint; other mid/trailing "st" is State.
+      opts = lead && trail ? ["st", STATE, SAINT] : stMeansSaint(i, toks) ? ["st", SAINT] : ["st", STATE];
     }
     acc = acc.flatMap((p) => opts.map((o) => [...p, o]));
   });
   return [...new Set(acc.map((a) => a.join(" ")))];
+}
+
+/** Forms that wrongly rewrite st/state/saint in this string (State "st" as "saint", or Saint "st" as "state").
+ *  Used to drop pre-expanded DB aliases like "cal saint fullerton". */
+function spuriousStForms(n: string): Set<string> {
+  const toks = n.split(" ").filter(Boolean);
+  const out = new Set<string>();
+  toks.forEach((t, i) => {
+    if (t !== "st" && t !== STATE && t !== SAINT) return;
+    const asSaint = stMeansSaint(i, toks);
+    const wrong = (t === "st" || t === STATE) && !asSaint ? SAINT
+      : (t === "st" || t === SAINT) && asSaint && !(i === 0 && toks.length === 1) ? STATE
+      : null;
+    if (!wrong) return;
+    const copy = toks.slice();
+    copy[i] = wrong;
+    out.add(copy.join(" "));
+  });
+  return out;
 }
 
 /** DB aliases (team_aliases, loaded by /api/teams) plus the local map. The union means a failed or partial
@@ -79,7 +107,14 @@ export function buildIndex(teams: SearchTeam[], aliasesFor: AliasLookup = teamAl
   return teams.map((team) => {
     const name = normalize(team.name);
     const nameForms = expandSt(name);
-    const aliasForms = [...new Set(aliasesFor(team).map(normalize).filter((a) => a && a !== name).flatMap(expandSt))];
+    const raw = aliasesFor(team).map(normalize).filter((a) => a && a !== name);
+    // The alias table may already contain "cal saint fullerton"-style expansions of a mid "st". Drop those.
+    const spurious = spuriousStForms(name);
+    for (const a of raw) {
+      if (spurious.has(a)) continue;
+      for (const f of spuriousStForms(a)) spurious.add(f);
+    }
+    const aliasForms = [...new Set(raw.flatMap(expandSt).filter((f) => !spurious.has(f)))];
     return { team, name, nameForms, aliasForms };
   });
 }
