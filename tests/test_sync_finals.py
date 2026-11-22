@@ -144,6 +144,7 @@ def test_sync_lookback_fetches_each_day():
 def test_cli_parses_date_and_lookback(monkeypatch):
     calls = []
     monkeypatch.setattr(sf, "sync_finals", lambda **kw: calls.append(kw) or {"updated": 0})
+    monkeypatch.setattr("czarp.sync_game_log.sync_game_log", lambda **kw: {})
     assert main(["--date", "2026-11-08"]) == 0
     assert calls[0]["day"] == date(2026, 11, 8) and calls[0]["lookback"] == 0
     calls.clear()

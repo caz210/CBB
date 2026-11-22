@@ -2226,6 +2226,13 @@ def main(argv=None) -> int:
         except Exception as e:
             log(f"  finals sync failed ({type(e).__name__}: {e}) — will retry next run")
             notes.append("Finals sync failed this run; scores will retry next run.")
+        try:
+            from czarp.sync_finals import DEFAULT_LOOKBACK as _LB
+            from czarp.sync_game_log import sync_game_log
+            sync_game_log(lookback=_LB, now=now, log=log)
+        except Exception as e:
+            log(f"  game log sync failed ({type(e).__name__}: {e}) — will retry next run")
+            notes.append("Game log sync failed this run; non-D-I results will retry next run.")
         # Official CZarp rankings: publish once for the current week after
         # Monday 7 AM CT (catches up later in the week if Monday was missed).
         # Skips if that week already has a snapshot. Never blocks picks.

@@ -369,6 +369,13 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as e:
         print(f"finals sync failed ({type(e).__name__}: {e})", file=sys.stderr)
         return 1
+    # Non-D-I results + missing D-I finals + null team_id repair. Failures
+    # are logged but do not fail the finals job (scores already landed).
+    try:
+        from czarp.sync_game_log import sync_game_log
+        sync_game_log(lookback=lookback, day=end)
+    except Exception as e:
+        print(f"game log sync failed ({type(e).__name__}: {e})", file=sys.stderr)
     return 0
 
 
