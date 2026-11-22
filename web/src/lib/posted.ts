@@ -5,7 +5,7 @@
 import { fmtLine, fmtOne, fmtPostedVsNow, fmtScore, type Market } from "./labels";
 import type { SlateGame, ValueBet } from "./types";
 
-function mentionsTeam(side: string, team: string) {
+export function mentionsTeam(side: string, team: string) {
   const s = side.trim().toLowerCase();
   const t = team.trim().toLowerCase();
   if (!t || !s) return false;

@@ -21,6 +21,7 @@ import { gameTitle, sideLabel, spreadNotationNote } from "@/lib/gameTitle";
 import { cardHeadline, marketRatings, notAPlayAlso, notAPlayLine, type MarketRating } from "@/lib/verdict";
 import { LINE_MOVE_NOTE, type VerdictLevel } from "@/lib/verdicts";
 import { fmtLinesAsOf } from "@/lib/linesAsOf";
+import { cardHeaderRow, cardNoteLine, type EdgeTone } from "@/lib/cardHeader";
 import { evPer100, fmtEv100 } from "@/lib/stats";
 import { POSTED_TOTAL_NOTE, betCoverProb, postedFairVsProjections, postedVsNow, totalFair } from "@/lib/posted";
 
@@ -310,18 +311,13 @@ function GameCard({ g, sportKey, bets, watched, tvHot, onWatch, onOpen, onGame }
   const edge = cardHeadline(g, bets);
   const ratings = marketRatings(g, bets);
   const asOf = fmtLinesAsOf(g.lines_as_of);
-  const hasEdge = edge.edgePct != null;
   const official = edge.verdict === "official";
   const single = official && bets.length === 1 ? bets[0] : null;
-  const whyNot = official ? null : notAPlayLine(g, bets);
+  const note = cardNoteLine(g, bets);
+  const row = cardHeaderRow(g, bets);
   const timeLabel = g.completed
     ? finalLabel(g.final_at, g.final_at_estimated, g.game_date)
     : (g.tipoff ? fmtTipoff(g.tipoff) : "Tip-off TBD");
-  const headline = edge.officialBet
-    ? `${edge.officialBet.side} · ${MARKET_LABEL[edge.officialBet.market]}`
-    : edge.market
-      ? `${MARKET_LABEL[edge.market]} · fair vs price`
-      : gameTitle(g.away, g.home, g.neutral).text;
   const openSingle = (e: { stopPropagation: () => void }) => { e.stopPropagation(); onOpen(single!); };
   const fair = totalFair(g, bets);
   const hasTeamProj = g.proj_home != null || g.proj_away != null;
@@ -349,15 +345,15 @@ function GameCard({ g, sportKey, bets, watched, tvHot, onWatch, onOpen, onGame }
         <span aria-hidden="true" className="mt-2 shrink-0 font-sans text-court-400">›</span>
       </header>
 
-      {/* Edge headline. With one official bet, tapping this opens the value sheet. */}
+      {/* Header row: one market, the side the edge favors, the edge now. With one official bet, tapping it opens the value sheet. */}
       {single ? (
         <button type="button" onClick={openSingle} aria-label={`Open ${single.side} details`}
-          className="flex w-full items-end justify-between gap-3 border-b border-ink-700/40 px-4 py-3 text-left hover:bg-ink-850/60">
-          <HeadlineBody headline={headline} subtitle={edge.subtitle} hasEdge={hasEdge} verdict={edge.verdict} edgeLabel={edge.edgeLabel} lineMoveNote={edge.lineMoveNote} />
+          className="block w-full border-b border-ink-700/40 px-4 py-3 text-left hover:bg-ink-850/60">
+          <HeaderRow row={row} />
         </button>
       ) : (
-        <div className="flex items-end justify-between gap-3 border-b border-ink-700/40 px-4 py-3">
-          <HeadlineBody headline={headline} subtitle={edge.subtitle} hasEdge={hasEdge} verdict={edge.verdict} edgeLabel={edge.edgeLabel} lineMoveNote={edge.lineMoveNote} />
+        <div className="border-b border-ink-700/40 px-4 py-3">
+          <HeaderRow row={row} />
         </div>
       )}
 
@@ -394,15 +390,9 @@ function GameCard({ g, sportKey, bets, watched, tvHot, onWatch, onOpen, onGame }
         ))}
       </div>
 
-      {official && postedFairVsProjections(edge.officialBet, g) && (
-        <div className="border-t border-ink-700/40 px-4 py-2 font-mono text-[11px] leading-snug text-zinc-400">
-          {postedFairVsProjections(edge.officialBet, g)}
-        </div>
-      )}
-
-      {whyNot && (
+      {note && (
         <div className="border-t border-ink-700/40 px-4 py-2" onClick={(e) => e.stopPropagation()}>
-          <NotAPlay line={whyNot} showTip={!edge.subtitle} />
+          <NotAPlay line={note} />
         </div>
       )}
 
@@ -506,29 +496,20 @@ function LineMoveNote({ className = "" }: { className?: string }) {
   return <div className={`text-[11px] font-medium leading-snug text-amber-300/90 ${className}`}>{LINE_MOVE_NOTE}</div>;
 }
 
-function HeadlineBody({ headline, subtitle, hasEdge, verdict, edgeLabel, lineMoveNote = false }: {
-  headline: string; subtitle?: string | null; hasEdge: boolean; verdict: VerdictLevel; edgeLabel: string | null; lineMoveNote?: boolean;
-}) {
+const EDGE_TONE: Record<EdgeTone, string> = { green: "text-edge-400", neutral: "text-zinc-300", dim: "text-zinc-500" };
+
+/** "SPREAD  Texas St. -2.5  2.5%". The tier lives in the top-row chip; the % color follows it (lib/cardHeader). */
+function HeaderRow({ row }: { row: import("@/lib/cardHeader").CardHeaderRow }) {
   return (
-    <>
-      <div className="min-w-0">
-        {/* Wraps instead of truncating: at 320px "Spread · fair vs price" is a few px wider than the column. */}
-        <div className="flex items-start gap-1 text-sm font-semibold leading-snug text-zinc-300">
-          <span className="min-w-0 break-words">{headline}</span>
-          <InfoTip term="edge" />
-        </div>
-        {subtitle && (
-          <div className="mt-0.5 flex items-start gap-1 font-mono text-[11px] leading-snug text-zinc-500">
-            <span className="min-w-0">{subtitle}</span>
-            <InfoTip term="ladderRule" />
-          </div>
-        )}
-        {lineMoveNote && <LineMoveNote className="mt-0.5" />}
+    <div>
+      <div className="flex items-baseline gap-2">
+        {row.marketLabel && <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">{row.marketLabel}</span>}
+        <span className={`min-w-0 flex-1 break-words text-[15px] font-bold leading-tight ${row.pick ? "text-white" : "font-semibold text-zinc-400"}`}>{row.pick ?? row.fallback}</span>
+        <span className={`shrink-0 font-mono text-2xl font-black leading-none ${EDGE_TONE[row.tone]}`}>{row.edgeLabel ?? "—"}</span>
       </div>
-      <div className={`shrink-0 font-mono text-4xl font-black leading-none ${edgeNumberClass(hasEdge, verdict)}`}>
-        {hasEdge && edgeLabel ? edgeLabel : "—"}
-      </div>
-    </>
+      {row.now && <div className="mt-0.5 font-mono text-[11px] text-zinc-500">{row.now}</div>}
+      {row.lineMoveNote && <LineMoveNote className="mt-1" />}
+    </div>
   );
 }
 
