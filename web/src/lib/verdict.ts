@@ -7,7 +7,7 @@
 import { fmtEdgeVsBar, fmtPlayPct, fmtThresholdPct, type Market } from "./labels";
 import type { SlateGame, ValueBet } from "./types";
 import { marketPauseText } from "./coach";
-import { clearsBar, HOLD_CODES, LATE_VALUE_NOTE, ladderLevel, showsLineMoveNote, VERDICT_RANK, type HoldCode, type VerdictLevel } from "./verdicts";
+import { HOLD_CODES, LATE_VALUE_NOTE, ladderLevel, showsLineMoveNote, VERDICT_RANK, type HoldCode, type VerdictLevel } from "./verdicts";
 
 /** The pipeline's stored verdict_* column (not the customer ladder). */
 export type StoredVerdict = "official" | "low_value";
@@ -186,7 +186,6 @@ const LINE_MOVED_LABEL: string = HOLD_CODES.line_moved_against;
 export function knownSkipCodeLabel(code: string, thresholdPct: string): string | null {
   switch (code) {
     case "below_open_threshold": return `edge vs open below ${thresholdPct}`;
-    case "below_current_threshold": return `edge now below ${thresholdPct}`;
     case "line_moved_against": return LINE_MOVED_LABEL;
     case "no_opening_line": return "no opening line yet";
     case "no_current_line": return "no current line";
@@ -281,16 +280,15 @@ const BAR_CODES = new Set(["below_open_threshold", "below_current_threshold"]);
  *  - Late Value: LATE_VALUE_NOTE, shown as-is (any other
  *    stored reason, e.g. "game already started", still shows).
  *  - Value past the bar: the hold rule(s) as the note (new-coach pause leads).
- *  - Below the bar (Toss Up, Lean, Value): "edge now below 4%" (plus any other stored reason), or
- *    the stored text with opening-line wording removed. */
+ *  - Below the bar (Toss Up, Lean, Value): no bar reason (the chip and the edge say it); only other
+ *    stored reasons (e.g. stake under $1, game already started), or the stored text with
+ *    opening-line wording removed. */
 function skipForMarket(g: SlateGame, officialBets: ValueBet[], market: Market): SkipDetail {
   const m: Market = market === "moneyline" ? "spread" : market;
   const v = marketVerdict(g, officialBets, m);
   if (v.level === "official") return { primary: null, also: [] };
   const stored = m === "total" ? g.skip_reasons_total : g.skip_reasons_spread;
   const codes = (stored ?? []).filter((c) => !BAR_CODES.has(c));
-  // Below the bar (Toss Up, Lean, or a Value under the bar): say so first.
-  if (v.level !== "late_value" && !v.holds.length && marketEdgeNow(g, m) != null && !clearsBar(m, marketEdgeNow(g, m))) codes.unshift("below_current_threshold");
   // A structured row whose remaining codes all have labels doesn't need the stored text (which can
   // still carry opening-line or stale wording). Unknown codes and the coach pause still read it.
   const structured = !!stored?.length && codes.every((c) => c !== COACH_SKIP && knownSkipCodeLabel(c, "") != null);

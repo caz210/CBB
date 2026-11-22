@@ -5,7 +5,7 @@
  *    spreads: proj_spread vs market_spread (home-line notation);
  *    totals:  czarp_total (the official total, the one edge_now_pct_total uses) vs market_total.
  *             Never slate_games.proj_total. */
-import { MARKET_LABEL, fmtEdgeVsBar, fmtLine, fmtOne, type Market } from "./labels";
+import { MARKET_LABEL, fmtEdgeVsBar, fmtLine, fmtOne, fmtSpread, type Market } from "./labels";
 import { currentLineForBet } from "./posted";
 import type { SlateGame, ValueBet } from "./types";
 import { cardHeadline, notAPlayLine, type CardHeadline } from "./verdict";
@@ -25,8 +25,8 @@ export function edgeTone(verdict: VerdictLevel, lineMoveNote: boolean, hasEdge =
   return "dim";
 }
 
-/** Signed spread for a pick: one decimal, or "PK" at zero. */
-export const fmtPickLine = (n: number) => (fmtLine(n) === "0.0" ? "PK" : fmtLine(n));
+/** Signed spread for a pick: one decimal, or "PK" at zero (labels.fmtSpread). */
+export const fmtPickLine = fmtSpread;
 
 /** The side the edge favors at the current price. null pick + "even" when FV equals Price (as displayed);
  *  null pick + "missing" when either number is missing. */
@@ -96,8 +96,8 @@ export function cardHeaderRow(g: SlateGame, bets: ValueBet[]): CardHeaderRow {
 }
 
 /** The card's note line under the projection: only a hold reason (new-coach pause, market move, stake under
- *  $1) on a held Value. "Not a play: edge now below X%" is gone; the chip and the edge say that. The
- *  line-move note sits under the header row instead. */
+ *  $1) on a held Value. Below-bar markets get no note; the chip and the edge say that. The line-move
+ *  note sits under the header row instead. Used by the card and the game sheet. */
 export function cardNoteLine(g: SlateGame, bets: ValueBet[]): string | null {
   const h = cardHeadline(g, bets);
   if (h.verdict !== "value" || !h.holds.length) return null;

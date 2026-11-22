@@ -205,7 +205,7 @@ test("Drexel @ Maine 11-14 card: Value on the current line (2.68% total; stake h
   assert.deepEqual(h.holds, []);
   assert.equal(h.edgeLabel, "2.6%");
   assert.equal(h.subtitle, "vs now 2.6% (needs 3%)");
-  assert.equal(notAPlayLine(g, []), "Not a play: edge now below 3%; stake under $1");
+  assert.equal(notAPlayLine(g, []), "Not a play: stake under $1");
 });
 
 test("near-bar edges never display as meeting the bar", () => {
@@ -283,9 +283,9 @@ test("South Alabama @ UCF 11-10: Spread Late Value, Total Lean; header names the
   assert.ok(t.kind === "verdict" && t.verdict === "late_value" && t.market === "spread");
   // No opening-line copy anywhere on the card.
   assert.equal(notAPlayLine(g, []), LATE_VALUE_NOTE);
-  assert.equal(notAPlayLine(g, [], "total"), "Not a play: edge now below 3%");
+  assert.equal(notAPlayLine(g, [], "total"), null); // below the bar: no reason line, the chip and edge say it
   // Team page lines use the same copy.
-  assert.deepEqual(notAPlayLines(g, []), [LATE_VALUE_NOTE, "Not a play: edge now below 3%"]);
+  assert.deepEqual(notAPlayLines(g, []), [LATE_VALUE_NOTE]);
 });
 
 test("Lamar @ Nebraska Omaha 11-17: Total Value (new-coach pause), Spread Value (edge 3.2%)", () => {

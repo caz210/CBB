@@ -91,6 +91,9 @@ function fromUnits(u: number, dp: number): string {
 export const fmtOne = (n: number) => { const u = units(n, 1); return fromUnits(u === 0 ? 0 : u, 1); };
 /** Signed line at exactly one decimal, keeping a trailing .0: "-6.1", "+8.9", "-6.0", "0.0". FV and Price spreads. */
 export const fmtLine = (n: number) => { const u = units(n, 1); return u > 0 ? `+${fromUnits(u, 1)}` : fromUnits(u === 0 ? 0 : u, 1); };
+/** Spread for display: one decimal, or "PK" when it is 0 (the only exception to the one-decimal rule).
+ *  Spreads only; totals are never PK. */
+export const fmtSpread = (n: number) => (fmtLine(n) === "0.0" ? "PK" : fmtLine(n));
 /** Projected team score at its stored precision, never re-rounded to one decimal. The pipeline stores
  *  (total ± margin) / 2 at two decimals with total and margin at 0.1, so a score ends in .x0 or .x5:
  *  two decimals only when the second digit isn't zero (74.05, 67.95), else one (74.0, 74.5). Never more

@@ -2,7 +2,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { SlateGame, ValueBet } from "@/lib/types";
-import { LOCKED_NOTE, MARKET_LABEL, finalLabel, fmtLine, fmtOne, fmtPostedStamp, fmtScore, fmtWinProb, fmtTipoff, pct, signedPct } from "@/lib/labels";
+import { LOCKED_NOTE, MARKET_LABEL, finalLabel, fmtOne, fmtSpread, fmtPostedStamp, fmtScore, fmtWinProb, fmtTipoff, pct, signedPct } from "@/lib/labels";
 import { useWatchlist } from "@/lib/watchlist";
 import { compactSlateTags, visibleCopy, visibleNotes, visibleTags, type ArchetypeTag } from "@/lib/archetypes";
 import { teamHref } from "@/lib/teams";
@@ -18,12 +18,12 @@ import { ALIAS_INDEX_TIMEOUT_MS, aliasByNameFromIndex, aliasByNameFromRecord, ec
 import { useTeamIndex } from "@/lib/useTeamIndex";
 import { SHOW_TRACKED_TIER } from "@/lib/pickTier";
 import { gameTitle, sideLabel, spreadNotationNote } from "@/lib/gameTitle";
-import { cardHeadline, marketRatings, notAPlayAlso, notAPlayLine, type MarketRating } from "@/lib/verdict";
-import { LINE_MOVE_NOTE, type VerdictLevel } from "@/lib/verdicts";
+import { cardHeadline, marketRatings, notAPlayAlso, type MarketRating } from "@/lib/verdict";
+import { LINE_MOVE_NOTE } from "@/lib/verdicts";
 import { fmtLinesAsOf } from "@/lib/linesAsOf";
 import { cardHeaderRow, cardNoteLine, type EdgeTone } from "@/lib/cardHeader";
 import { evPer100, fmtEv100 } from "@/lib/stats";
-import { POSTED_TOTAL_NOTE, betCoverProb, postedFairVsProjections, postedVsNow, totalFair } from "@/lib/posted";
+import { POSTED_TOTAL_NOTE, betCoverProb, postedVsNow, totalFair } from "@/lib/posted";
 
 type Sel = { game: SlateGame; bet: ValueBet } | null;
 
@@ -401,8 +401,8 @@ function GameCard({ g, sportKey, bets, watched, tvHot, onWatch, onOpen, onGame }
           label="Spread"
           rating={ratings.spread}
           refTeam={g.home}
-          fair={g.proj_spread == null ? "—" : fmtLine(g.proj_spread)}
-          price={g.market_spread == null ? "—" : fmtLine(g.market_spread)}
+          fair={g.proj_spread == null ? "—" : fmtSpread(g.proj_spread)}
+          price={g.market_spread == null ? "—" : fmtSpread(g.market_spread)}
         />
         <MarketStat
           label="Total"
@@ -459,7 +459,7 @@ function finalScore(g: SlateGame): { home: number; away: number } | null {
 
 /** Per-market ladder chip (no market name: the cell or row already says it). Stops taps reaching the card. */
 /** Game-sheet line table: label, FV, Open, Price (move under it), Rating. Fits 320px. */
-const LINE_GRID = "grid grid-cols-[2.75rem_repeat(3,minmax(0,1fr))_4.5rem] gap-x-1.5 px-2 sm:grid-cols-[3.25rem_repeat(3,minmax(0,1fr))_6rem] sm:gap-x-2 sm:px-3";
+const LINE_GRID = "grid grid-cols-[2.5rem_repeat(3,minmax(0,1fr))_4.25rem] gap-x-1 px-2 sm:grid-cols-[3.25rem_repeat(3,minmax(0,1fr))_6rem] sm:gap-x-2 sm:px-3";
 
 function RatingChip({ r, wrap = false, className = "" }: { r: MarketRating; wrap?: boolean; className?: string }) {
   return <VerdictChip level={r.level} noLine={r.noLine} wrap={wrap} className={className} />;
@@ -588,10 +588,9 @@ function GameSheet({ g, sportKey, bets, tvHot, onClose }: { g: SlateGame | null;
   const move = (o: number | null, c: number | null) => (o == null || c == null ? "—" : c === o ? "No move" : `${c > o ? "+" : "−"}${Math.abs(c - o).toFixed(1)}`);
   // Over probability from the official totals model (v1), never the default model's.
   const hw = i?.home_win_prob ?? g.home_win_prob, ov = g.czarp_over_prob ?? null;
-  const edge = cardHeadline(g, bets);
+  const sheetNote = cardNoteLine(g, bets);
   const ratings = marketRatings(g, bets);
   const asOf = fmtLinesAsOf(g.lines_as_of);
-  const hasEdge = edge.edgePct != null;
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center" role="dialog" aria-modal="true" aria-label={`${gameTitle(g.away, g.home, g.neutral).text} insights`}>
       <button aria-label="Close" onClick={onClose} className="absolute inset-0 bg-black/70" />
@@ -618,32 +617,16 @@ function GameSheet({ g, sportKey, bets, tvHot, onClose }: { g: SlateGame | null;
         )}
         {i?.neutral && <div className="mt-2 inline-block rounded-md border border-ink-600 px-2 py-0.5 text-[11px] text-zinc-400">Neutral site: no home-court edge applied</div>}
 
-        <div className="mt-4 flex items-end justify-between rounded-2xl border border-ink-700 bg-ink-850 px-4 py-3">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <StatusChips g={g} bets={bets} />
-            </div>
-            <div className="mt-1 truncate text-sm text-zinc-300">
-              {edge.officialBet ? `${edge.officialBet.side} · ${MARKET_LABEL[edge.officialBet.market]}` : edge.market ? `${MARKET_LABEL[edge.market]} · fair vs price` : "Fair value vs price"}
-            </div>
-            {edge.subtitle && (
-              <div className="mt-0.5 flex items-start gap-1 font-mono text-[11px] leading-snug text-zinc-500">
-                <span className="min-w-0">{edge.subtitle}</span>
-                <InfoTip term="ladderRule" />
-              </div>
-            )}
-            {edge.lineMoveNote && <LineMoveNote className="mt-0.5" />}
+        {/* Same one-row headline as the card (lib/cardHeader), under the same status chips. */}
+        <div className="mt-4 rounded-2xl border border-ink-700 bg-ink-850 px-4 py-3">
+          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+            <StatusChips g={g} bets={bets} />
           </div>
-          <div className={`shrink-0 font-mono text-4xl font-black ${edgeNumberClass(hasEdge, edge.verdict)}`}>
-            {hasEdge && edge.edgeLabel ? edge.edgeLabel : "—"}
-          </div>
+          <HeaderRow row={cardHeaderRow(g, bets)} />
         </div>
         <SheetSecondary g={g} bets={bets} />
-        {edge.verdict === "official" && postedFairVsProjections(edge.officialBet, g) && (
-          <p className="mt-2 font-mono text-[11px] leading-snug text-zinc-400">{postedFairVsProjections(edge.officialBet, g)}</p>
-        )}
-        <NotAPlay className="mt-2" line={edge.verdict === "official" ? null : notAPlayLine(g, bets)} showTip={!edge.subtitle} />
-        {edge.verdict !== "official" && notAPlayAlso(g, bets).length > 0 && (
+        {sheetNote && <NotAPlay className="mt-2" line={sheetNote} />}
+        {sheetNote && notAPlayAlso(g, bets).length > 0 && (
           <ul className="mt-1 space-y-0.5 text-[11px] leading-snug text-zinc-500">
             {notAPlayAlso(g, bets).map((l) => <li key={l}>{l}</li>)}
           </ul>
@@ -657,13 +640,13 @@ function GameSheet({ g, sportKey, bets, tvHot, onClose }: { g: SlateGame | null;
         <div className="mt-3 overflow-hidden rounded-xl border border-ink-700 text-xs sm:text-sm">
           <div className={`${LINE_GRID} items-center bg-ink-850 py-2 text-[9px] uppercase tracking-normal text-zinc-500 sm:text-[10px] sm:tracking-wider`}>
             <span />
-            <span className="flex items-center justify-end gap-0.5 text-right"><TermLabel term="fairValue">FV</TermLabel></span>
+            <span className="flex items-center justify-end text-right"><TermLabel term="fairValue" gap="gap-0.5">FV</TermLabel></span>
             <span className="text-right">Open</span>
-            <span className="flex items-center justify-end gap-0.5 text-right"><TermLabel term="price">Price</TermLabel></span>
+            <span className="flex items-center justify-end text-right"><TermLabel term="price" gap="gap-0.5">Price</TermLabel></span>
             <span className="flex items-center gap-0.5 pl-1"><TermLabel term="ladderRule">Rating</TermLabel></span>
           </div>
           {[
-            { k: "Spread", cz: czLine == null ? "—" : fmtLine(czLine), o: openS == null ? "—" : fmtLine(openS), c: curS == null ? "—" : fmtLine(curS), m: move(openS, curS), r: ratings.spread },
+            { k: "Spread", cz: czLine == null ? "—" : fmtSpread(czLine), o: openS == null ? "—" : fmtSpread(openS), c: curS == null ? "—" : fmtSpread(curS), m: move(openS, curS), r: ratings.spread },
             { k: "Total", cz: czTotal.value, o: openT == null ? "—" : fmtOne(openT), c: curT == null ? "—" : fmtOne(curT), m: move(openT, curT), r: ratings.total },
           ].map((r: { k: string; cz: string; o: string; c: string; m: string; r: MarketRating }) => (
             <div key={r.k} className={`${LINE_GRID} items-center border-t border-ink-700/60 py-2.5 font-mono`}>
@@ -726,13 +709,6 @@ function GameSheet({ g, sportKey, bets, tvHot, onClose }: { g: SlateGame | null;
 }
 
 /** Headline Edge % color: CZarp Plays in brand green, Late Value and Value a step down, the rest muted. */
-function edgeNumberClass(hasEdge: boolean, verdict: VerdictLevel): string {
-  if (!hasEdge) return "text-zinc-700";
-  if (verdict === "official") return "text-edge-400";
-  if (verdict === "late_value" || verdict === "value") return "text-zinc-300";
-  return "text-zinc-500";
-}
-
 function NotAPlay({ line, className = "", showTip = true }: { line: string | null; className?: string; showTip?: boolean }) {
   if (!line) return null;
   return (

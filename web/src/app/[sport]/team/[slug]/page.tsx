@@ -16,7 +16,7 @@ import {
 } from "@/lib/teamPage";
 import { teamHref } from "@/lib/teams";
 import { matchupHref } from "@/lib/matchup";
-import { GAME_STATUS_LABEL, finalLabel, fmtGameDate, fmtLine, fmtOne, fmtTipoff } from "@/lib/labels";
+import { GAME_STATUS_LABEL, finalLabel, fmtGameDate, fmtLine, fmtOne, fmtSpread, fmtTipoff } from "@/lib/labels";
 import { ComingSoon } from "@/components/ComingSoon";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
@@ -142,7 +142,7 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
                 <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
                   <span className="font-sans text-[10px] uppercase tracking-wider text-zinc-500">Spread</span>
                   <VerdictChip level={nextRatings!.spread.level} noLine={nextRatings!.spread.noLine} />
-                  <span>FV {next.proj_spread == null ? "—" : `${next.home} ${fmtLine(next.proj_spread)}`} · Price {next.market_spread == null ? "—" : `${next.home} ${fmtLine(next.market_spread)}`}</span>
+                  <span>FV {next.proj_spread == null ? "—" : `${next.home} ${fmtSpread(next.proj_spread)}`} · Price {next.market_spread == null ? "—" : `${next.home} ${fmtSpread(next.market_spread)}`}</span>
                 </div>
                 <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
                   <span className="font-sans text-[10px] uppercase tracking-wider text-zinc-500">Total</span>
