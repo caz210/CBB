@@ -20,10 +20,11 @@ import { SHOW_TRACKED_TIER } from "@/lib/pickTier";
 import { gameTitle, sideLabel, spreadNotationNote } from "@/lib/gameTitle";
 import { cardHeadline, marketRatings, notAPlayAlso, type MarketRating } from "@/lib/verdict";
 import { fmtLinesAsOf } from "@/lib/linesAsOf";
-import { cardHeaderRow, cardNoteLine, nowLine } from "@/lib/cardHeader";
+import { cardHeaderRow, cardNoteLine } from "@/lib/cardHeader";
 import { HeaderRow, LineMoveNote } from "./HeaderRow";
 import { evPer100, fmtEv100 } from "@/lib/stats";
-import { POSTED_TOTAL_NOTE, betCoverProb, postedVsNow, totalFair } from "@/lib/posted";
+import { postedVsNow, totalFair } from "@/lib/posted";
+import { GameSheetTabs, useSheetExtras } from "./GameSheetTabs";
 
 type Sel = { game: SlateGame; bet: ValueBet } | null;
 
@@ -191,15 +192,21 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
               const g = games.find((x) => x.game_id === b.game_id);
               return (
                 <li key={`${b.game_id}-${b.market}-${b.side}`}>
-                  <button type="button" onClick={() => g && setSel({ game: g, bet: b })}
-                    className="flex min-h-12 w-full items-center gap-3 py-2 text-left text-sm">
+                  {/* div, not <button>: NeutralChip's tooltip is itself a button, and <button> in <button> hydrates badly. */}
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => g && setSel({ game: g, bet: b })}
+                    onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && g) { e.preventDefault(); setSel({ game: g, bet: b }); } }}
+                    className="flex min-h-12 w-full cursor-pointer items-center gap-3 py-2 text-left text-sm"
+                  >
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-semibold text-white">{b.side} · {MARKET_LABEL[b.market]}</span>
                       <TitleLine text={g ? gameTitle(g.away, g.home, g.neutral).text : `Game #${b.game_id}`} neutral={g?.neutral === true} className="text-[11px] text-zinc-500" />
                     </span>
                     <span className="font-mono text-lg font-black text-edge-400">{pct(b.line_edge_pct, 1)}</span>
                     <span className="font-mono text-xs text-zinc-500">{b.kelly_quarter_units == null ? "—" : `${b.kelly_quarter_units.toFixed(2)}u`}</span>
-                  </button>
+                  </div>
                 </li>
               );
             })}
@@ -458,9 +465,6 @@ function finalScore(g: SlateGame): { home: number; away: number } | null {
 }
 
 /** Per-market ladder chip (no market name: the cell or row already says it). Stops taps reaching the card. */
-/** Game-sheet line table: label, FV, Open, Price (move under it), Rating. Fits 320px. */
-const LINE_GRID = "grid grid-cols-[2.5rem_repeat(3,minmax(0,1fr))_4.25rem] gap-x-1 px-2 sm:grid-cols-[3.25rem_repeat(3,minmax(0,1fr))_6rem] sm:gap-x-2 sm:px-3";
-
 function RatingChip({ r, wrap = false, className = "" }: { r: MarketRating; wrap?: boolean; className?: string }) {
   return <VerdictChip level={r.level} noLine={r.noLine} wrap={wrap} className={className} />;
 }
@@ -556,20 +560,10 @@ function GameSheet({ g, sportKey, bets, tvHot, onClose }: { g: SlateGame | null;
     window.addEventListener("keydown", k);
     return () => window.removeEventListener("keydown", k);
   }, [onClose]);
+  const extras = useSheetExtras(g, sportKey);
   if (!g) return null;
   const i = g.insight;
-  const ph = i?.proj_home ?? g.proj_home, pa = i?.proj_away ?? g.proj_away;
-  // FV spread: the stored proj_spread, the same number the card, team page and home page show. Never the score difference.
-  const czLine = g.proj_spread;
-  const czTotal = totalFair(g, bets); // official CZarp total, never the team-score sum
-  const openS = i?.open_spread ?? null, curS = i?.cur_spread ?? g.market_spread;
-  const openT = i?.open_total ?? null, curT = i?.cur_total ?? g.market_total;
-  const move = (o: number | null, c: number | null) => (o == null || c == null ? "—" : c === o ? "No move" : `${c > o ? "+" : "−"}${Math.abs(c - o).toFixed(1)}`);
-  // Over probability from the official totals model (v1), never the default model's.
-  const hw = i?.home_win_prob ?? g.home_win_prob, ov = g.czarp_over_prob ?? null;
   const sheetNote = cardNoteLine(g, bets);
-  const ratings = marketRatings(g, bets);
-  const asOf = fmtLinesAsOf(g.lines_as_of);
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center" role="dialog" aria-modal="true" aria-label={`${gameTitle(g.away, g.home, g.neutral).text} insights`}>
       <button aria-label="Close" onClick={onClose} className="absolute inset-0 bg-black/70" />
@@ -603,7 +597,6 @@ function GameSheet({ g, sportKey, bets, tvHot, onClose }: { g: SlateGame | null;
           </div>
           <HeaderRow row={cardHeaderRow(g, bets)} />
         </div>
-        <SheetSecondary g={g} bets={bets} />
         {sheetNote && <NotAPlay className="mt-2" line={sheetNote} />}
         {sheetNote && notAPlayAlso(g, bets).length > 0 && (
           <ul className="mt-1 space-y-0.5 text-[11px] leading-snug text-zinc-500">
@@ -611,77 +604,10 @@ function GameSheet({ g, sportKey, bets, tvHot, onClose }: { g: SlateGame | null;
           </ul>
         )}
 
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          <Big label={`${g.away} proj`} v={pa == null ? "—" : fmtScore(pa)} sub="CZarp projection" />
-          <Big label={`${g.home} proj`} v={ph == null ? "—" : fmtScore(ph)} sub="CZarp projection" />
+        <div className="mt-4">
+          <GameSheetTabs g={g} bets={bets} sportKey={sportKey} extras={extras.extras} loading={extras.loading} />
+          <button onClick={onClose} className="mt-4 min-h-12 w-full rounded-xl border border-ink-600 font-semibold hover:bg-ink-800">Done</button>
         </div>
-
-        <div className="mt-3 overflow-hidden rounded-xl border border-ink-700 text-xs sm:text-sm">
-          <div className={`${LINE_GRID} items-center bg-ink-850 py-2 text-[9px] uppercase tracking-normal text-zinc-500 sm:text-[10px] sm:tracking-wider`}>
-            <span />
-            <span className="flex items-center justify-end text-right"><TermLabel term="fairValue" gap="gap-0.5" iconFirst>FV</TermLabel></span>
-            <span className="text-right">Open</span>
-            <span className="flex items-center justify-end text-right"><TermLabel term="price" gap="gap-0.5" iconFirst>Price</TermLabel></span>
-            <span className="flex items-center gap-0.5 pl-1"><TermLabel term="ladderRule">Rating</TermLabel></span>
-          </div>
-          {[
-            { k: "Spread", cz: czLine == null ? "—" : fmtSpread(czLine), o: openS == null ? "—" : fmtSpread(openS), c: curS == null ? "—" : fmtSpread(curS), m: move(openS, curS), r: ratings.spread },
-            { k: "Total", cz: czTotal.value, o: openT == null ? "—" : fmtOne(openT), c: curT == null ? "—" : fmtOne(curT), m: move(openT, curT), r: ratings.total },
-          ].map((r: { k: string; cz: string; o: string; c: string; m: string; r: MarketRating }) => (
-            <div key={r.k} className={`${LINE_GRID} items-center border-t border-ink-700/60 py-2.5 font-mono`}>
-              <span className="font-sans text-xs font-semibold text-zinc-400">{r.k}</span>
-              {/* FV, Open and Price share one style; the headers carry the meaning and the Rating chip stands out. */}
-              <span className="text-right text-zinc-300">{r.cz}</span>
-              <span className="text-right text-zinc-300">{r.o}</span>
-              <span className="text-right text-zinc-300">
-                {r.c}
-                {r.m !== "—" && <span className="block text-[10px] leading-tight text-zinc-500">{r.m === "No move" ? r.m : `${r.m} move`}</span>}
-              </span>
-              <span className="min-w-0 pl-1 font-sans"><RatingChip r={r.r} wrap /></span>
-            </div>
-          ))}
-        </div>
-        {asOf && <p className="mt-1.5 text-[11px] text-zinc-500">Ratings use the line {asOf}.</p>}
-        {czTotal.tag === "posted" && <p className="mt-1.5 text-[11px] text-zinc-400">{POSTED_TOTAL_NOTE}</p>}
-        <p className="mt-1 text-[10px] text-zinc-600">{g.neutral ? "Line" : "Home-line"} notation (−5.5 = {g.home} favored). Price = Vegas consensus. Fair value = our model.</p>
-
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <Big label={g.neutral ? <span className="block break-words leading-tight">{g.home} win</span> : "Home win"} v={hw == null ? "—" : fmtWinProb(hw)} />
-          <Big label="Over" v={ov == null ? "—" : pct(ov)} sub={ov == null ? undefined : "CZarp total"} />
-        </div>
-        {(i?.proj_possessions ?? g.proj_possessions) != null && <p className="mt-2 text-xs text-zinc-400">Projected pace: <b className="font-mono text-white">{(i?.proj_possessions ?? g.proj_possessions)!.toFixed(1)}</b> possessions</p>}
-
-        {(visibleTags(g.archetypes.away).length > 0 || visibleTags(g.archetypes.home).length > 0) && (
-          <div className="mt-4 space-y-2">
-            {[{ n: g.away, t: visibleTags(g.archetypes.away) }, { n: g.home, t: visibleTags(g.archetypes.home) }].filter((r) => r.t.length).map((r) => (
-              <div key={r.n}>
-                <div className="mb-1 text-[11px] font-semibold text-zinc-500">{r.n}</div>
-                <div className="flex min-w-0 flex-wrap gap-1.5">{r.t.map((tag) => <ArchetypeChip key={`${tag.kind}-${tag.name}`} tag={tag} />)}</div>
-              </div>
-            ))}
-            {visibleNotes(g.archetypes.notes).length > 0 && <p className="text-[11px] text-zinc-400">{visibleNotes(g.archetypes.notes).join(" · ")}</p>}
-          </div>
-        )}
-        {(visibleCopy(i?.reason || g.reason)) && <div className="mt-4 rounded-xl bg-ink-850 p-3 text-sm text-zinc-300"><div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">Why CZarp likes it</div>{visibleCopy(i?.reason || g.reason)}</div>}
-
-        {bets.length > 0 && (
-          <div className="mt-4 space-y-1.5">
-            {bets.map((b) => {
-              const compact = bets.length > 1 ? nowLine(b, g) : null; // "Now 138.5" when the line moved
-              return (
-                <div key={`${b.market}-${b.side}`} className="flex items-center gap-2 rounded-xl border border-edge-400/30 px-3 py-2 text-sm">
-                  <span className="min-w-0 flex-1 truncate">
-                    <span className="block font-semibold">{b.side}</span>
-                    {compact && <span className="block font-mono text-[11px] font-normal text-zinc-500">{compact}</span>}
-                  </span>
-                  <span className="font-mono text-base font-black text-edge-400">{pct(b.line_edge_pct, 1)}</span>
-                  <span className="font-mono text-xs text-zinc-400">{b.kelly_quarter_units == null ? "—" : `${b.kelly_quarter_units.toFixed(2)}u`}</span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-        <button onClick={onClose} className="mt-4 min-h-12 w-full rounded-xl border border-ink-600 font-semibold hover:bg-ink-800">Done</button>
       </div>
     </div>
   );
@@ -694,20 +620,6 @@ function NotAPlay({ line, className = "", showTip = true }: { line: string | nul
     <div className={`flex items-start gap-1 text-[11px] leading-snug text-zinc-400 ${className}`}>
       <span>{line}</span>
       {showTip && <InfoTip term="ladderRule" />}
-    </div>
-  );
-}
-
-function SheetSecondary({ g, bets }: { g: import("@/lib/types").SlateGame; bets: import("@/lib/types").ValueBet[] }) {
-  const edge = cardHeadline(g, bets);
-  const cover = betCoverProb(g, edge.officialBet, edge.market ?? edge.officialBet?.market ?? null);
-  const odds = edge.officialBet?.posted_odds;
-  const ev = evPer100(cover, odds);
-  const usedDefault = odds == null || !Number.isFinite(odds) || odds === 0;
-  return (
-    <div className="mt-2 grid grid-cols-2 gap-2">
-      <Big label="Cover probability" v={cover == null ? "—" : pct(cover)} sub={edge.officialBet ? edge.officialBet.side : edge.market ? MARKET_LABEL[edge.market] : undefined} />
-      <Big label="EV / $100" v={ev == null ? "—" : fmtEv100(ev)} sub={usedDefault ? "at −110" : `at ${odds! > 0 ? "+" : ""}${odds}`} />
     </div>
   );
 }
