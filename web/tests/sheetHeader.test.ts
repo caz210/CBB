@@ -78,10 +78,16 @@ test("PK in the spread footer when the value is 0; totals never PK", () => {
   assert.match(footer, /fair=\{g\.proj_spread == null \? "—" : fmtSpread\(g\.proj_spread\)\}/);
   assert.match(footer, /price=\{g\.market_spread == null \? "—" : fmtSpread\(g\.market_spread\)\}/);
   assert.match(between(src, 'label="Total"', "/>"), /fmtOne\(g\.market_total\)/);
-  // Sheet table: spread FV / Open / Price via fmtSpread; total row via fmtOne.
-  const table = between(src, '{ k: "Spread"', '].map(');
-  assert.equal((table.match(/fmtSpread\(/g) ?? []).length, 3);
-  assert.doesNotMatch(between(table, '{ k: "Total"', "}"), /fmtSpread/);
+  // Game sheet Bet tab: spread FV and Price go through namedSpread → fmtSpread; totals use fmtOne / totalFair, never fmtSpread.
+  const tabs = read("src/components/GameSheetTabs.tsx");
+  const extras = read("src/lib/sheetExtras.ts");
+  assert.match(between(extras, "export function namedSpread(", "\nexport function "), /fmtSpread\(/);
+  const bet = between(tabs, "export function QuickBetBlock(", "\nfunction ");
+  assert.match(bet, /namedSpread\(spreadTeam, czSpread\)/);
+  assert.match(bet, /namedSpread\(spreadTeam, curS\)/);
+  assert.match(bet, /const czTotal = totalFair\(g, bets\)/);
+  assert.match(bet, /fmtOne\(curT\)/);
+  assert.doesNotMatch(bet, /fmtSpread\(/);
   // Team page next game: spread FV and Price via fmtSpread.
   const team = read("src/app/[sport]/team/[slug]/page.tsx");
   assert.match(team, /\$\{next\.home\} \$\{fmtSpread\(next\.proj_spread\)\}/);
