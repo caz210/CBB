@@ -27,7 +27,7 @@ export const METHODOLOGY_SECTIONS: MethodologySection[] = [
     title: "Official vs tracked",
     placeholder: true,
     tracked: true,
-    body: "Official picks are the ones CZarp actually stakes (¼-Kelly units) and go on the public portfolio. Tracked picks are paper-only, flat 1u, never bet.",
+    body: "Official picks are the ones CZarp actually stakes (¼-Kelly units) and go on the public portfolio. Tracked picks are flat 1u, tracked for testing, not part of the official record.",
   },
   {
     title: "Stake sizing",

@@ -13,7 +13,7 @@ export const metadata: Metadata = {
     default: "CZarp Analytics · College basketball fair value vs price",
     template: "%s · CZarp Analytics",
   },
-  description: "Daily college basketball fair values vs the market price, edge % on every game, and a public, time-stamped paper-trading record. For entertainment and information, not betting advice.",
+  description: "Daily college basketball fair values vs the market price, edge % on every game, and a public, time-stamped record. For entertainment and information, not betting advice.",
   openGraph: { siteName: "CZarp Analytics", type: "website", url: SITE_URL },
 };
 

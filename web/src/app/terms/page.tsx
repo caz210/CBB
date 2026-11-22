@@ -12,7 +12,7 @@ export default function TermsPage() {
     >
       <p>Last updated: November 9, 2026. These terms will be reviewed and finalized by the site owner before they apply as a binding agreement.</p>
       <H>1. What this site is</H>
-      <p>CZarp Analytics publishes model-driven sports projections and a public record of paper-traded picks. It is for information and entertainment. It is not a sportsbook, not a wagering service, and not betting advice.</p>
+      <p>CZarp Analytics publishes model-driven sports projections and a public record of official picks. It is for information and entertainment. It is not a sportsbook, not a wagering service, and not betting advice.</p>
       <H>2. Eligibility</H>
       <p>You must be 21 or older to create an account or use the service. If you are in a jurisdiction where sports betting is restricted, you are responsible for complying with local law.</p>
       <H>3. No guarantee of results</H>

@@ -26,7 +26,7 @@ export default function ModelsPage() {
         <ol className="mt-2 space-y-1.5">
           <li><b className="text-zinc-200">1.</b> Start from CZarp&apos;s baseline and toggle or re-weight features.</li>
           <li><b className="text-zinc-200">2.</b> Backtest on past seasons, then run it on the live slate daily.</li>
-          <li><b className="text-zinc-200">3.</b> Each model gets its own paper ledger. Free: 1 model. Pro: unlimited.</li>
+          <li><b className="text-zinc-200">3.</b> Each model gets its own ledger. Free: 1 model. Pro: unlimited.</li>
         </ol>
       </div>
     </div>
