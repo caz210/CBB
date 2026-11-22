@@ -120,11 +120,13 @@ export function InfoTip({ term, title, body, className = "", children, triggerCl
 }
 
 /** Inline label + info tip for forms/KPIs. */
-export function TermLabel({ term, children, className = "" }: { term: ExplainerKey; children: ReactNode; className?: string }) {
+/** iconFirst: put the ⓘ before the label (right-aligned table headers, so neighbors don't run together). */
+export function TermLabel({ term, children, className = "", gap = "gap-1", iconFirst = false }: { term: ExplainerKey; children: ReactNode; className?: string; gap?: string; iconFirst?: boolean }) {
   return (
-    <span className={`inline-flex items-center gap-1 ${className}`}>
+    <span className={`inline-flex items-center ${gap} ${className}`}>
+      {iconFirst && <InfoTip term={term} />}
       {children}
-      <InfoTip term={term} />
+      {!iconFirst && <InfoTip term={term} />}
     </span>
   );
 }

@@ -5,7 +5,7 @@
  *
  *  Each game has two ladder ratings (spread and total; see lib/verdicts.ts),
  *  shown per market in the card footer. The header's first slot is the
- *  STRONGER market's verdict with its market named ("Total Favor"; Official
+ *  STRONGER market's verdict (VERDICT_RANK) with its market named ("Spread Lean", "Total CZarp Play"; CZarp Play
  *  wins ties) and is never dropped. The remaining slot goes
  *  to the next entry in STATUS_TAG_PRIORITY: a single pause chip if any team
  *  is paused (two team pauses collapse into one "Both teams paused" chip).

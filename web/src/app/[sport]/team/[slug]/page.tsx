@@ -16,7 +16,7 @@ import {
 } from "@/lib/teamPage";
 import { teamHref } from "@/lib/teams";
 import { matchupHref } from "@/lib/matchup";
-import { GAME_STATUS_LABEL, finalLabel, fmtGameDate, fmtLine, fmtTipoff } from "@/lib/labels";
+import { GAME_STATUS_LABEL, finalLabel, fmtGameDate, fmtOne, fmtSpread, fmtTipoff } from "@/lib/labels";
 import { ComingSoon } from "@/components/ComingSoon";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
@@ -28,8 +28,9 @@ import { TermLabel } from "@/components/InfoTip";
 import { StatusChips, VerdictChip } from "@/components/StatusChips";
 import { NewCoachBadge } from "@/components/NewCoachBadge";
 import { newCoachLock } from "@/lib/coach";
-import { cardHeadline, marketRatings, notAPlayLine } from "@/lib/verdict";
-import { LINE_MOVE_NOTE } from "@/lib/verdicts";
+import { marketRatings } from "@/lib/verdict";
+import { cardHeaderRow, cardNoteLine } from "@/lib/cardHeader";
+import { HeaderRow } from "@/components/HeaderRow";
 import { fmtLinesAsOf } from "@/lib/linesAsOf";
 import { totalFair } from "@/lib/posted";
 
@@ -100,8 +101,8 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
   const teamName = p?.team_name ?? r?.team_name ?? "this team";
   const next = data.next;
   const coach = p ? newCoachLock(p.team_name, p) : null;
-  const nextEdge = next ? cardHeadline(next, next.officialBets ?? []) : null;
-  const nextWhy = next && nextEdge?.verdict !== "official" ? notAPlayLine(next, next.officialBets ?? []) : null;
+  // Same note as the card and sheet: only a hold reason on a held Value.
+  const nextWhy = next ? cardNoteLine(next, next.officialBets ?? []) : null;
   const nextTotal = next ? totalFair(next, next.officialBets ?? []) : null;
   const nextRatings = next ? marketRatings(next, next.officialBets ?? []) : null;
   const nextAsOf = next ? fmtLinesAsOf(next.lines_as_of) : null;
@@ -128,7 +129,7 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
         {!next ? (
           <p className="text-sm text-zinc-500">No upcoming game on the slate yet.</p>
         ) : (
-          <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
             <div className="min-w-0">
               <div className="text-xs text-zinc-500">{fmtGameDate(next.game_date)}{next.tipoff ? ` · ${fmtTipoff(next.tipoff)}` : ""}</div>
               <div className="mt-0.5 text-lg font-bold">
@@ -137,18 +138,25 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
                 <Link className="hover:text-court-400" href={teamHref(sportKey, next.home)}>{next.home}</Link>
                 {next.neutral && <NeutralChip className="ml-2" />}
               </div>
+              {/* Same one-row headline as the slate card and game sheet (components/HeaderRow, lib/cardHeader). */}
+              <div className="mt-2 rounded-xl border border-ink-700 bg-ink-850 px-3 py-2.5">
+                <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+                  <StatusChips g={next} bets={next.officialBets ?? []} />
+                </div>
+                <HeaderRow row={cardHeaderRow(next, next.officialBets ?? [])} />
+              </div>
               {/* Two ladder ratings, one per market, judged on the current line (lib/verdicts.ts). */}
               <div className="mt-1 space-y-1 font-mono text-xs text-zinc-400">
                 <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
                   <span className="font-sans text-[10px] uppercase tracking-wider text-zinc-500">Spread</span>
                   <VerdictChip level={nextRatings!.spread.level} noLine={nextRatings!.spread.noLine} />
-                  <span>FV {next.proj_spread == null ? "—" : spreadRef(fmtLine(next.proj_spread), next.home, next.neutral)} · Price {next.market_spread == null ? "—" : spreadRef(fmtLine(next.market_spread), next.home, next.neutral)}</span>
+                  <span>FV {next.proj_spread == null ? "—" : `${next.home} ${fmtSpread(next.proj_spread)}`} · Price {next.market_spread == null ? "—" : `${next.home} ${fmtSpread(next.market_spread)}`}</span>
                 </div>
                 <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
                   <span className="font-sans text-[10px] uppercase tracking-wider text-zinc-500">Total</span>
                   <VerdictChip level={nextRatings!.total.level} noLine={nextRatings!.total.noLine} />
                   {/* Same helper as the slate card: posted fair for an official total, else czarp-v1-totals, else "—". Never v2. */}
-                  <span>FV {nextTotal!.value} · Price {next.market_total == null ? "—" : next.market_total.toFixed(1)}</span>
+                  <span>FV {nextTotal!.value} · Price {next.market_total == null ? "—" : fmtOne(next.market_total)}</span>
                 </div>
                 {nextAsOf && <div className="font-sans text-[10px] text-zinc-600">Ratings use the line {nextAsOf}</div>}
               </div>
@@ -161,17 +169,6 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
               {nextWhy && (
                 <p className="mt-2 text-[11px] text-zinc-400">{nextWhy}</p>
               )}
-            </div>
-            <div className="text-right">
-              <div className="flex flex-wrap items-center justify-end gap-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-                <TermLabel term="edge">Edge</TermLabel>
-                <StatusChips g={next} bets={next.officialBets ?? []} />
-              </div>
-              <div className={`font-mono text-4xl font-black ${nextEdge?.edgePct == null ? "text-zinc-700" : nextEdge.verdict === "official" ? "text-edge-400" : "text-zinc-500"}`}>
-                {nextEdge?.edgeLabel ?? "—"}
-              </div>
-              <div className="text-[11px] text-zinc-500">{nextEdge?.subtitle ?? (nextEdge?.market ?? "fair vs price")}</div>
-              {nextEdge?.lineMoveNote && <div className="mt-0.5 text-[11px] font-medium text-amber-300/90">{LINE_MOVE_NOTE}</div>}
             </div>
           </div>
         )}
@@ -283,7 +280,8 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
                         {g.neutral && <NeutralChip />}
                       </div>
                       <div className="mt-0.5 font-mono text-[11px] text-zinc-500">
-                        FV {g.model_spread == null ? "—" : spreadRef(fmtLine(g.model_spread), g.home, g.neutral)} · Price {g.vegas_spread == null ? "—" : spreadRef(fmtLine(g.vegas_spread), g.home, g.neutral)}
+                        {/* model_grades.model_spread is the stored proj_spread (same value on all 586 games, Nov 10–22). */}
+                        FV {g.model_spread == null ? "—" : spreadRef(fmtSpread(g.model_spread), g.home, g.neutral)} · Price {g.vegas_spread == null ? "—" : spreadRef(fmtSpread(g.vegas_spread), g.home, g.neutral)}
                       </div>
                       <CzarpPickLines
                         ats={czarpAtsLine({ side: g.model_ats_side, result: g.model_ats_result, away: g.away, home: g.home })}

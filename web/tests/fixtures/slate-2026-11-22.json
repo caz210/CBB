@@ -1,0 +1,482 @@
+{
+ "source": "Anon read of slate_games (proj_home, proj_away, proj_spread, market lines), projections czarp-v1-totals (czarp_total) and official_picks_locked, 2026-11-22 ~10:20 AM CT. Display fields only.",
+ "game_date": "2026-11-22",
+ "games": [
+  {
+   "game_id": 1752,
+   "away": "Nebraska",
+   "home": "Butler",
+   "proj_away": 85.1,
+   "proj_home": 68.9,
+   "proj_spread": 16.2,
+   "czarp_total": 154.0,
+   "market_spread": 12.5,
+   "market_total": 154.5
+  },
+  {
+   "game_id": 1753,
+   "away": "Miami OH",
+   "home": "Illinois Chicago",
+   "proj_away": 75.85,
+   "proj_home": 75.15,
+   "proj_spread": 0.7,
+   "czarp_total": 151.0,
+   "market_spread": 1.5,
+   "market_total": 148.5
+  },
+  {
+   "game_id": 1754,
+   "away": "Western Illinois",
+   "home": "Canisius",
+   "proj_away": 67.7,
+   "proj_home": 75.8,
+   "proj_spread": -8.1,
+   "czarp_total": 143.5,
+   "market_spread": -4.5,
+   "market_total": 139.5
+  },
+  {
+   "game_id": 1755,
+   "away": "Dayton",
+   "home": "Northwestern",
+   "proj_away": 71.65,
+   "proj_home": 68.35,
+   "proj_spread": 3.3,
+   "czarp_total": 140.0,
+   "market_spread": 3.5,
+   "market_total": 135.5
+  },
+  {
+   "game_id": 1756,
+   "away": "Fairfield",
+   "home": "LIU",
+   "proj_away": 71.3,
+   "proj_home": 74.7,
+   "proj_spread": -3.4,
+   "czarp_total": 146.0,
+   "market_spread": -2.5,
+   "market_total": 145.5
+  },
+  {
+   "game_id": 1757,
+   "away": "Towson",
+   "home": "American",
+   "proj_away": 64.7,
+   "proj_home": 66.8,
+   "proj_spread": -2.1,
+   "czarp_total": 131.5,
+   "market_spread": -1.5,
+   "market_total": 130.5
+  },
+  {
+   "game_id": 1758,
+   "away": "Chicago St.",
+   "home": "Marquette",
+   "proj_away": 55.5,
+   "proj_home": 87.5,
+   "proj_spread": -32.0,
+   "czarp_total": 143.0,
+   "market_spread": -34.5,
+   "market_total": 139.5
+  },
+  {
+   "game_id": 1759,
+   "away": "George Washington",
+   "home": "Western Kentucky",
+   "proj_away": 76.5,
+   "proj_home": 73.0,
+   "proj_spread": 3.5,
+   "czarp_total": 149.5,
+   "market_spread": 5.5,
+   "market_total": 148.5
+  },
+  {
+   "game_id": 1760,
+   "away": "South Dakota",
+   "home": "Utah Tech",
+   "proj_away": 76.6,
+   "proj_home": 80.9,
+   "proj_spread": -4.3,
+   "czarp_total": 157.5,
+   "market_spread": -1.5,
+   "market_total": 153.5
+  },
+  {
+   "game_id": 1761,
+   "away": "UMass Lowell",
+   "home": "Cincinnati",
+   "proj_away": 58.0,
+   "proj_home": 88.5,
+   "proj_spread": -30.5,
+   "czarp_total": 146.5,
+   "market_spread": -30.5,
+   "market_total": 147.5
+  },
+  {
+   "game_id": 1762,
+   "away": "Wyoming",
+   "home": "Duquesne",
+   "proj_away": 73.2,
+   "proj_home": 69.8,
+   "proj_spread": 3.4,
+   "czarp_total": 143.0,
+   "market_spread": 3.5,
+   "market_total": 139.5
+  },
+  {
+   "game_id": 1763,
+   "away": "Evansville",
+   "home": "Memphis",
+   "proj_away": 65.35,
+   "proj_home": 88.15,
+   "proj_spread": -22.8,
+   "czarp_total": 153.5,
+   "market_spread": -21.5,
+   "market_total": 158.5
+  },
+  {
+   "game_id": 1764,
+   "away": "William & Mary",
+   "home": "Youngstown St.",
+   "proj_away": 82.2,
+   "proj_home": 83.8,
+   "proj_spread": -1.6,
+   "czarp_total": 166.0,
+   "market_spread": 2.5,
+   "market_total": 164.5
+  },
+  {
+   "game_id": 1765,
+   "away": "San Diego",
+   "home": "Fordham",
+   "proj_away": 70.5,
+   "proj_home": 76.0,
+   "proj_spread": -5.5,
+   "czarp_total": 146.5,
+   "market_spread": -2.5,
+   "market_total": 143.5
+  },
+  {
+   "game_id": 1766,
+   "away": "Robert Morris",
+   "home": "New Mexico St.",
+   "proj_away": 68.95,
+   "proj_home": 72.55,
+   "proj_spread": -3.6,
+   "czarp_total": 141.5,
+   "market_spread": -1.5,
+   "market_total": 137.5
+  },
+  {
+   "game_id": 1767,
+   "away": "Southern Indiana",
+   "home": "Texas",
+   "proj_away": 55.3,
+   "proj_home": 92.7,
+   "proj_spread": -37.4,
+   "czarp_total": 148.0,
+   "market_spread": -39.5,
+   "market_total": 149.5
+  },
+  {
+   "game_id": 1768,
+   "away": "Troy",
+   "home": "Nicholls",
+   "proj_away": 73.6,
+   "proj_home": 65.9,
+   "proj_spread": 7.7,
+   "czarp_total": 139.5,
+   "market_spread": 6.5,
+   "market_total": 136.5
+  },
+  {
+   "game_id": 1769,
+   "away": "West Florida",
+   "home": "South Alabama",
+   "proj_away": 66.65,
+   "proj_home": 75.35,
+   "proj_spread": -8.7,
+   "czarp_total": 142.0,
+   "market_spread": -6.5,
+   "market_total": 141.5
+  },
+  {
+   "game_id": 1770,
+   "away": "McNeese",
+   "home": "Texas St.",
+   "proj_away": 67.95,
+   "proj_home": 74.05,
+   "proj_spread": -6.1,
+   "czarp_total": 142.0,
+   "market_spread": -2.5,
+   "market_total": 142.5
+  },
+  {
+   "game_id": 1771,
+   "away": "Mercyhurst",
+   "home": "Albany",
+   "proj_away": 69.7,
+   "proj_home": 66.3,
+   "proj_spread": 3.4,
+   "czarp_total": 136.0,
+   "market_spread": -1.5,
+   "market_total": 129.5
+  },
+  {
+   "game_id": 1772,
+   "away": "Virginia Tech",
+   "home": "Oklahoma St.",
+   "proj_away": 82.6,
+   "proj_home": 79.9,
+   "proj_spread": 2.7,
+   "czarp_total": 162.5,
+   "market_spread": 1.5,
+   "market_total": 159.5
+  },
+  {
+   "game_id": 1773,
+   "away": "Richmond",
+   "home": "Liberty",
+   "proj_away": 71.2,
+   "proj_home": 68.8,
+   "proj_spread": 2.4,
+   "czarp_total": 140.0,
+   "market_spread": -1.5,
+   "market_total": 143.5
+  },
+  {
+   "game_id": 1774,
+   "away": "IU Indy",
+   "home": "Maryland Eastern Shore",
+   "proj_away": 76.95,
+   "proj_home": 68.05,
+   "proj_spread": 8.9,
+   "czarp_total": 145.0,
+   "market_spread": 10.5,
+   "market_total": 140.5
+  },
+  {
+   "game_id": 1775,
+   "away": "UC Irvine",
+   "home": "Loyola Marymount",
+   "proj_away": 76.7,
+   "proj_home": 72.8,
+   "proj_spread": 3.9,
+   "czarp_total": 149.5,
+   "market_spread": 3.5,
+   "market_total": 138.5
+  },
+  {
+   "game_id": 1776,
+   "away": "Rice",
+   "home": "Lamar",
+   "proj_away": 78.6,
+   "proj_home": 78.9,
+   "proj_spread": -0.3,
+   "czarp_total": 157.5,
+   "market_spread": -2.5,
+   "market_total": 165.5
+  },
+  {
+   "game_id": 1777,
+   "away": "UNC Asheville",
+   "home": "Samford",
+   "proj_away": 71.2,
+   "proj_home": 80.8,
+   "proj_spread": -9.6,
+   "czarp_total": 152.0,
+   "market_spread": -9.5,
+   "market_total": 155.5
+  },
+  {
+   "game_id": 1778,
+   "away": "Cal St. Fullerton",
+   "home": "Portland St.",
+   "proj_away": 78.85,
+   "proj_home": 80.65,
+   "proj_spread": -1.8,
+   "czarp_total": 159.5,
+   "market_spread": -4.5,
+   "market_total": 163.5
+  },
+  {
+   "game_id": 1779,
+   "away": "NJIT",
+   "home": "Boston College",
+   "proj_away": 56.55,
+   "proj_home": 82.95,
+   "proj_spread": -26.4,
+   "czarp_total": 139.5,
+   "market_spread": -24.5,
+   "market_total": 135.5
+  },
+  {
+   "game_id": 1780,
+   "away": "Temple",
+   "home": "Stephen F. Austin",
+   "proj_away": 74.0,
+   "proj_home": 71.5,
+   "proj_spread": 2.5,
+   "czarp_total": 145.5,
+   "market_spread": 1.5,
+   "market_total": 144.5
+  },
+  {
+   "game_id": 1781,
+   "away": "Southern Miss",
+   "home": "Valparaiso",
+   "proj_away": 70.1,
+   "proj_home": 78.9,
+   "proj_spread": -8.8,
+   "czarp_total": 149.0,
+   "market_spread": -7.5,
+   "market_total": 145.5
+  },
+  {
+   "game_id": 1782,
+   "away": "Utah",
+   "home": "Minnesota",
+   "proj_away": 57.75,
+   "proj_home": 72.25,
+   "proj_spread": -14.5,
+   "czarp_total": 130.0,
+   "market_spread": -10.5,
+   "market_total": 131.5
+  },
+  {
+   "game_id": 1783,
+   "away": "Delaware",
+   "home": "UCLA",
+   "proj_away": 58.85,
+   "proj_home": 84.15,
+   "proj_spread": -25.3,
+   "czarp_total": 143.0,
+   "market_spread": -29.5,
+   "market_total": 145.5
+  },
+  {
+   "game_id": 1784,
+   "away": "Rhode Island",
+   "home": "UAB",
+   "proj_away": 77.85,
+   "proj_home": 75.65,
+   "proj_spread": 2.2,
+   "czarp_total": 153.5,
+   "market_spread": 2.5,
+   "market_total": 149.5
+  },
+  {
+   "game_id": 1785,
+   "away": "Cal Baptist",
+   "home": "Portland",
+   "proj_away": 66.25,
+   "proj_home": 78.75,
+   "proj_spread": -12.5,
+   "czarp_total": 145.0,
+   "market_spread": -9.5,
+   "market_total": 146.5
+  },
+  {
+   "game_id": 1786,
+   "away": "Louisiana",
+   "home": "USC",
+   "proj_away": 57.85,
+   "proj_home": 88.65,
+   "proj_spread": -30.8,
+   "czarp_total": 146.5,
+   "market_spread": -33.5,
+   "market_total": 147.5
+  },
+  {
+   "game_id": 1787,
+   "away": "Tennessee Martin",
+   "home": "Utah Valley",
+   "proj_away": 70.25,
+   "proj_home": 80.75,
+   "proj_spread": -10.5,
+   "czarp_total": 151.0,
+   "market_spread": -7.5,
+   "market_total": 146.5
+  },
+  {
+   "game_id": 1788,
+   "away": "Seattle",
+   "home": "UC San Diego",
+   "proj_away": 74.05,
+   "proj_home": 75.95,
+   "proj_spread": -1.9,
+   "czarp_total": 150.0,
+   "market_spread": -1.5,
+   "market_total": 145.5
+  },
+  {
+   "game_id": 1789,
+   "away": "San Jose St.",
+   "home": "Loyola Chicago",
+   "proj_away": 72.6,
+   "proj_home": 75.4,
+   "proj_spread": -2.8,
+   "czarp_total": 148.0,
+   "market_spread": -3.5,
+   "market_total": 148.5
+  }
+ ],
+ "posted": [
+  {
+   "game_id": 1775,
+   "market": "total",
+   "side": "Over",
+   "fair_at_post": 149.5,
+   "pick_tier": "official"
+  },
+  {
+   "game_id": 1771,
+   "market": "total",
+   "side": "Over",
+   "fair_at_post": 136.0,
+   "pick_tier": "official"
+  },
+  {
+   "game_id": 1755,
+   "market": "total",
+   "side": "Over",
+   "fair_at_post": 140.0,
+   "pick_tier": "official"
+  },
+  {
+   "game_id": 1763,
+   "market": "total",
+   "side": "Under",
+   "fair_at_post": 153.5,
+   "pick_tier": "official"
+  },
+  {
+   "game_id": 1788,
+   "market": "total",
+   "side": "Over",
+   "fair_at_post": 150.0,
+   "pick_tier": "official"
+  },
+  {
+   "game_id": 1787,
+   "market": "total",
+   "side": "Over",
+   "fair_at_post": 151.0,
+   "pick_tier": "official"
+  },
+  {
+   "game_id": 1781,
+   "market": "total",
+   "side": "Over",
+   "fair_at_post": 149.0,
+   "pick_tier": "official"
+  },
+  {
+   "game_id": 1768,
+   "market": "total",
+   "side": "Over",
+   "fair_at_post": 139.5,
+   "pick_tier": "official"
+  }
+ ]
+}

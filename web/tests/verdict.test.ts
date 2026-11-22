@@ -64,9 +64,10 @@ test("notAPlayLine / notAPlayAlso on a total-headline coach card", () => {
 test("notAPlayLine falls back to stored text for unknown codes", () => {
   const g = game({ skip_reasons_total: ["brand_new_rule"], skip_reason_total: "injury news pending" });
   assert.equal(notAPlayLine(g, []), "Not a play: injury news pending");
-  // Unknown code, no text, edge now clears with no hold: Favor, so the reason is the morning run.
-  assert.equal(notAPlayLine(game({ skip_reasons_total: ["brand_new_rule"], skip_reason_total: null }), []), "Value on the current line. Official plays are set at 7:15 AM CT.");
-  assert.equal(notAPlayLine(game({ edge_now_pct_total: 0.01, skip_reasons_total: ["brand_new_rule"], skip_reason_total: null }), [], "total"), "Not a play: edge now below 3%");
+  // Unknown code, no text, edge now clears with no hold: Late Value, so the line says it's off the record.
+  assert.equal(notAPlayLine(game({ skip_reasons_total: ["brand_new_rule"], skip_reason_total: null }), []), "Value on the current line. Not part of the official record; official plays are set at 7:15 AM CT.");
+  // Below the bar with an unknown code and no text: no reason line (never "edge now below").
+  assert.equal(notAPlayLine(game({ edge_now_pct_total: 0.01, skip_reasons_total: ["brand_new_rule"], skip_reason_total: null }), [], "total"), null);
 });
 
 test("pausedChipLabel by market", () => {

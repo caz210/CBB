@@ -76,8 +76,34 @@ export function fmtGameDate(d: string) {
 }
 export const pct = (x: number, dp = 0) => `${(x * 100).toFixed(dp)}%`;
 export const signedPct = (x: number, dp = 1) => `${x >= 0 ? "+" : "−"}${Math.abs(x * 100).toFixed(dp)}%`;
-/** Lines/spreads to at most 1 decimal (model spreads arrive as e.g. -31.54). */
-export const fmtLine = (n: number) => { const r = Math.round(n * 10) / 10; return r > 0 ? `+${r}` : `${r}`; };
+/** Integer count of 10^-dp units, rounded half away from zero, with a tolerance for float artifacts
+ *  (74.05 stored as 74.0499999… still counts as 7405 hundredths). */
+function units(x: number, dp: number): number {
+  const f = 10 ** dp;
+  return Math.sign(x) * Math.round(Math.abs(x) * f + 1e-6);
+}
+/** Fixed-point string from an integer count of 10^-dp units: 7405, 2 → "74.05". */
+function fromUnits(u: number, dp: number): string {
+  const f = 10 ** dp, a = Math.abs(u);
+  return `${u < 0 ? "-" : ""}${Math.floor(a / f)}.${String(a % f).padStart(dp, "0")}`;
+}
+/** Exactly one decimal, keeping a trailing .0 (142.0, 142.5). FV and Price totals. Never a half-point round. */
+export const fmtOne = (n: number) => { const u = units(n, 1); return fromUnits(u === 0 ? 0 : u, 1); };
+/** Signed line at exactly one decimal, keeping a trailing .0: "-6.1", "+8.9", "-6.0", "0.0". FV and Price spreads. */
+export const fmtLine = (n: number) => { const u = units(n, 1); return u > 0 ? `+${fromUnits(u, 1)}` : fromUnits(u === 0 ? 0 : u, 1); };
+/** Spread for display: one decimal, or "PK" when it is 0 (the only exception to the one-decimal rule).
+ *  Spreads only; totals are never PK. */
+export const fmtSpread = (n: number | null | undefined) => {
+  // Missing or non-numeric is "—", never "PK" (Number(null) === 0).
+  if (typeof n !== "number" || !Number.isFinite(n)) return "—";
+  return fmtLine(n) === "0.0" ? "PK" : fmtLine(n);
+};
+/** Projected team score at its stored precision, never re-rounded to one decimal. The pipeline stores
+ *  (total ± margin) / 2 at two decimals with total and margin at 0.1, so a score ends in .x0 or .x5:
+ *  two decimals only when the second digit isn't zero (74.05, 67.95), else one (74.0, 74.5). Never more
+ *  than two decimals; float artifacts (74.0499999) still read 74.05. Then away + home equals the FV total
+ *  and home − away equals the FV margin, exactly as displayed. */
+export const fmtScore = (x: number) => { const u = units(x, 2); return u % 10 === 0 ? fromUnits(u / 10, 1) : fromUnits(u, 2); };
 /** Win probability for display: never shows a flat 0% / 100%. */
 export const fmtWinProb = (p: number) => (p < 0.01 ? "<1%" : p > 0.99 ? ">99%" : pct(p));
 export const fmtOdds = (o: number) => (o > 0 ? `+${o}` : `${o}`);
@@ -150,7 +176,7 @@ export function fmtPostedVsNow(opts: {
   vsOpen?: number | null;
   market: Market;
 }): string | null {
-  const fmt = (n: number) => (opts.market === "total" ? n.toFixed(1) : fmtLine(n));
+  const fmt = (n: number) => (opts.market === "total" ? fmtOne(n) : fmtLine(n));
   const parts: string[] = [];
   if (isFiniteNum(opts.fair)) parts.push(`Posted ${fmt(opts.fair)}`);
   if (isFiniteNum(opts.edge)) {

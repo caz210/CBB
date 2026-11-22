@@ -15,7 +15,7 @@ const game = (o: Partial<SlateGame> = {}): SlateGame => ({
   proj_total: 143, home_win_prob: 0.9, home_cover_prob: 0.5,
   archetypes: { home: [], away: [], home_tentative: false, away_tentative: false, tentative: false, notes: [] },
   market_spread: -13.5, market_total: 146, market_source: null,
-  // Real row 11-21: total now 4.76% with a 3+ pt move away since open → Lean on the current line.
+  // Real row 11-21: total now 4.76% with a 3+ pt move away since open → held Value on the current line.
   edge_now_pct_spread: 0.012, edge_now_pct_total: 0.048, verdict_spread: "low_value", verdict_total: "low_value",
   skip_reasons_total: ["below_open_threshold", "line_moved_against"],
   lean_total: true,
@@ -43,7 +43,7 @@ test("STATUS_TAG_PRIORITY is verdict first, then pause, then value; cap is 2", (
   assert.equal(STATUS_TAG_MAX, 2);
 });
 
-test("both teams paused plus an official total gives Official Play and one merged pause chip", () => {
+test("both teams paused plus an official total gives CZarp Play and one merged pause chip", () => {
   const g = game({
     lean_total: false,
     coachLocks: [
@@ -58,33 +58,35 @@ test("both teams paused plus an official total gives Official Play and one merge
   if (tags[1].kind === "pause") assert.equal(tags[1].locks.length, 2);
 });
 
-test("a Lean card with a pause gives Lean + pause", () => {
+test("a held Value card with a pause gives Value + pause", () => {
   const g = game({ coachLocks: [lock()] });
-  assert.deepEqual(labels(g), ["lean", "pause"]);
+  assert.deepEqual(labels(g), ["value", "pause"]);
 });
 
-test("Cal Baptist vs LMU (pause + Lean) keeps 2 tags: Lean first, then pause", () => {
+test("Cal Baptist vs LMU (pause + Value) keeps 2 tags: Value first, then pause", () => {
   const g = game({ coachLocks: [lock()] });
-  assert.deepEqual(labels(g), ["lean", "pause"]);
+  assert.deepEqual(labels(g), ["value", "pause"]);
   assert.equal(pickStatusTags(g, []).length, 2);
 });
 
-test("one pause plus an Official Play keeps Official Play + pause", () => {
+test("one pause plus a CZarp Play keeps CZarp Play + pause", () => {
   const g = game({ coachLocks: [lock()] });
   assert.deepEqual(labels(g, [officialBet()]), ["official", "pause"]);
 });
 
-test("no value badge ever: an Official Play with no pause is Official Play alone, at any edge", () => {
+test("no value badge ever: a CZarp Play with no pause is CZarp Play alone, at any edge", () => {
   for (const e of [0.02, 0.04, 0.055, 0.09]) {
     assert.deepEqual(labels(game({ coachLocks: [] }), [officialBet({ line_edge_pct: e, edge_at_post_pct: e })]), ["official"]);
   }
 });
 
-test("no pause: Lean alone, Toss Up alone, Favor alone", () => {
-  assert.deepEqual(labels(game({ coachLocks: [] })), ["lean"]);
+test("no pause: each tier alone", () => {
+  assert.deepEqual(labels(game({ coachLocks: [] })), ["value"]);
   assert.deepEqual(labels(game({ edge_now_pct_total: 0.01, coachLocks: [] })), ["toss_up"]);
-  assert.deepEqual(labels(game({ skip_reasons_total: ["below_open_threshold"], coachLocks: [] })), ["favor"]);
-  assert.deepEqual(labels(game({ skip_reasons_total: ["kelly_too_small"], coachLocks: [] })), ["lean"]);
+  assert.deepEqual(labels(game({ edge_now_pct_total: 0.016, coachLocks: [] })), ["lean"]);
+  assert.deepEqual(labels(game({ edge_now_pct_total: 0.0225, skip_reasons_total: [], coachLocks: [] })), ["value"]);
+  assert.deepEqual(labels(game({ skip_reasons_total: ["below_open_threshold"], coachLocks: [] })), ["late_value"]);
+  assert.deepEqual(labels(game({ skip_reasons_total: ["kelly_too_small"], coachLocks: [] })), ["value"]);
 });
 
 test("old VALUE / EDGE / HOT / Low value labels never come out of the picker", () => {
@@ -97,7 +99,7 @@ test("old VALUE / EDGE / HOT / Low value labels never come out of the picker", (
   ];
   for (const [o, bets] of cases) {
     for (const l of labels(game(o), bets)) {
-      assert.ok(["official", "favor", "lean", "toss_up", "pause"].includes(l), l);
+      assert.ok(["official", "late_value", "value", "lean", "toss_up", "pause"].includes(l), l);
     }
   }
 });
@@ -106,7 +108,7 @@ test("a cleared coach lock does not take a slot", () => {
   const g = game({
     coachLocks: [lock({ sidesLocked: false, totalsLocked: false, sidesRemaining: 0, totalsRemaining: 0 })],
   });
-  assert.deepEqual(labels(g), ["lean"]);
+  assert.deepEqual(labels(g), ["value"]);
 });
 
 test("Toss Up with a pause is verdict + pause", () => {
@@ -114,13 +116,13 @@ test("Toss Up with a pause is verdict + pause", () => {
   assert.deepEqual(labels(g), ["toss_up", "pause"]);
 });
 
-test("Lean (new-coach hold) with both teams paused: Lean + one merged pause chip", () => {
+test("held Value (new-coach hold) with both teams paused: Value + one merged pause chip", () => {
   const g = game({
     edge_now_pct_total: 0.05, edge_vs_open_pct_total: 0.045, skip_reasons_total: ["new_coach_lock"],
     coachLocks: [lock(), lock({ team: "Pacific" })],
   });
   const tags = pickStatusTags(g, []);
-  assert.deepEqual(tags.map(statusTagLabel), ["lean", "pause"]);
+  assert.deepEqual(tags.map(statusTagLabel), ["value", "pause"]);
   if (tags[1].kind === "pause") assert.equal(tags[1].locks.length, 2);
 });
 
@@ -136,9 +138,9 @@ test("never returns more than STATUS_TAG_MAX status tags, and never drops the ve
   }
 });
 
-test("header verdict names the stronger market (Official wins ties); no-line names none", () => {
+test("header verdict names the stronger market (CZarp Play outranks all); no-line names none", () => {
   const t = pickStatusTags(game({ coachLocks: [] }), [])[0];
-  assert.ok(t.kind === "verdict" && t.verdict === "lean" && t.market === "total");
+  assert.ok(t.kind === "verdict" && t.verdict === "value" && t.market === "total");
   const o = pickStatusTags(game({ coachLocks: [] }), [officialBet()])[0];
   assert.ok(o.kind === "verdict" && o.verdict === "official" && o.market === "spread");
   const n = pickStatusTags(game({ edge_now_pct_spread: null, edge_now_pct_total: null, coachLocks: [] }), [])[0];

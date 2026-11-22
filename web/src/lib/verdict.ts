@@ -1,13 +1,13 @@
 /** Card verdicts (one per market), headline numbers, and "not a play" copy.
  *  Reads stored slate_games columns (edge_now_*, verdict_*, skip_reasons_*). Never computes an
- *  edge in the UI. The ladder rule (Toss Up / Lean / Favor / Official Play) lives in
+ *  edge in the UI. The ladder rule (Toss Up / Lean / Value / Late Value / CZarp Play) lives in
  *  lib/verdicts.ts and is judged on the current line only. If the edge columns are missing/null,
  *  the vs-now line is hidden and the market reads Toss Up unless it has a posted official pick.
  */
 import { fmtEdgeVsBar, fmtPlayPct, fmtThresholdPct, type Market } from "./labels";
 import type { SlateGame, ValueBet } from "./types";
 import { marketPauseText } from "./coach";
-import { HOLD_CODES, ladderLevel, showsLineMoveNote, VERDICT_RANK, type HoldCode, type VerdictLevel } from "./verdicts";
+import { HOLD_CODES, LATE_VALUE_NOTE, ladderLevel, showsLineMoveNote, VERDICT_RANK, type HoldCode, type VerdictLevel } from "./verdicts";
 
 /** The pipeline's stored verdict_* column (not the customer ladder). */
 export type StoredVerdict = "official" | "low_value";
@@ -65,7 +65,7 @@ export type MarketRating = {
   edgeNow: number | null;
   /** No stored edge for this market (no line yet). */
   noLine: boolean;
-  /** Official Play whose edge now is below the bar: show LINE_MOVE_NOTE. */
+  /** CZarp Play whose edge now is below the bar: show LINE_MOVE_NOTE. */
   lineMoveNote: boolean;
 };
 
@@ -89,7 +89,7 @@ export function marketRatings(g: SlateGame, officialBets: ValueBet[]): { spread:
 export type CardHeadline = {
   market: Market | null;
   verdict: VerdictLevel;
-  /** Hold codes behind a Favor verdict; empty otherwise. */
+  /** Hold codes behind a Value that is past the bar; empty otherwise. */
   holds: HoldCode[];
   /** Posted edge for official plays; stored edge_now otherwise. Null if we don't have it. */
   edgePct: number | null;
@@ -100,9 +100,7 @@ export type CardHeadline = {
   officialBet: ValueBet | null;
   edgeNow: number | null;
   edgeVsOpen: number | null;
-  /** "vs now 4.5% (needs 4%)" or "Posted 4.2% · vs now 3.1%". Hidden when stored edges are missing. */
-  subtitle: string | null;
-  /** Official Play whose edge now is below the bar: show LINE_MOVE_NOTE under the headline. */
+  /** CZarp Play whose edge now is below the bar: show LINE_MOVE_NOTE under the headline. */
   lineMoveNote: boolean;
 };
 
@@ -126,9 +124,6 @@ export function cardHeadline(g: SlateGame, officialBets: ValueBet[]): CardHeadli
     const edgeNow = marketEdgeNow(g, market);
     const edgeVsOpen = marketEdgeVsOpen(g, market);
     const postedLabel = FINITE(posted) ? fmtPlayPct(posted) : null;
-    const subtitle = postedLabel && edgeNow != null
-      ? `Posted ${postedLabel} · vs now ${fmtEdgeVsBar(edgeNow, market)}`
-      : null;
     return {
       market,
       verdict: "official",
@@ -139,7 +134,6 @@ export function cardHeadline(g: SlateGame, officialBets: ValueBet[]): CardHeadli
       officialBet,
       edgeNow,
       edgeVsOpen,
-      subtitle,
       lineMoveNote: showsLineMoveNote(market, true, edgeNow),
     };
   }
@@ -169,14 +163,8 @@ export function cardHeadline(g: SlateGame, officialBets: ValueBet[]): CardHeadli
     officialBet: null,
     edgeNow,
     edgeVsOpen,
-    subtitle: notPostedSubtitle(market, edgeNow),
     lineMoveNote: false,
   };
-}
-
-function notPostedSubtitle(market: Market | null, edgeNow: number | null): string | null {
-  if (!market || edgeNow == null) return null;
-  return `vs now ${fmtEdgeVsBar(edgeNow, market)} (needs ${fmtThresholdPct(market)})`;
 }
 
 const COACH_SKIP = "new_coach_lock";
@@ -186,7 +174,6 @@ const LINE_MOVED_LABEL: string = HOLD_CODES.line_moved_against;
 export function knownSkipCodeLabel(code: string, thresholdPct: string): string | null {
   switch (code) {
     case "below_open_threshold": return `edge vs open below ${thresholdPct}`;
-    case "below_current_threshold": return `edge now below ${thresholdPct}`;
     case "line_moved_against": return LINE_MOVED_LABEL;
     case "no_opening_line": return "no opening line yet";
     case "no_current_line": return "no current line";
@@ -278,10 +265,11 @@ export function formatSkip(
 const BAR_CODES = new Set(["below_open_threshold", "below_current_threshold"]);
 
 /** Customer reason line for a non-official market, matching its ladder level:
- *  - Favor: "Value on the current line. Official plays are set at 7:15 AM CT." (any other
+ *  - Late Value: LATE_VALUE_NOTE, shown as-is (any other
  *    stored reason, e.g. "game already started", still shows).
- *  - Lean: the hold rule(s) (new-coach pause leads).
- *  - Toss Up: "edge now below 4%" (plus any other stored reason), or the stored text with
+ *  - Value past the bar: the hold rule(s) as the note (new-coach pause leads).
+ *  - Below the bar (Toss Up, Lean, Value): no bar reason (the chip and the edge say it); only other
+ *    stored reasons (e.g. stake under $1, game already started), or the stored text with
  *    opening-line wording removed. */
 function skipForMarket(g: SlateGame, officialBets: ValueBet[], market: Market): SkipDetail {
   const m: Market = market === "moneyline" ? "spread" : market;
@@ -289,23 +277,19 @@ function skipForMarket(g: SlateGame, officialBets: ValueBet[], market: Market): 
   if (v.level === "official") return { primary: null, also: [] };
   const stored = m === "total" ? g.skip_reasons_total : g.skip_reasons_spread;
   const codes = (stored ?? []).filter((c) => !BAR_CODES.has(c));
-  if (v.level === "toss_up" && marketEdgeNow(g, m) != null) codes.unshift("below_current_threshold");
   // A structured row whose remaining codes all have labels doesn't need the stored text (which can
   // still carry opening-line or stale wording). Unknown codes and the coach pause still read it.
   const structured = !!stored?.length && codes.every((c) => c !== COACH_SKIP && knownSkipCodeLabel(c, "") != null);
   const human = structured ? null : m === "total" ? g.skip_reason_total : g.skip_reason_spread;
   const d = formatSkip(human, codes, market === "moneyline" ? "moneyline" : m, g.coachLocks);
-  // Favor: nothing on the ladder held it back. Any other stored reason (game started, a new pipeline
-  // rule) still shows; otherwise it simply wasn't posted at the morning run.
-  if (v.level === "favor" && !d.primary) return { primary: FAVOR_REASON, also: [] };
+  // Late Value: nothing on the ladder held it back. Any other stored reason (game started, a new
+  // pipeline rule) still shows; otherwise it's value that came after the 7:15 AM CT run.
+  if (v.level === "late_value" && !d.primary) return { primary: LATE_VALUE_NOTE, also: [] };
   return d;
 }
 
-/** Favor's reason line, shown as-is (no "Not a play:" prefix). Copy approved by CZarp on #67. */
-export const FAVOR_REASON = "Value on the current line. Official plays are set at 7:15 AM CT.";
-
-/** "Not a play: <reason>", except the Favor line, which stands on its own. */
-const reasonLine = (primary: string) => (primary === FAVOR_REASON ? FAVOR_REASON : `Not a play: ${primary}`);
+/** "Not a play: <reason>", except the Late Value note (lib/verdicts.ts), which stands on its own. */
+const reasonLine = (primary: string) => (primary === LATE_VALUE_NOTE ? LATE_VALUE_NOTE : `Not a play: ${primary}`);
 
 /** Skip detail for the headline (or given) non-play market; null for official plays. */
 export function notAPlayDetail(g: SlateGame, officialBets: ValueBet[], market?: Market | null): SkipDetail | null {

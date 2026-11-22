@@ -6,7 +6,9 @@ const ladderTip = (level: Parameters<typeof verdictDef>[0]) => ({ title: verdict
 
 export const EXPLAINERS = {
   tossUp: ladderTip("toss_up"),
-  favor: ladderTip("favor"),
+  lean: ladderTip("lean"),
+  value: ladderTip("value"),
+  lateValue: ladderTip("late_value"),
   noLine: NO_LINE_TIP,
   edge: {
     title: "Edge",
@@ -32,15 +34,11 @@ export const EXPLAINERS = {
     title: "Percentile",
     body: "Percentiles vs all D-I teams, from 0 (worst) to 100 (best). Use them to compare style, not as a leaderboard.",
   },
-  lean: {
-    title: "Lean",
-    body: ladderTip("lean").body,
-  },
   /** Read by the slate chips and the methodology glossary; derived from lib/verdicts.ts (one source). */
-  officialPlay: ladderTip("official"),
+  czarpPlay: ladderTip("official"),
   ladderRule: {
     title: "How each market is rated",
-    body: "The spread and the total each get their own rating, judged on the current line: below our bar (4% sides, 3% totals) is a Toss Up; clearing it is a Favor, or a Lean if a hold rule applies. Official Plays are set once, at the 7:15 AM CT run, and are never added later.",
+    body: "The spread and the total each get their own rating, judged on the edge vs the current line: Toss Up, Lean, Value, or Late Value as the edge grows (sides 2%, 3%, 4%; totals 1.5%, 2.25%, 3%). CZarp Plays are set once, at the 7:15 AM CT run, and are never added later.",
   },
   tvRating: {
     title: "TV Rating",
