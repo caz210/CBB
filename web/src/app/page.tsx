@@ -3,9 +3,10 @@ import { ExampleBadge, ExampleBanner } from "@/components/ExampleBadge";
 import { ArchetypeChip } from "@/components/ArchetypeChip";
 import { visibleTags } from "@/lib/archetypes";
 import { EXAMPLE_SLATE, EXAMPLE_VALUE_BETS } from "@/lib/example-data";
-import { MARKET_LABEL, fmtLine, fmtOne, fmtScore, fmtTipoff, pct, signedPct, fmtUnits } from "@/lib/labels";
+import { MARKET_LABEL, fmtLine, fmtSpread, fmtScore, fmtTipoff, pct, signedPct, fmtUnits } from "@/lib/labels";
 import { SPORTS, getSport } from "@/lib/sports";
 import { loadHero, loadResults, type Hero } from "@/lib/data";
+import { totalFair } from "@/lib/posted";
 import { RESULT_LABEL, fmtGameDate, fmtPostedStamp } from "@/lib/labels";
 import { postedVsNow } from "@/lib/posted";
 import { verdictLabel } from "@/lib/verdicts";
@@ -81,8 +82,8 @@ export default async function Landing() {
               </div>
             ))}
             <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-              <Mini label="Spread" value={fmtLine(g.proj_spread!)} />
-              <Mini label="Total" value={fmtOne(g.proj_total!)} />
+              <Mini label="Spread" value={fmtSpread(g.proj_spread)} />
+              <Mini label="Total" value={totalFair(g, []).value} />
               <Mini label="Away win" value={pct(1 - g.home_win_prob!)} />
             </div>
             <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-edge-400/30 bg-edge-400/10 px-4 py-3">

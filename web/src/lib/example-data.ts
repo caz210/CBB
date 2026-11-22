@@ -22,7 +22,7 @@ export const EXAMPLE_SLATE: SlateGame[] = [
   {
     sport: "cbb", game_date: D, game_id: 900101, away: "Ridgeview State", home: "Coastal Pines",
     game: game("Ridgeview State", "Coastal Pines"), tipoff: t("18:00"),
-    proj_away: 74.6, proj_home: 71.2, proj_spread: 3.4, proj_total: 145.8,
+    proj_away: 74.6, proj_home: 71.2, proj_spread: 3.4, proj_total: 145.8, czarp_total: 145.8,
     home_win_prob: 0.38, home_cover_prob: 0.44,
     archetypes: { away: parseTagList(["Addicted to 3s", "Don't Blink"], false), home: parseTagList(["Lock Down", "Open Arc"], true), away_tentative: false, home_tentative: true, tentative: true, notes: ["Addicted to 3s vs Open Arc: exploit"] },
     market_spread: 1.5, market_total: 147.5, market_source: "vegas",
@@ -30,7 +30,7 @@ export const EXAMPLE_SLATE: SlateGame[] = [
   {
     sport: "cbb", game_date: D, game_id: 900102, away: "Northgate Tech", home: "Harbor University",
     game: game("Northgate Tech", "Harbor University"), tipoff: t("18:30"),
-    proj_away: 61.8, proj_home: 76.4, proj_spread: -14.6, proj_total: 138.2,
+    proj_away: 61.8, proj_home: 76.4, proj_spread: -14.6, proj_total: 138.2, czarp_total: 138.2,
     home_win_prob: 0.9, home_cover_prob: 0.51,
     archetypes: { away: parseTagList(["Careless", "Sieve"], false), home: parseTagList(["Lock Down", "Turnover Machine"], false), away_tentative: false, home_tentative: false, tentative: false, notes: ["Turnover Machine vs Careless"] },
     market_spread: -14.5, market_total: 136.5, market_source: "vegas",
@@ -38,7 +38,7 @@ export const EXAMPLE_SLATE: SlateGame[] = [
   {
     sport: "cbb", game_date: D, game_id: 900103, away: "Mesa Valley", home: "St. Aldric",
     game: game("Mesa Valley", "St. Aldric"), tipoff: t("19:00"),
-    proj_away: 70.3, proj_home: 69.1, proj_spread: 1.2, proj_total: 139.4,
+    proj_away: 70.3, proj_home: 69.1, proj_spread: 1.2, proj_total: 139.4, czarp_total: 139.4,
     home_win_prob: 0.46, home_cover_prob: 0.53,
     archetypes: { away: parseTagList(["Board Crashers", "Free Throw Merchants"], true), home: parseTagList(["Addicted to 3s", "Glass Leak"], false), away_tentative: true, home_tentative: false, tentative: true, notes: ["Board Crashers vs Glass Leak: exploit"] },
     market_spread: 2.5, market_total: 134.5, market_source: "vegas",
@@ -46,7 +46,7 @@ export const EXAMPLE_SLATE: SlateGame[] = [
   {
     sport: "cbb", game_date: D, game_id: 900104, away: "Lakeshore A&M", home: "Granite Falls",
     game: game("Lakeshore A&M", "Granite Falls"), tipoff: t("20:00"),
-    proj_away: 72.0, proj_home: 73.4, proj_spread: -1.4, proj_total: 145.4,
+    proj_away: 72.0, proj_home: 73.4, proj_spread: -1.4, proj_total: 145.4, czarp_total: 145.4,
     home_win_prob: 0.55, home_cover_prob: 0.61,
     archetypes: { away: parseTagList(["Arc Wall", "No Rebounds for You"], false), home: parseTagList(["Don't Blink", "Passive D"], false), away_tentative: false, home_tentative: false, tentative: false, notes: [] },
     market_spread: 2.5, market_total: 141.5, market_source: "vegas",
@@ -54,7 +54,7 @@ export const EXAMPLE_SLATE: SlateGame[] = [
   {
     sport: "cbb", game_date: D, game_id: 900105, away: "Desert Sun", home: "Pacific Crest",
     game: game("Desert Sun", "Pacific Crest"), tipoff: t("21:00"),
-    proj_away: 64.9, proj_home: 74.1, proj_spread: -9.2, proj_total: 139.0,
+    proj_away: 64.9, proj_home: 74.1, proj_spread: -9.2, proj_total: 139.0, czarp_total: 139.0,
     home_win_prob: 0.8, home_cover_prob: 0.48,
     archetypes: { away: parseTagList(["Board Crashers"], true), home: parseTagList(["Addicted to 3s", "Lock Down"], false), away_tentative: true, home_tentative: false, tentative: true, notes: [] },
     market_spread: -9.5, market_total: 140.0, market_source: "vegas",

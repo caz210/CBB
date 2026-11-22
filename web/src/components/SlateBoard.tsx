@@ -559,7 +559,8 @@ function GameSheet({ g, sportKey, bets, tvHot, onClose }: { g: SlateGame | null;
   if (!g) return null;
   const i = g.insight;
   const ph = i?.proj_home ?? g.proj_home, pa = i?.proj_away ?? g.proj_away;
-  const czLine = ph != null && pa != null ? -(ph - pa) : g.proj_spread;
+  // FV spread: the stored proj_spread, the same number the card, team page and home page show. Never the score difference.
+  const czLine = g.proj_spread;
   const czTotal = totalFair(g, bets); // official CZarp total, never the team-score sum
   const openS = i?.open_spread ?? null, curS = i?.cur_spread ?? g.market_spread;
   const openT = i?.open_total ?? null, curT = i?.cur_total ?? g.market_total;
@@ -645,7 +646,7 @@ function GameSheet({ g, sportKey, bets, tvHot, onClose }: { g: SlateGame | null;
         <p className="mt-1 text-[10px] text-zinc-600">{g.neutral ? "Line" : "Home-line"} notation (−5.5 = {g.home} favored). Price = Vegas consensus. Fair value = our model.</p>
 
         <div className="mt-3 grid grid-cols-2 gap-2">
-          <Big label={g.neutral ? <span className="block truncate">{g.home} win</span> : "Home win"} v={hw == null ? "—" : fmtWinProb(hw)} />
+          <Big label={g.neutral ? <span className="block break-words leading-tight">{g.home} win</span> : "Home win"} v={hw == null ? "—" : fmtWinProb(hw)} />
           <Big label="Over" v={ov == null ? "—" : pct(ov)} sub={ov == null ? undefined : "CZarp total"} />
         </div>
         {(i?.proj_possessions ?? g.proj_possessions) != null && <p className="mt-2 text-xs text-zinc-400">Projected pace: <b className="font-mono text-white">{(i?.proj_possessions ?? g.proj_possessions)!.toFixed(1)}</b> possessions</p>}

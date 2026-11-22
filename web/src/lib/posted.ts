@@ -2,7 +2,7 @@
  *  Do not reconstruct missing fair/open — hide those pieces instead.
  *  edge_at_post_pct / edge_vs_open_pct are fractions (0.0173 = 1.73%).
  */
-import { fmtLine, fmtOne, fmtPostedVsNow, fmtScore, type Market } from "./labels";
+import { fmtOne, fmtPostedVsNow, fmtSpread, type Market } from "./labels";
 import type { SlateGame, ValueBet } from "./types";
 
 export function mentionsTeam(side: string, team: string) {
@@ -56,7 +56,7 @@ export function betCoverProb(g: SlateGame, b: ValueBet | null, market: Market | 
 /** Compact card line: "Posted 142.0 → Now 144.5". Hides any missing piece. */
 export function postedNowCompact(b: ValueBet, g: SlateGame | null | undefined): string | null {
   if (!g) return null;
-  const fmt = (n: number) => (b.market === "total" ? fmtOne(n) : fmtLine(n));
+  const fmt = (n: number) => (b.market === "total" ? fmtOne(n) : fmtSpread(n));
   const fair = b.fair_at_post;
   const now = currentLineForBet(g, b.market, b.side);
   const parts: string[] = [];
@@ -64,31 +64,6 @@ export function postedNowCompact(b: ValueBet, g: SlateGame | null | undefined): 
   if (typeof now === "number" && Number.isFinite(now)) parts.push(`Now ${fmt(now)}`);
   if (!parts.length) return null;
   return parts.join(" → ");
-}
-
-/** Posted fair value (time-stamped, never edited) next to what CZarp projects now.
- *  Totals: compared with the current official CZarp total (czarp_total), never the sum of the team scores.
- *  Spreads: compared with the current team-score line (sides model).
- *  e.g. "Posted FV 140.5 · CZarp total now: 140.5" / "Posted FV −3.5 · CZarp projection now: 64.1–70.0, −5.9" */
-export function postedFairVsProjections(b: ValueBet | null | undefined, g: SlateGame): string | null {
-  if (!b || typeof b.fair_at_post !== "number" || !Number.isFinite(b.fair_at_post)) return null;
-  // Model names are internal; customers only ever see "CZarp".
-  const pa = g.proj_away, ph = g.proj_home;
-  if (b.market === "total") {
-    const posted = `Posted FV ${fmtOne(b.fair_at_post)}`;
-    // Customers only ever see the one official CZarp total. Never the team-score sum (sides model).
-    if (g.czarp_total == null) return posted;
-    return `${posted} · CZarp total now: ${fmtOne(g.czarp_total)}`;
-  }
-  if (b.market === "spread") {
-    const posted = `Posted FV ${fmtLine(b.fair_at_post)}`;
-    if (pa == null || ph == null) return posted;
-    const homeLine = -(ph - pa);
-    const pickedAway = mentionsTeam(b.side, g.away) && !mentionsTeam(b.side, g.home);
-    const now = pickedAway ? -homeLine : homeLine;
-    return `${posted} · CZarp projection now: ${fmtScore(pa)}–${fmtScore(ph)}, ${fmtLine(now)}`;
-  }
-  return null;
 }
 
 /** Game-sheet note shown instead of a "posted" tag when the total FV is the posted pick's number. */

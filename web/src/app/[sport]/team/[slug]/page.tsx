@@ -16,7 +16,7 @@ import {
 } from "@/lib/teamPage";
 import { teamHref } from "@/lib/teams";
 import { matchupHref } from "@/lib/matchup";
-import { GAME_STATUS_LABEL, finalLabel, fmtGameDate, fmtLine, fmtOne, fmtSpread, fmtTipoff } from "@/lib/labels";
+import { GAME_STATUS_LABEL, finalLabel, fmtGameDate, fmtOne, fmtSpread, fmtTipoff } from "@/lib/labels";
 import { ComingSoon } from "@/components/ComingSoon";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
@@ -280,7 +280,8 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
                         {g.neutral && <NeutralChip />}
                       </div>
                       <div className="mt-0.5 font-mono text-[11px] text-zinc-500">
-                        FV {g.model_spread == null ? "—" : spreadRef(fmtLine(g.model_spread), g.home, g.neutral)} · Price {g.vegas_spread == null ? "—" : spreadRef(fmtLine(g.vegas_spread), g.home, g.neutral)}
+                        {/* model_grades.model_spread is the stored proj_spread (same value on all 586 games, Nov 10–22). */}
+                        FV {g.model_spread == null ? "—" : spreadRef(fmtSpread(g.model_spread), g.home, g.neutral)} · Price {g.vegas_spread == null ? "—" : spreadRef(fmtSpread(g.vegas_spread), g.home, g.neutral)}
                       </div>
                       <CzarpPickLines
                         ats={czarpAtsLine({ side: g.model_ats_side, result: g.model_ats_result, away: g.away, home: g.home })}
