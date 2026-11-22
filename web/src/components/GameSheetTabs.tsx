@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, type ReactNode } from "react";
 import type { SlateGame, ValueBet } from "@/lib/types";
-import { fmtEdgeVsBar, fmtGameDate, fmtOne, fmtScore, fmtSpread, fmtWinProb, pct } from "@/lib/labels";
+import { fmtEdgeVsBar, fmtGameDate, fmtOne, fmtWinProb, pct } from "@/lib/labels";
 import { teamHref } from "@/lib/teams";
 import { cardHeadline, marketRatings, type MarketRating } from "@/lib/verdict";
 import { nowLine } from "@/lib/cardHeader";
@@ -17,8 +17,11 @@ import {
   formCountLabel,
   formatTeamValue,
   locLabel,
+  namedScore,
+  namedSpread,
   officialRecordLine,
   scoreLine,
+  type NamedNum,
   type SheetExtras,
   type SheetRecentGame,
   type SheetTab,
@@ -49,15 +52,26 @@ export function useSheetExtras(g: SlateGame | null, sportKey: string) {
   return { extras: data, loading };
 }
 
-function spreadRef(n: number | null, team: string): string {
-  if (n == null) return "—";
-  return `${team} ${fmtSpread(n)}`;
+function NamedNumLine({ tag, line }: { tag?: string; line: NamedNum }) {
+  return (
+    <div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 leading-snug">
+      {tag ? <span className="shrink-0 font-sans text-[10px] text-zinc-500">{tag}</span> : null}
+      {line.name ? (
+        // min(100%, max-content): a long single word wraps to its own line instead of splitting mid-word.
+        // The number stays whole (nowrap / shrink-0) and is never clipped by the name.
+        <span className="min-w-[min(100%,max-content)] flex-1 break-words font-sans">{line.name}</span>
+      ) : (
+        <span className="min-w-0 flex-1" />
+      )}
+      <span className="ml-auto shrink-0 whitespace-nowrap font-mono">{line.value}</span>
+    </div>
+  );
 }
 
 function MarketBetRow({ label, fair, price, rating, official, now, edge }: {
   label: string;
-  fair: string;
-  price: string;
+  fair: NamedNum;
+  price: NamedNum;
   rating: MarketRating;
   official: ValueBet | undefined;
   now: string | null;
@@ -67,14 +81,14 @@ function MarketBetRow({ label, fair, price, rating, official, now, edge }: {
   return (
     <div className="rounded-xl border border-ink-700 bg-ink-850 px-3 py-2.5">
       <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="mb-1 flex flex-wrap items-center gap-1.5">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">{label}</span>
             <VerdictChip level={rating.level} noLine={rating.noLine} wrap />
           </div>
-          <div className="font-mono text-[13px] leading-snug text-zinc-300">
-            <div><span className="font-sans text-[10px] text-zinc-500">FV </span>{fair}</div>
-            <div><span className="font-sans text-[10px] text-zinc-500">Price </span>{price}</div>
+          <div className="space-y-0.5 text-[13px] text-zinc-300">
+            <NamedNumLine tag="FV" line={fair} />
+            <NamedNumLine tag="Price" line={price} />
           </div>
           {official && (
             <div className="mt-1.5 text-[12px] font-semibold text-white">
@@ -105,8 +119,8 @@ export function QuickBetBlock({ g, bets }: { g: SlateGame; bets: ValueBet[] }) {
     <div className="space-y-2">
       <MarketBetRow
         label="Spread"
-        fair={czSpread == null ? "—" : spreadRef(czSpread, spreadTeam)}
-        price={curS == null ? "—" : spreadRef(curS, spreadTeam)}
+        fair={namedSpread(spreadTeam, czSpread)}
+        price={namedSpread(spreadTeam, curS)}
         rating={ratings.spread}
         official={officialSpread}
         now={officialSpread ? nowLine(officialSpread, g) : null}
@@ -114,8 +128,8 @@ export function QuickBetBlock({ g, bets }: { g: SlateGame; bets: ValueBet[] }) {
       />
       <MarketBetRow
         label="Total"
-        fair={czTotal.value}
-        price={curT == null ? "—" : fmtOne(curT)}
+        fair={{ name: null, value: czTotal.value }}
+        price={{ name: null, value: curT == null ? "—" : fmtOne(curT) }}
         rating={ratings.total}
         official={officialTotal}
         now={officialTotal ? nowLine(officialTotal, g) : null}
@@ -140,9 +154,9 @@ function ProjStrip({ g, bets }: { g: SlateGame; bets: ValueBet[] }) {
     <div className="grid grid-cols-2 gap-1.5 text-[11px]">
       <div className="rounded-lg bg-ink-850 px-2.5 py-2">
         <div className="text-[10px] uppercase tracking-wider text-zinc-500">CZarp projection</div>
-        <div className="mt-0.5 font-mono text-sm text-zinc-200">
-          <span className="block truncate text-zinc-400">{g.away} {pa == null ? "—" : fmtScore(pa)}</span>
-          <span className="block truncate text-zinc-200">{g.home} {ph == null ? "—" : fmtScore(ph)}</span>
+        <div className="mt-0.5 space-y-0.5 text-sm">
+          <div className="text-zinc-400"><NamedNumLine line={namedScore(g.away, pa)} /></div>
+          <div className="text-zinc-200"><NamedNumLine line={namedScore(g.home, ph)} /></div>
         </div>
       </div>
       <div className="rounded-lg bg-ink-850 px-2.5 py-2">

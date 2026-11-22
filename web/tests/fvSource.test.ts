@@ -44,11 +44,12 @@ test("every FV surface reads the stored proj_spread / official total, never the 
   // Card footer.
   assert.match(card, /fair=\{g\.proj_spread == null \? "—" : fmtSpread\(g\.proj_spread\)\}/);
   assert.match(card, /totalFair\(g, bets\)/);
-  // Game sheet Bet tab: stored proj_spread via spreadRef, official total via totalFair.
+  // Game sheet Bet tab: stored proj_spread via namedSpread → fmtSpread, official total via totalFair.
+  const extras = read("src/lib/sheetExtras.ts");
   assert.match(sheet, /const czSpread = g\.proj_spread;/);
-  assert.match(sheet, /fair=\{czSpread == null \? "—" : spreadRef\(czSpread, spreadTeam\)\}/);
+  assert.match(sheet, /namedSpread\(spreadTeam, czSpread\)/);
   assert.match(sheet, /const czTotal = totalFair\(g, bets\)/);
-  assert.match(between(tabs, "function spreadRef(", "\nfunction "), /fmtSpread\(n\)/);
+  assert.match(between(extras, "export function namedSpread(", "\nexport function "), /fmtSpread\(/);
   // Team page next game and past rows (model_grades.model_spread is the stored proj_spread).
   assert.match(team, /fmtSpread\(next\.proj_spread\)/);
   assert.match(team, /spreadRef\(fmtSpread\(g\.model_spread\)/);
@@ -57,7 +58,7 @@ test("every FV surface reads the stored proj_spread / official total, never the 
   assert.match(home, /<Mini label="Spread" value=\{fmtSpread\(g\.proj_spread\)\} \/>/);
   assert.match(home, /<Mini label="Total" value=\{totalFair\(g, \[\]\)\.value\} \/>/);
   // No surface derives FV from projected scores, and no spread FV/price goes through the zero-as-"0.0" formatter.
-  for (const [name, src] of [["SlateBoard", slate], ["GameSheetTabs", tabs], ["team page", team], ["home", home]] as const) {
+  for (const [name, src] of [["SlateBoard", slate], ["GameSheetTabs", tabs], ["sheetExtras", extras], ["team page", team], ["home", home]] as const) {
 
     assert.doesNotMatch(src, /-\(\s*ph\s*-\s*pa\s*\)|proj_home\s*-\s*\w*\.?proj_away|proj_away\s*-\s*\w*\.?proj_home/, `${name} derives FV from the score difference`);
     assert.doesNotMatch(src, /fmtLine\(\w+\.(proj_spread|market_spread|model_spread|vegas_spread)/, `${name} formats a spread without PK`);

@@ -3,6 +3,7 @@
  *  from stored game dates and scores. Official picks only — never tracked. */
 
 import { visibleTags, type ArchetypeTag } from "./archetypes";
+import { fmtScore, fmtSpread } from "./labels";
 import { fmtRating } from "./rankings";
 
 export const SHEET_TABS = [
@@ -12,6 +13,22 @@ export const SHEET_TABS = [
 ] as const;
 export type SheetTab = (typeof SHEET_TABS)[number]["k"];
 export const DEFAULT_SHEET_TAB: SheetTab = "bet";
+
+/** A team name (may wrap) kept apart from a number that must stay whole and visible. */
+export type NamedNum = { name: string | null; value: string };
+
+/** Spread FV / Price: never invent a short name; the number is fmtSpread (PK at 0). */
+export function namedSpread(team: string, n: number | null | undefined): NamedNum {
+  const value = fmtSpread(n);
+  return { name: value === "—" ? null : team, value };
+}
+
+/** Projected score: the name is kept apart from fmtScore so a long name cannot hide it. */
+export function namedScore(team: string, n: number | null | undefined): NamedNum {
+  if (n == null || !Number.isFinite(n)) return { name: team, value: "—" };
+  return { name: team, value: fmtScore(n) };
+}
+
 
 export type OfficialPickResult = {
   pick: string;

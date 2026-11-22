@@ -2,8 +2,8 @@
 // Run: npm test
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { readFileSync, statSync } from "node:fs";
+import { join, resolve } from "node:path";
 import {
   COMPARE_ROWS,
   DEFAULT_SHEET_TAB,
@@ -12,15 +12,18 @@ import {
   formCountLabel,
   formatTeamValue,
   logIncomplete,
+  namedScore,
+  namedSpread,
   officialPicksFromLedger,
   parseOfficialResult,
   teamValue,
   type SheetRecentGame,
   type SheetTeamExtras,
 } from "../src/lib/sheetExtras";
+import { fmtScore, fmtSpread } from "../src/lib/labels";
 
 const slate = JSON.parse(readFileSync(resolve("tests/fixtures/slate-2026-11-22.json"), "utf8")) as {
-  games: { game_id: number; away: string; home: string }[];
+  games: { game_id: number; away: string; home: string; proj_away: number | null; proj_home: number | null; proj_spread: number | null }[];
   posted: { game_id: number; market: string; side: string; pick_tier: string }[];
 };
 
@@ -132,4 +135,40 @@ test("the game sheet tabs default to Bet", () => {
   assert.equal(DEFAULT_SHEET_TAB, "bet");
   assert.equal(SHEET_TABS[0].l, "Bet");
   assert.ok(TAPE_ROWS.some((r) => r.key === "rest"));
+});
+
+test("Bet projection and FV/Price keep the number apart from a long name so it cannot be hidden", () => {
+  const mdes = slate.games.find((g) => g.home === "Maryland Eastern Shore");
+  const uci = slate.games.find((g) => g.home === "Loyola Marymount");
+  assert.ok(mdes && uci, "fixture includes the long-name games");
+  const fv = namedSpread(mdes.home, mdes.proj_spread);
+  assert.equal(fv.name, "Maryland Eastern Shore");
+  assert.equal(fv.value, fmtSpread(mdes.proj_spread));
+  assert.equal(fv.value, "+8.9");
+  assert.ok(!fv.name!.includes(fv.value));
+  assert.ok(uci.proj_home != null);
+  const lmu = namedScore("Loyola Marymount", uci.proj_home);
+  assert.equal(lmu.name, "Loyola Marymount");
+  assert.equal(lmu.value, fmtScore(uci.proj_home));
+  assert.ok(!lmu.value.includes("…") && lmu.value !== "—");
+  const pres = namedScore("Presbyterian", 76.9);
+  assert.deepEqual(pres, { name: "Presbyterian", value: "76.9" });
+  assert.deepEqual(namedSpread("Presbyterian", 0), { name: "Presbyterian", value: "PK" });
+  assert.deepEqual(namedSpread("Presbyterian", null), { name: null, value: "—" });
+  assert.deepEqual(namedScore("Maryland Eastern Shore", null), { name: "Maryland Eastern Shore", value: "—" });
+  // Layout: the Bet strip never truncates a name together with its number; the number is nowrap / shrink-0.
+  const root = [resolve("."), resolve("..")].find((d) => { try { return statSync(join(d, "src/components/GameSheetTabs.tsx")).isFile(); } catch { return false; } })!;
+  const src = readFileSync(join(root, "src/components/GameSheetTabs.tsx"), "utf8");
+  const line = src.slice(src.indexOf("function NamedNumLine("), src.indexOf("function MarketBetRow("));
+  assert.match(line, /break-words/);
+  assert.match(line, /whitespace-nowrap/);
+  assert.match(line, /shrink-0/);
+  assert.doesNotMatch(line, /truncate/);
+  const proj = src.slice(src.indexOf("function ProjStrip("), src.indexOf("function CompareTable("));
+  assert.match(proj, /namedScore\(g\.away, pa\)/);
+  assert.match(proj, /namedScore\(g\.home, ph\)/);
+  assert.doesNotMatch(proj, /truncate/);
+  const bet = src.slice(src.indexOf("export function QuickBetBlock("), src.indexOf("function ProjStrip("));
+  assert.match(bet, /namedSpread\(spreadTeam, czSpread\)/);
+  assert.match(bet, /namedSpread\(spreadTeam, curS\)/);
 });
