@@ -2,10 +2,18 @@
 -- results against non-D-I opponents (never projected, never on the slate).
 -- The site game log and rest-day calc should read team_game_log, not only
 -- model_grades (model_grades stays D-I vs D-I with a CZarp projection).
--- slate_games is tightened to require a default-model projection so
--- backfilled D-I finals without one (the Nov 1 openers, or any future
--- missing final) never create empty slate cards or a new slate day.
--- Those games still appear in team_game_log.
+--
+-- Requires PR #65 (2026-11-21_intraday_line_refresh.sql) to be applied first:
+-- projections.edges_as_of and the 39-column slate_games must already exist.
+-- This migration then CREATE OR REPLACE-s slate_games as a strict superset
+-- of #65 (same 39 columns, same order) and excludes only games that have
+-- neither a default-model projection nor any market_lines row. The Nov 1
+-- openers have neither, so they stay off the slate and do not create a
+-- Nov 1 slate day; a game with lines but a failed projection still appears.
+-- Those openers still appear in team_game_log.
+-- CREATE OR REPLACE (no DROP): an ordering mistake fails loudly and grants
+-- are kept.
+--
 -- Does not touch picks, the ledger, or the hash chain.
 -- One transaction: a mid-failure under psql -f rolls back completely
 -- (no half-created table sitting under default grants).
@@ -135,11 +143,10 @@ comment on view team_game_log is
 grant select on team_game_log to anon, authenticated;
 
 
--- Recreate slate_games so a game without a default-model projection is
--- excluded (JOIN LATERAL, not LEFT). Grants are restored after DROP.
--- Columns and the market_lines / official-pick joins are unchanged.
-drop view if exists slate_games;
-create view slate_games with (security_invoker = true) as
+-- #65's 39-column slate_games, plus a filter: keep the row when a
+-- default-model projection exists OR any market_lines row exists.
+-- CREATE OR REPLACE (no DROP) keeps grants and fails if column order drifts.
+create or replace view slate_games with (security_invoker = true) as
 select s.code                       as sport,
        g.date                       as game_date,
        g.id                         as game_id,
@@ -177,10 +184,13 @@ select s.code                       as sport,
        m.source                     as market_source,
        g.status,
        g.final_at,
-       g.final_at_estimated
+       g.final_at_estimated,
+       -- appended (2026-11-21 intraday refresh / PR #65); existing columns keep their names, types and order
+       coalesce(p.edges_as_of, p.created_at) as edges_as_of,
+       m.fetched_at                 as market_fetched_at
 from games g
 join sports s on s.id = g.sport_id
-join lateral (
+left join lateral (
   select pr.* from projections pr
   join model_configs mc on mc.model_version = pr.model_version and mc.is_default and mc.league = g.league
   where pr.game_id = g.id order by pr.created_at desc limit 1) p on true
@@ -195,7 +205,9 @@ left join lateral (
 left join lateral (
   select pk.game_id from official_picks_locked pk
   where pk.game_id = g.id and pk.market = 'total' and pk.tier = 'official'
-  limit 1) off_tot on true;
+  limit 1) off_tot on true
+where p.game_id is not null
+   or exists (select 1 from market_lines ml where ml.game_id = g.id);
 
 grant select on slate_games to anon, authenticated;
 

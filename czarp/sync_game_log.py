@@ -212,10 +212,10 @@ def sync_game_log(lookback: int = DEFAULT_LOOKBACK, day: date | None = None, *,
         di_ids = fetch_di_espn_ids()
         if not di_ids:
             ids_unavailable = True
-            log("  game log: ESPN teams list failed — skipping non-D-I writes")
+            log("  game log: ESPN teams list failed — skipping non-D-I writes and missing-D-I inserts")
     elif not di_ids:
         ids_unavailable = True
-        log("  game log: ESPN D-I ids unavailable — skipping non-D-I writes")
+        log("  game log: ESPN D-I ids unavailable — skipping non-D-I writes and missing-D-I inserts")
     if end_time is None:
         end_time = espn_end_utc
 
@@ -229,6 +229,12 @@ def sync_game_log(lookback: int = DEFAULT_LOOKBACK, day: date | None = None, *,
                        select="id,external_id,home,away,home_team_id,away_team_id,status",
                        league=f"eq.{LEAGUE}")
     by_eid = {str(g["external_id"]): g for g in existing if g.get("external_id")}
+    existing_nd = get_all(
+        c, "non_di_games",
+        select="external_id,home,away,home_team_id,away_team_id,home_score,away_score,neutral,status,date,final_at",
+        league=f"eq.{LEAGUE}",
+    )
+    by_nd = {str(r["external_id"]): r for r in existing_nd if r.get("external_id")}
 
     fetch = scoreboard or fetch_scoreboard
     non_di_rows, di_rows, patches = [], [], []
@@ -252,6 +258,8 @@ def sync_game_log(lookback: int = DEFAULT_LOOKBACK, day: date | None = None, *,
                     continue
                 cur = by_eid.get(eid)
                 if cur is None:
+                    if ids_unavailable:
+                        continue
                     if eid in seen_di:
                         continue
                     seen_di.add(eid)
@@ -293,6 +301,12 @@ def sync_game_log(lookback: int = DEFAULT_LOOKBACK, day: date | None = None, *,
             seen_nd.add(eid)
             home_name = info["home_name"] or ev.get("home") or ev.get("home_full")
             away_name = info["away_name"] or ev.get("away") or ev.get("away_full")
+            prev = by_nd.get(eid)
+            # ESPN summary (end clock) only for new rows, not on every run.
+            if prev is None:
+                fa = _final_at(ev, eid, end_time)[0]
+            else:
+                fa = prev.get("final_at")
             non_di_rows.append({
                 **base,
                 "season": _season(ev["game_date"]),
@@ -308,7 +322,7 @@ def sync_game_log(lookback: int = DEFAULT_LOOKBACK, day: date | None = None, *,
                 "status": "final",
                 "home_score": ev["home_score"],
                 "away_score": ev["away_score"],
-                "final_at": _final_at(ev, eid, end_time)[0],
+                "final_at": fa,
             })
 
     # Also repair null team_ids on stored D-I games even if they were not in this window's scoreboard
@@ -329,13 +343,6 @@ def sync_game_log(lookback: int = DEFAULT_LOOKBACK, day: date | None = None, *,
             changed = True
         if changed:
             patches.append(patch)
-
-    existing_nd = get_all(
-        c, "non_di_games",
-        select="external_id,home,away,home_team_id,away_team_id,home_score,away_score,neutral,status,date",
-        league=f"eq.{LEAGUE}",
-    )
-    by_nd = {str(r["external_id"]): r for r in existing_nd if r.get("external_id")}
 
     def _nd_same(row, cur):
         keys = ("home", "away", "home_team_id", "away_team_id", "home_score", "away_score",
@@ -367,7 +374,7 @@ def sync_game_log(lookback: int = DEFAULT_LOOKBACK, day: date | None = None, *,
         log(f"  game log: team_id repair applied ({n_id}); upsert failed")
         raise
 
-    skip = "non-D-I skipped (ESPN teams list unavailable); " if ids_unavailable else ""
+    skip = "non-D-I writes and missing-D-I inserts skipped (ESPN teams list unavailable); " if ids_unavailable else ""
     log(f"  game log: {skip}{n_new} new, {n_unchanged} unchanged, {n_updated} updated non-D-I, "
         f"{len(di_rows)} missing D-I finals inserted, {n_id} team_id(s) filled, {len(days)} day(s)")
     return {

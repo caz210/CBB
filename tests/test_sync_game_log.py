@@ -197,8 +197,8 @@ def test_empty_di_ids_skips_nondi_writes():
     s = _run(c, events, di_ids=set())
     assert s["ids_unavailable"] is True
     assert s["non_di_new"] == 0 and "non_di_games" not in c.upserts
-    # both names still map, so the missing D-I opener is still inserted
-    assert s["di_inserted"] == 1
+    # missing-D-I inserts are also skipped so a namesake cannot land in games
+    assert s["di_inserted"] == 0 and "games" not in c.upserts
 
 
 def test_team_id_repair_runs_even_if_upsert_fails():
@@ -238,6 +238,38 @@ def test_sync_skips_existing_di_game():
     assert c.upserts == {} and c.patches == []
 
 
+
+def test_end_time_fetched_only_for_new_rows():
+    teams = [{"id": 102, "name": "McNeese"}]
+    already = [dict(
+        external_id="9", home="McNeese", away="College of Biblical Studies",
+        home_team_id=102, away_team_id=None, home_score=135, away_score=87,
+        neutral=False, status="final", date="2026-11-09",
+        final_at="2026-11-09T20:00:00-06:00",
+    )]
+    new_ev = _ev(event_id="99", game_date="2026-11-08", home="McNeese",
+                 away="Some D2", home_id="2377", away_id="1",
+                 home_score=90, away_score=60,
+                 tip_ct=datetime(2026, 11, 8, 18, 0, tzinfo=CENTRAL))
+    fetched = []
+
+    def end_time(eid):
+        fetched.append(eid)
+        return END
+
+    events = {date(2026, 11, 9): [_ev()], date(2026, 11, 8): [new_ev]}
+    c = FakeClient(teams=teams, non_di=already)
+    s = sync_game_log(lookback=8, day=date(2026, 11, 9), client=c,
+                      scoreboard=lambda d: events.get(d, []),
+                      di_ids={"2377"}, end_time=end_time, log=lambda *_: None)
+    assert s["non_di_new"] == 1 and s["non_di_unchanged"] == 1
+    assert fetched == ["99"]  # existing eid 9 is not re-fetched
+    # existing row keeps its stored final_at
+    by_eid = {r["external_id"]: r for r in c.upserts["non_di_games"]}
+    assert by_eid["9"]["final_at"] == "2026-11-09T20:00:00-06:00"
+    assert by_eid["99"]["final_at"] is not None
+
+
 def test_view_sql_unions_nondi_and_leaves_model_grades():
     sql = open("db/migrations/2026-11-22_team_game_log.sql").read()
     assert sql.lstrip().startswith("--")
@@ -251,13 +283,22 @@ def test_view_sql_unions_nondi_and_leaves_model_grades():
     assert "vs_di" in sql
     assert "create or replace view model_grades" not in sql
     assert "Does not touch picks" in sql
-    # R2: slate_games requires a projection (inner JOIN LATERAL), so unprojected
-    # D-I finals never become empty slate cards. Market/pick joins stay LEFT.
-    assert "drop view if exists slate_games" in sql
-    assert "create view slate_games" in sql
-    proj = sql[sql.find("join sports"):]
-    assert "\njoin lateral (" in proj
-    assert "left join lateral (" in proj
-    first, rest = proj.split("left join lateral", 1)
-    assert "join lateral (" in first and "projections pr" in first
-    assert "market_lines" in rest
+    # R3/R2: CREATE OR REPLACE of #65's 39-column slate_games; LEFT JOIN on
+    # the projection; exclude only games with neither a projection nor any line.
+    assert "drop view if exists slate_games" not in sql
+    assert "create or replace view slate_games" in sql
+    assert "edges_as_of" in sql and "market_fetched_at" in sql
+    # require #65 first is documented
+    assert "Requires PR #65" in sql or "2026-11-21_intraday_line_refresh" in sql
+    idx = sql.find("create or replace view slate_games")
+    view = sql[idx:]
+    # projection join is LEFT, then the filter
+    assert "left join lateral (" in view
+    assert "select pr.* from projections pr" in view
+    bare_inner = view.split("left join lateral")[0]
+    # the FROM/JOIN preamble before the first LEFT JOIN must not inner-join projections
+    assert "projections pr" not in bare_inner
+    assert "where p.game_id is not null" in view
+    assert "exists (select 1 from market_lines" in view
+    # column order: #65 appends these two last
+    assert view.find("final_at_estimated") < view.find("edges_as_of") < view.find("market_fetched_at")
