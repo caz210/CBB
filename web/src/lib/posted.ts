@@ -2,7 +2,7 @@
  *  Do not reconstruct missing fair/open — hide those pieces instead.
  *  edge_at_post_pct / edge_vs_open_pct are fractions (0.0173 = 1.73%).
  */
-import { fmtLine, fmtPostedVsNow, type Market } from "./labels";
+import { fmtLine, fmtOne, fmtPostedVsNow, fmtScore, type Market } from "./labels";
 import type { SlateGame, ValueBet } from "./types";
 
 function mentionsTeam(side: string, team: string) {
@@ -56,7 +56,7 @@ export function betCoverProb(g: SlateGame, b: ValueBet | null, market: Market | 
 /** Compact card line: "Posted 142.0 → Now 144.5". Hides any missing piece. */
 export function postedNowCompact(b: ValueBet, g: SlateGame | null | undefined): string | null {
   if (!g) return null;
-  const fmt = (n: number) => (b.market === "total" ? n.toFixed(1) : fmtLine(n));
+  const fmt = (n: number) => (b.market === "total" ? fmtOne(n) : fmtLine(n));
   const fair = b.fair_at_post;
   const now = currentLineForBet(g, b.market, b.side);
   const parts: string[] = [];
@@ -75,10 +75,10 @@ export function postedFairVsProjections(b: ValueBet | null | undefined, g: Slate
   // Model names are internal; customers only ever see "CZarp".
   const pa = g.proj_away, ph = g.proj_home;
   if (b.market === "total") {
-    const posted = `Posted FV ${b.fair_at_post.toFixed(1)}`;
+    const posted = `Posted FV ${fmtOne(b.fair_at_post)}`;
     // Customers only ever see the one official CZarp total. Never the team-score sum (sides model).
     if (g.czarp_total == null) return posted;
-    return `${posted} · CZarp total now: ${g.czarp_total.toFixed(1)}`;
+    return `${posted} · CZarp total now: ${fmtOne(g.czarp_total)}`;
   }
   if (b.market === "spread") {
     const posted = `Posted FV ${fmtLine(b.fair_at_post)}`;
@@ -86,7 +86,7 @@ export function postedFairVsProjections(b: ValueBet | null | undefined, g: Slate
     const homeLine = -(ph - pa);
     const pickedAway = mentionsTeam(b.side, g.away) && !mentionsTeam(b.side, g.home);
     const now = pickedAway ? -homeLine : homeLine;
-    return `${posted} · CZarp projection now: ${pa.toFixed(1)}–${ph.toFixed(1)}, ${fmtLine(now)}`;
+    return `${posted} · CZarp projection now: ${fmtScore(pa)}–${fmtScore(ph)}, ${fmtLine(now)}`;
   }
   return null;
 }
@@ -99,7 +99,7 @@ export const POSTED_TOTAL_NOTE = "Total shown is CZarp's number when this play w
  *  Never the v2 team-score sum. */
 export function totalFair(g: SlateGame, bets: ValueBet[]): { value: string; num: number | null; tag?: "posted" } {
   const posted = bets.find((b) => b.market === "total" && b.pick_tier !== "track" && typeof b.fair_at_post === "number" && Number.isFinite(b.fair_at_post));
-  if (posted?.fair_at_post != null) return { value: posted.fair_at_post.toFixed(1), num: posted.fair_at_post, tag: "posted" };
-  if (g.czarp_total != null) return { value: g.czarp_total.toFixed(1), num: g.czarp_total };
+  if (posted?.fair_at_post != null) return { value: fmtOne(posted.fair_at_post), num: posted.fair_at_post, tag: "posted" };
+  if (g.czarp_total != null) return { value: fmtOne(g.czarp_total), num: g.czarp_total };
   return { value: "—", num: null };
 }

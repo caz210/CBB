@@ -2,7 +2,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { SlateGame, ValueBet } from "@/lib/types";
-import { LOCKED_NOTE, MARKET_LABEL, finalLabel, fmtLine, fmtPostedStamp, fmtWinProb, fmtTipoff, pct, signedPct } from "@/lib/labels";
+import { LOCKED_NOTE, MARKET_LABEL, finalLabel, fmtLine, fmtOne, fmtPostedStamp, fmtScore, fmtWinProb, fmtTipoff, pct, signedPct } from "@/lib/labels";
 import { useWatchlist } from "@/lib/watchlist";
 import { compactSlateTags, visibleCopy, visibleNotes, visibleTags, type ArchetypeTag } from "@/lib/archetypes";
 import { teamHref } from "@/lib/teams";
@@ -369,18 +369,19 @@ function GameCard({ g, sportKey, bets, watched, tvHot, onWatch, onOpen, onGame }
         )}
         {rows.map((r) => (
           <div key={r.side} className="py-3">
-            <div className="flex items-center gap-3">
+            {/* Scores can carry two decimals (74.05), so below 360px the row tightens to leave the team name room. */}
+            <div className="flex items-center gap-2 min-[360px]:gap-3">
               <span className="w-9 shrink-0 text-[10px] font-semibold uppercase text-zinc-600">{r.side}</span>
               <Link href={teamHref(sportKey, r.name)} onClick={(e) => e.stopPropagation()} className="min-w-0 flex-1 truncate text-[15px] font-semibold hover:text-court-400">{r.name}</Link>
               {final ? (
                 <>
-                  <span className="text-right font-mono text-xs text-zinc-500">{r.proj == null ? "—" : r.proj.toFixed(1)}<span className="ml-0.5 font-sans text-[10px] text-zinc-600">proj</span></span>
+                  <span className="text-right font-mono text-xs text-zinc-500">{r.proj == null ? "—" : fmtScore(r.proj)}<span className="ml-0.5 font-sans text-[10px] text-zinc-600">proj</span></span>
                   <span className={`w-12 text-right font-mono text-xl font-bold ${r.won ? "text-white" : "text-zinc-400"}`} aria-label={`${r.name} final score ${r.score}`}>{r.score}</span>
                 </>
               ) : (
                 <>
                   <span className={`text-right font-mono text-xs ${r.win != null && r.win >= 0.5 ? "text-white" : "text-zinc-500"}`}>{r.win == null ? "—" : fmtWinProb(r.win)}<span className="ml-0.5 font-sans text-[10px] text-zinc-600">win</span></span>
-                  <span className="w-12 text-right font-mono text-xl font-bold">{r.proj == null ? "—" : r.proj.toFixed(1)}</span>
+                  <span className="min-w-12 text-right font-mono text-lg font-bold tabular-nums min-[360px]:text-xl">{r.proj == null ? "—" : fmtScore(r.proj)}</span>
                 </>
               )}
             </div>
@@ -417,7 +418,7 @@ function GameCard({ g, sportKey, bets, watched, tvHot, onWatch, onOpen, onGame }
           label="Total"
           rating={ratings.total}
           fair={fair.value}
-          price={g.market_total?.toFixed(1) ?? "—"}
+          price={g.market_total == null ? "—" : fmtOne(g.market_total)}
         />
       </div>
       {asOf && (
@@ -474,23 +475,28 @@ function RatingChip({ r, wrap = false, className = "" }: { r: MarketRating; wrap
   return <VerdictChip level={r.level} noLine={r.noLine} wrap={wrap} className={className} />;
 }
 
-/** Footer cell. Spread numbers always name the team the home-line number refers to ("FV Texas St. -6.1",
- *  "Price Texas St. -2.5"), never a bare number. The name may wrap; the number never splits from its sign. */
+/** Footer cell. FV and Price share one font, size, weight and color; the small labels carry the meaning and
+ *  the ladder chip is the only thing that stands out. Both read exactly one decimal (fmtLine / fmtOne).
+ *  Spread numbers always name the team the home-line number refers to ("FV Texas St. -6.1",
+ *  "Price Texas St. -2.5"), home games included; never a bare number. The name may wrap; the number never
+ *  splits from its sign. */
 function MarketStat({ label, fair, price, refTeam, rating }: { label: string; fair: string; price: string; refTeam?: string; rating?: MarketRating }) {
-  const named = (value: string, cls: string) =>
-    refTeam && value !== "—"
-      ? <><span className={`break-words font-sans ${cls}`}>{refTeam} </span><span className="whitespace-nowrap">{value}</span></>
-      : value;
+  const row = (tag: string, value: string) => (
+    <div className="font-mono text-xs leading-snug text-zinc-300">
+      <span className="font-sans text-[10px] text-zinc-500">{tag} </span>
+      {refTeam && value !== "—"
+        ? <><span className="break-words font-sans">{refTeam} </span><span className="whitespace-nowrap">{value}</span></>
+        : value}
+    </div>
+  );
   return (
     <div className="min-w-0 bg-ink-900 px-2 py-2.5">
-      <div className="flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1">
+      <div className="mb-1 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1">
         <span className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</span>
         {rating && <RatingChip r={rating} />}
       </div>
-      <div className="font-mono text-sm font-semibold">
-        <span className="text-[10px] font-sans font-normal text-zinc-600">FV </span>{named(fair, "text-xs font-semibold text-zinc-300")}
-      </div>
-      <div className="font-mono text-[11px] text-zinc-500"><span className="font-sans">Price </span>{named(price, "text-zinc-400")}</div>
+      {row("FV", fair)}
+      {row("Price", price)}
     </div>
   );
 }
@@ -663,8 +669,8 @@ function GameSheet({ g, sportKey, bets, tvHot, onClose }: { g: SlateGame | null;
         )}
 
         <div className="mt-4 grid grid-cols-2 gap-2">
-          <Big label={`${g.away} proj`} v={pa == null ? "—" : pa.toFixed(1)} sub="CZarp projection" />
-          <Big label={`${g.home} proj`} v={ph == null ? "—" : ph.toFixed(1)} sub="CZarp projection" />
+          <Big label={`${g.away} proj`} v={pa == null ? "—" : fmtScore(pa)} sub="CZarp projection" />
+          <Big label={`${g.home} proj`} v={ph == null ? "—" : fmtScore(ph)} sub="CZarp projection" />
         </div>
 
         <div className="mt-3 overflow-hidden rounded-xl border border-ink-700 text-xs sm:text-sm">
@@ -677,15 +683,14 @@ function GameSheet({ g, sportKey, bets, tvHot, onClose }: { g: SlateGame | null;
           </div>
           {[
             { k: "Spread", cz: czLine == null ? "—" : fmtLine(czLine), o: openS == null ? "—" : fmtLine(openS), c: curS == null ? "—" : fmtLine(curS), m: move(openS, curS), r: ratings.spread },
-            { k: "Total", cz: czTotal.value, o: openT?.toFixed(1) ?? "—", c: curT?.toFixed(1) ?? "—", m: move(openT, curT), r: ratings.total },
+            { k: "Total", cz: czTotal.value, o: openT == null ? "—" : fmtOne(openT), c: curT == null ? "—" : fmtOne(curT), m: move(openT, curT), r: ratings.total },
           ].map((r: { k: string; cz: string; o: string; c: string; m: string; r: MarketRating }) => (
             <div key={r.k} className={`${LINE_GRID} items-center border-t border-ink-700/60 py-2.5 font-mono`}>
               <span className="font-sans text-xs font-semibold text-zinc-400">{r.k}</span>
-              <span className="text-right font-bold text-edge-400">
-                {r.cz}
-              </span>
-              <span className="text-right text-zinc-400">{r.o}</span>
-              <span className="text-right">
+              {/* FV, Open and Price share one style; the headers carry the meaning and the Rating chip stands out. */}
+              <span className="text-right text-zinc-300">{r.cz}</span>
+              <span className="text-right text-zinc-300">{r.o}</span>
+              <span className="text-right text-zinc-300">
                 {r.c}
                 {r.m !== "—" && <span className="block text-[10px] leading-tight text-zinc-500">{r.m === "No move" ? r.m : `${r.m} move`}</span>}
               </span>

@@ -16,7 +16,7 @@ import {
 } from "@/lib/teamPage";
 import { teamHref } from "@/lib/teams";
 import { matchupHref } from "@/lib/matchup";
-import { GAME_STATUS_LABEL, finalLabel, fmtGameDate, fmtLine, fmtTipoff } from "@/lib/labels";
+import { GAME_STATUS_LABEL, finalLabel, fmtGameDate, fmtLine, fmtOne, fmtTipoff } from "@/lib/labels";
 import { ComingSoon } from "@/components/ComingSoon";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
@@ -148,7 +148,7 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
                   <span className="font-sans text-[10px] uppercase tracking-wider text-zinc-500">Total</span>
                   <VerdictChip level={nextRatings!.total.level} noLine={nextRatings!.total.noLine} />
                   {/* Same helper as the slate card: posted fair for an official total, else czarp-v1-totals, else "—". Never v2. */}
-                  <span>FV {nextTotal!.value} · Price {next.market_total == null ? "—" : next.market_total.toFixed(1)}</span>
+                  <span>FV {nextTotal!.value} · Price {next.market_total == null ? "—" : fmtOne(next.market_total)}</span>
                 </div>
                 {nextAsOf && <div className="font-sans text-[10px] text-zinc-600">Ratings use the line {nextAsOf}</div>}
               </div>

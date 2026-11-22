@@ -110,14 +110,8 @@ export async function fetchMatchup(sb: RpcClient, a: number, b: number, venue: V
 
 // ---- display formatting -------------------------------------------------------------------------------------
 
-/** The RPC's exact value: one decimal normally, two only when it ends in .x5 (68.15, 81.85). The RPC derives
- *  score_a/score_b from the rounded total and spread, so the exact scores always add up to the total and their
- *  gap equals the spread shown beside them. Rounding each score to one decimal would break that about half
- *  the time, so this never rounds a score. */
-export function fmtScore(x: number): string {
-  const cents = Math.round(x * 100);
-  return cents % 10 === 0 ? (cents / 100).toFixed(1) : (cents / 100).toFixed(2);
-}
+/** Same formatter as every projected score on the site (lib/labels): stored precision, never re-rounded. */
+export { fmtScore } from "./labels";
 
 /** The first of the two ids that isn't a known team, or null. Lets the page skip the RPC for ids that can't work. */
 export function firstUnknown(a: number | null, b: number | null, known: (id: number) => boolean): "a" | "b" | null {

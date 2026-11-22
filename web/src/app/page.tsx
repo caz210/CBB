@@ -3,7 +3,7 @@ import { ExampleBadge, ExampleBanner } from "@/components/ExampleBadge";
 import { ArchetypeChip } from "@/components/ArchetypeChip";
 import { visibleTags } from "@/lib/archetypes";
 import { EXAMPLE_SLATE, EXAMPLE_VALUE_BETS } from "@/lib/example-data";
-import { MARKET_LABEL, fmtLine, fmtTipoff, pct, signedPct, fmtUnits } from "@/lib/labels";
+import { MARKET_LABEL, fmtLine, fmtOne, fmtScore, fmtTipoff, pct, signedPct, fmtUnits } from "@/lib/labels";
 import { SPORTS, getSport } from "@/lib/sports";
 import { loadHero, loadResults, type Hero } from "@/lib/data";
 import { RESULT_LABEL, fmtGameDate, fmtPostedStamp } from "@/lib/labels";
@@ -77,12 +77,12 @@ export default async function Landing() {
                   <div className="font-semibold">{r.n}</div>
                   <div className="mt-1.5 flex flex-wrap gap-1">{visibleTags(r.tags).map((a) => <ArchetypeChip key={a.name} tag={a} />)}</div>
                 </div>
-                <div className="font-mono text-2xl font-bold">{r.p?.toFixed(1)}</div>
+                <div className="font-mono text-2xl font-bold">{r.p == null ? "" : fmtScore(r.p)}</div>
               </div>
             ))}
             <div className="mt-3 grid grid-cols-3 gap-2 text-center">
               <Mini label="Spread" value={fmtLine(g.proj_spread!)} />
-              <Mini label="Total" value={g.proj_total!.toFixed(1)} />
+              <Mini label="Total" value={fmtOne(g.proj_total!)} />
               <Mini label="Away win" value={pct(1 - g.home_win_prob!)} />
             </div>
             <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-edge-400/30 bg-edge-400/10 px-4 py-3">
