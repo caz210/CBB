@@ -70,7 +70,7 @@ export function ModelsWorkspace() {
             <ModelRow name="CZarp Baseline" tag="Official" ats="51.9%" roi="+1.1%" good sub="Not counted toward your limit" />
             {models.map((m) => {
               const r = FAKE_RECORD[m.name];
-              return <ModelRow key={m.id} name={m.name} tag="Yours" ats={r.ats} roi={r.roi} good={r.good} sub="Paper picks since Oct 28" />;
+              return <ModelRow key={m.id} name={m.name} tag="Yours" ats={r.ats} roi={r.roi} good={r.good} sub="Picks since Oct 28" />;
             })}
           </div>
 

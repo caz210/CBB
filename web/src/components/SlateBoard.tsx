@@ -226,7 +226,7 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
         <section className="mt-6 rounded-2xl border border-dashed border-ink-700 p-3 md:p-4" aria-label="Tracked picks">
           <div className="mb-2 flex flex-wrap items-baseline gap-x-2">
             <h2 className="text-sm font-semibold text-zinc-400">Tracked · {trackedShown.length}</h2>
-            <span className="text-[11px] text-zinc-500">Paper-only 1u, never bet. Not part of the official portfolio.</span>
+            <span className="text-[11px] text-zinc-500">Flat 1u, tracked for testing, not part of the official record.</span>
           </div>
           <ul className="divide-y divide-ink-700/50">
             {trackedShown.map((b) => {
@@ -573,7 +573,7 @@ function ValueSheet({ sel, onClose }: { sel: Sel; onClose: () => void }) {
           <div className="font-mono text-3xl font-black">{b.kelly_quarter_units == null ? "—" : `${b.kelly_quarter_units.toFixed(2)}u`}</div>
         </div>
         {b.logged_at && <p className="mt-3 text-[11px] text-zinc-400">{fmtPostedStamp(b.logged_at)}</p>}
-        <p className="mt-3 text-[11px] text-zinc-500">Paper-trading season: logged to the public ledger, no real money.</p>
+        <p className="mt-3 text-[11px] text-zinc-500">Logged to the public ledger.</p>
         <button onClick={onClose} className="mt-4 min-h-12 w-full rounded-xl border border-ink-600 font-semibold hover:bg-ink-800">Done</button>
       </div>
     </div>

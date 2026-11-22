@@ -26,7 +26,7 @@ export async function generateMetadata({ params }: { params: Promise<{ sport: st
   const sport = getSport(key);
   return {
     title: sport ? `${sport.label} record` : "Record",
-    description: "The public, time-stamped paper-trading record: every official pick, graded, with units, ROI and CLV.",
+    description: "The public, time-stamped record: every official pick, graded, with units, ROI and CLV.",
   };
 }
 
@@ -88,12 +88,11 @@ export default async function ResultsPage({
       <p className={`text-xs text-zinc-500 ${SHOW_TRACKED_TIER ? "mt-2" : "mt-4 md:mt-6"}`}>
         {tier === "official"
           ? "Official portfolio: the picks CZarp actually stakes (¼-Kelly units)."
-          : "Tracked picks: paper-only, flat 1u, never bet. Logged to test ideas in public — not the official portfolio."}
+          : "Tracked picks: flat 1u, tracked for testing, not part of the official record."}
       </p>
 
       <div className="mt-4 rounded-xl border border-sky-400/30 bg-sky-400/5 p-3.5 text-sm text-sky-100/90 md:mt-6 md:p-4">
-        <span className="mr-2 rounded bg-sky-400/20 px-1.5 py-0.5 text-[10px] font-bold uppercase text-sky-300">Paper trading</span>
-        This season is paper-traded with notional units, no real money. The full record is public, losses and drawdowns included. {LOCKED_NOTE}
+        The full record is public, losses and drawdowns included. {LOCKED_NOTE}
       </div>
 
       {res.state === "unconfigured" ? (
@@ -186,7 +185,7 @@ function Live({ data, range }: { data: Extract<Awaited<ReturnType<typeof loadRes
         <div className="card p-4 md:p-5">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="font-bold">Cumulative units</h2>
-            <span className="text-xs text-zinc-500">{data.tier === "track" ? "flat 1u" : "¼-Kelly"} · paper · {RANGES[range].label}</span>
+            <span className="text-xs text-zinc-500">{data.tier === "track" ? "flat 1u" : "¼-Kelly"} · {RANGES[range].label}</span>
           </div>
           {data.cumulativeUnits.length >= 3 ? (
             <UnitsChart data={data.cumulativeUnits} />

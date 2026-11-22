@@ -32,7 +32,7 @@ export default async function Landing() {
         <div className="relative mx-auto grid max-w-7xl gap-8 px-4 py-10 md:gap-12 md:px-6 md:py-24 lg:grid-cols-[1.1fr_1fr] lg:items-center">
           <div>
             <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-ink-600 bg-ink-850 px-3 py-1 text-xs text-zinc-300 md:mb-6">
-              <span className="h-1.5 w-1.5 rounded-full bg-edge-400" /> 2026–27 · paper-trading in public
+              <span className="h-1.5 w-1.5 rounded-full bg-edge-400" /> 2026–27 · official record in public
             </div>
             <h1 className="text-[2.5rem] font-black leading-[1.05] tracking-tight md:text-6xl">
               Buy bets like <span className="bg-gradient-to-r from-court-400 to-amber-300 bg-clip-text text-transparent">stocks</span> — at a price.
@@ -116,7 +116,7 @@ export default async function Landing() {
           <div>
             <h3 className="text-lg font-bold">Season portfolio</h3>
             <p className="mt-1 text-sm text-zinc-400">
-              {rec ? "Official book, paper-traded in public. ¼-Kelly units." : recRes?.state === "unconfigured" ? "Connect live data to show the official record." : recRes?.state === "error" ? "Couldn't load the official record." : "No official picks graded yet."}
+              {rec ? "Official book, logged in public. ¼-Kelly units." : recRes?.state === "unconfigured" ? "Connect live data to show the official record." : recRes?.state === "error" ? "Couldn't load the official record." : "No official picks graded yet."}
             </p>
             {rec && rec.byMarket.length > 0 && (
               <p className="mt-1 text-xs text-zinc-500">

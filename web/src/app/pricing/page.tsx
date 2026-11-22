@@ -45,7 +45,7 @@ export default function PricingPage() {
         <div className="text-[11px] font-bold uppercase tracking-wider text-court-400">Pricing · placeholder</div>
         <h1 className="mt-2 text-3xl font-black tracking-tight md:text-4xl">Free while we prove it.</h1>
         <p className="mx-auto mt-3 max-w-2xl text-sm text-zinc-400 md:text-base">
-          This season is paper-traded in public. Paid tiers open once the ledger shows a real edge.
+          The official record is public. Paid tiers open once the ledger shows a real edge.
         </p>
         <div className="mx-auto mt-5 inline-flex rounded-xl border border-ink-700 bg-ink-850 p-1 text-sm">
           <span className="flex min-h-9 items-center rounded-lg bg-ink-700 px-4 font-semibold">Monthly</span>
