@@ -273,7 +273,7 @@ function ResultCard({ r, nameA, nameB }: { r: Fetched; nameA: string; nameB: str
         )}
       </div>
       <p className="border-t border-ink-700/70 px-4 py-2.5 text-[11px] leading-relaxed text-zinc-500">
-        Projection only, not a CZarp Official Play.
+        Projection only, not a CZarp Play.
       </p>
     </div>
   );

@@ -142,7 +142,7 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
                 <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
                   <span className="font-sans text-[10px] uppercase tracking-wider text-zinc-500">Spread</span>
                   <VerdictChip level={nextRatings!.spread.level} noLine={nextRatings!.spread.noLine} />
-                  <span>FV {next.proj_spread == null ? "—" : spreadRef(fmtLine(next.proj_spread), next.home, next.neutral)} · Price {next.market_spread == null ? "—" : spreadRef(fmtLine(next.market_spread), next.home, next.neutral)}</span>
+                  <span>FV {next.proj_spread == null ? "—" : `${next.home} ${fmtLine(next.proj_spread)}`} · Price {next.market_spread == null ? "—" : `${next.home} ${fmtLine(next.market_spread)}`}</span>
                 </div>
                 <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
                   <span className="font-sans text-[10px] uppercase tracking-wider text-zinc-500">Total</span>

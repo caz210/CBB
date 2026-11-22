@@ -1,15 +1,14 @@
-/** The CZarp verdict ladder: one shared source for labels, short copy, and the mapping rule.
- *  Weakest to strongest: Toss Up → Lean → Favor → Official Play.
+/** The CZarp verdict ladder: the single source for tier labels, copy, boundaries, ranking and the
+ *  mapping rule. Every game gets TWO ratings, one per market (spread and total), each judged on the
+ *  stored edge vs the CURRENT line (edge_now_pct_*), plus the stored hold codes (skip_reasons_*) and
+ *  posted picks (official_picks_locked). The UI computes no projections or edges; it only compares
+ *  stored edges to the boundaries below, at full precision (display rounds to one decimal).
  *
- *  Every game gets TWO ratings, one per market (spread and total), each judged on the current
- *  line. Inputs are stored pipeline values only (slate_games / projections): edge_now_pct_*,
- *  skip_reasons_*, plus posted picks. The opening-line edge plays no part in the ladder. The UI
- *  never computes a projection or an edge; it only compares the stored edge to the play bar.
- *
- *  A glossary module may import VERDICT_LADDER for its definitions. */
+ *  Glossary entries (lib/glossary.ts) and tap-to-learn tips (lib/explainers.ts) read VERDICT_LADDER. */
 import { PLAY_THRESHOLD, type Market } from "./labels";
 
-export type VerdictLevel = "toss_up" | "lean" | "favor" | "official";
+/** Internal keys. "official" is the CZarp Play (a posted pick); customers never see the key. */
+export type VerdictLevel = "toss_up" | "lean" | "value" | "late_value" | "official";
 
 export type VerdictDef = {
   level: VerdictLevel;
@@ -19,7 +18,7 @@ export type VerdictDef = {
   short: string;
 };
 
-/** Hold rules that keep an edge that clears the bar from being a play. Keys are the pipeline's skip codes. */
+/** Hold rules that keep an edge at or past the bar off the record. Keys are the pipeline's skip codes. */
 export const HOLD_CODES = {
   new_coach_lock: "new-coach pause",
   line_moved_against: "market moved 3+ pts away from CZarp since open",
@@ -28,37 +27,55 @@ export const HOLD_CODES = {
 export type HoldCode = keyof typeof HOLD_CODES;
 const HOLD_ORDER = Object.keys(HOLD_CODES) as HoldCode[];
 
+/** Lower edge bounds (fractions, inclusive) for each tier, per market. Sides use the spread row.
+ *  bar = the play bar (PLAY_THRESHOLD): at or past it, a hold makes Value and no hold makes Late Value. */
+export const TIER_BOUNDS = {
+  spread: { lean: 0.02, value: 0.03, bar: PLAY_THRESHOLD.spread },
+  total: { lean: 0.015, value: 0.0225, bar: PLAY_THRESHOLD.total },
+} as const;
+
+const boundsFor = (m: Market) => (m === "total" ? TIER_BOUNDS.total : TIER_BOUNDS.spread);
+
+export const LATE_VALUE_NOTE = "Value on the current line. Not part of the official record; official plays are set at 7:15 AM CT.";
+
+/** Weakest to strongest; also the glossary order. */
 export const VERDICT_LADDER: readonly VerdictDef[] = [
   {
     level: "toss_up",
     label: "Toss Up",
-    short: "The edge on the current line is below our play bar (4% sides, 3% totals), so it's not a play.",
+    short: "Little or no edge on the current line: under 2% on sides, under 1.5% on totals.",
   },
   {
     level: "lean",
     label: "Lean",
-    short: "Clears our bar on the current line, but a hold rule (new-coach pause, big market move, or stake under $1) keeps it from a play.",
+    short: "A small edge on the current line: 2% to 3% on sides, 1.5% to 2.25% on totals. Not a play.",
   },
   {
-    level: "favor",
-    label: "Favor",
-    short: "Clears our bar on the current line with nothing holding it back.",
+    level: "value",
+    label: "Value",
+    short: "A real edge on the current line: 3% to 4% on sides, 2.25% to 3% on totals. Also an edge past our play bar (4% sides, 3% totals) that a hold rule (new-coach pause, big market move, or stake under $1) keeps off the record; the note says which.",
+  },
+  {
+    level: "late_value",
+    label: "Late Value",
+    short: `Clears our play bar (4% sides, 3% totals) on the current line with nothing holding it back. ${LATE_VALUE_NOTE}`,
   },
   {
     level: "official",
-    label: "Official Play",
-    short: "A posted pick, set at the 7:15 AM CT run and never added later. Official Plays are time-stamped and graded in the public record.",
+    label: "CZarp Play",
+    short: "Our official play, posted at the 7:15 AM CT run. It's time-stamped, graded in the public record, and stays a CZarp Play even if the line moves later.",
   },
 ] as const;
+
+/** Header ranking: the stronger market's verdict takes slot 1. One place; higher wins. */
+export const VERDICT_RANK: Record<VerdictLevel, number> = { toss_up: 0, lean: 1, value: 2, late_value: 3, official: 4 };
 
 /** Tip for a card with no line yet: no edge to grade, so nothing about the bar. */
 export const NO_LINE_TIP = { title: "Toss Up", body: "No line yet, so there's no edge to grade. Not a play." } as const;
 
-/** Shown under the headline of an Official Play whose edge on the current line is now below the bar.
- *  The chip stays Official Play. */
+/** Shown under the headline of a CZarp Play whose edge on the current line is now below the bar.
+ *  The chip stays CZarp Play. */
 export const LINE_MOVE_NOTE = "No longer a value play due to line movement.";
-
-export const VERDICT_RANK: Record<VerdictLevel, number> = { toss_up: 0, lean: 1, favor: 2, official: 3 };
 
 export function verdictDef(level: VerdictLevel): VerdictDef {
   return VERDICT_LADDER.find((d) => d.level === level)!;
@@ -70,7 +87,7 @@ export const ladderMarketLabel = (m: Market) => (m === "total" ? "Total" : "Spre
 
 export type LadderInput = {
   market: Market;
-  /** A posted official pick exists for this market (official_picks_locked tier official). */
+  /** A posted pick exists for this market (official_picks_locked tier official). */
   official: boolean;
   /** Stored edge at the current line (fraction, 0.04 = 4%). */
   edgeNow: number | null | undefined;
@@ -78,6 +95,7 @@ export type LadderInput = {
   skipCodes: readonly string[] | null | undefined;
 };
 
+/** holds: the hold codes behind a Value that is past the bar; empty otherwise. */
 export type LadderResult = { level: VerdictLevel; holds: HoldCode[] };
 
 const finite = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
@@ -88,26 +106,32 @@ export function holdCodes(codes: readonly string[] | null | undefined): HoldCode
   return HOLD_ORDER.filter((c) => set.has(c));
 }
 
-/** True when a market's stored edge now clears the bar (landing exactly on it counts). */
+/** True when a market's stored edge now is at or past the play bar (landing exactly on it counts). */
 export function clearsBar(market: Market, edgeNow: number | null | undefined): boolean {
-  return finite(edgeNow) && edgeNow >= PLAY_THRESHOLD[market];
+  return finite(edgeNow) && edgeNow >= boundsFor(market).bar;
 }
 
-/** Map one market to its ladder level, judged on the current line (same rule for sides and totals):
- *  - Official Play: posted at the 7:15 AM CT run. Never promoted later.
- *  - Toss Up: edge now below the bar (4% sides, 3% totals), or no stored edge.
- *  - Favor: edge now clears the bar and no hold code.
- *  - Lean: edge now clears the bar but a hold code applies (new_coach_lock, line_moved_against,
- *    kelly_too_small).
- *  The opening-line edge is ignored. */
+/** One market's tier. Precedence, first match wins:
+ *  1. CZarp Play: posted at the 7:15 AM CT run, whatever the edge does later.
+ *  2. Toss Up: no stored edge.
+ *  3. Past the bar (≥ 4% sides / 3% totals): a hold code → Value (with the holds); none → Late Value.
+ *  4. Value: ≥ 3% / 2.25%.   5. Lean: ≥ 2% / 1.5%.   6. Toss Up otherwise.
+ *  Lower bounds are inclusive; holds only matter past the bar. */
 export function ladderLevel(x: LadderInput): LadderResult {
   if (x.official) return { level: "official", holds: [] };
-  if (!clearsBar(x.market, x.edgeNow)) return { level: "toss_up", holds: [] };
-  const holds = holdCodes(x.skipCodes);
-  return holds.length ? { level: "lean", holds } : { level: "favor", holds: [] };
+  if (!finite(x.edgeNow)) return { level: "toss_up", holds: [] };
+  const b = boundsFor(x.market);
+  const e = x.edgeNow;
+  if (e >= b.bar) {
+    const holds = holdCodes(x.skipCodes);
+    return holds.length ? { level: "value", holds } : { level: "late_value", holds: [] };
+  }
+  if (e >= b.value) return { level: "value", holds: [] };
+  if (e >= b.lean) return { level: "lean", holds: [] };
+  return { level: "toss_up", holds: [] };
 }
 
-/** An Official Play shows LINE_MOVE_NOTE whenever that market's edge now is below the bar.
+/** A CZarp Play shows LINE_MOVE_NOTE whenever that market's edge now is below the bar.
  *  No stored edge → no note (we can't say the line moved). */
 export function showsLineMoveNote(market: Market, official: boolean, edgeNow: number | null | undefined): boolean {
   return official && finite(edgeNow) && !clearsBar(market, edgeNow);

@@ -21,7 +21,7 @@ export type GlossaryEntry = {
 export const GLOSSARY_ANCHOR = "glossary";
 export const GLOSSARY_HREF = `/methodology#${GLOSSARY_ANCHOR}`;
 
-const VERDICT_ID: Record<VerdictLevel, string> = { toss_up: "toss-up", lean: "lean", favor: "favor", official: "official-play" };
+const VERDICT_ID: Record<VerdictLevel, string> = { toss_up: "toss-up", lean: "lean", value: "value", late_value: "late-value", official: "czarp-play" };
 
 /** Verdict ladder, weakest to strongest, straight from VERDICT_LADDER. */
 const VERDICT_ENTRIES: readonly GlossaryEntry[] = VERDICT_LADDER.map((d) => ({

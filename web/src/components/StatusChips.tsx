@@ -13,20 +13,22 @@ const CHIP = "normal-case tracking-normal";
 
 const VERDICT_STYLE: Record<VerdictLevel, string> = {
   official: "bg-edge-400/15 text-edge-400 hover:bg-edge-400/25",
-  favor: "bg-edge-400/[0.07] text-edge-400/80 ring-1 ring-inset ring-edge-400/25 hover:bg-edge-400/15",
+  late_value: "bg-edge-400/[0.07] text-edge-400/80 ring-1 ring-inset ring-edge-400/25 hover:bg-edge-400/15",
+  value: "bg-ink-800 text-zinc-200 ring-1 ring-inset ring-zinc-500/40 hover:bg-ink-700",
   lean: "bg-ink-800 text-zinc-300 hover:bg-ink-700",
   toss_up: "bg-ink-800 text-zinc-500 hover:bg-ink-700 hover:text-zinc-300",
 };
 
 const VERDICT_TIP: Record<VerdictLevel, ExplainerKey> = {
-  official: "officialPlay",
-  favor: "favor",
+  official: "czarpPlay",
+  late_value: "lateValue",
+  value: "value",
   lean: "lean",
   toss_up: "tossUp",
 };
 
-/** One verdict chip (Toss Up / Lean / Favor / Official Play). Tap for the definition.
- *  market: name it in the chip ("Total Favor"), for the header's stronger-market slot.
+/** One verdict chip (Toss Up / Lean / Value / Late Value / CZarp Play). Tap for the definition.
+ *  market: name it in the chip ("Spread Lean"), for the header's stronger-market slot.
  *  noLine: a card with no line yet gets a neutral tip, never "below the bar". */
 export function VerdictChip({ level, noLine = false, market = null, wrap = false, className = "" }: { level: VerdictLevel; noLine?: boolean; market?: Market | null; wrap?: boolean; className?: string }) {
   return (

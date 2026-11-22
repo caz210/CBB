@@ -183,8 +183,8 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
       )}
 
       {officialShown.length > 0 && (
-        <section className="mb-4 rounded-2xl border border-edge-400/30 bg-edge-400/[0.04] p-3 md:p-4" aria-label="Official Plays">
-          <h2 className="mb-2 text-sm font-semibold text-edge-400">Official Plays · {officialShown.length}</h2>
+        <section className="mb-4 rounded-2xl border border-edge-400/30 bg-edge-400/[0.04] p-3 md:p-4" aria-label="CZarp Plays">
+          <h2 className="mb-2 text-sm font-semibold text-edge-400">CZarp Plays · {officialShown.length}</h2>
           <ul className="divide-y divide-ink-700/50">
             {officialShown.map((b) => {
               const g = games.find((x) => x.game_id === b.game_id);
@@ -409,7 +409,7 @@ function GameCard({ g, sportKey, bets, watched, tvHot, onWatch, onOpen, onGame }
         <MarketStat
           label="Spread"
           rating={ratings.spread}
-          refTeam={g.neutral ? g.home : undefined}
+          refTeam={g.home}
           fair={g.proj_spread == null ? "—" : fmtLine(g.proj_spread)}
           price={g.market_spread == null ? "—" : fmtLine(g.market_spread)}
         />
@@ -474,24 +474,28 @@ function RatingChip({ r, wrap = false, className = "" }: { r: MarketRating; wrap
   return <VerdictChip level={r.level} noLine={r.noLine} wrap={wrap} className={className} />;
 }
 
+/** Footer cell. Spread numbers always name the team the home-line number refers to ("FV Texas St. -6.1",
+ *  "Price Texas St. -2.5"), never a bare number. The name may wrap; the number never splits from its sign. */
 function MarketStat({ label, fair, price, refTeam, rating }: { label: string; fair: string; price: string; refTeam?: string; rating?: MarketRating }) {
-  // neutral-site spread: say whose line this is. The name may wrap; the number never splits from its sign.
-  const team = refTeam ? <span className="break-words font-sans font-semibold text-zinc-300">{refTeam} </span> : null;
+  const named = (value: string, cls: string) =>
+    refTeam && value !== "—"
+      ? <><span className={`break-words font-sans ${cls}`}>{refTeam} </span><span className="whitespace-nowrap">{value}</span></>
+      : value;
   return (
-    <div className="bg-ink-900 px-2 py-2.5">
+    <div className="min-w-0 bg-ink-900 px-2 py-2.5">
       <div className="flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1">
         <span className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</span>
         {rating && <RatingChip r={rating} />}
       </div>
       <div className="font-mono text-sm font-semibold">
-        <span className="text-[10px] font-sans font-normal text-zinc-600">FV </span>{team}{team ? <span className="whitespace-nowrap">{fair}</span> : fair}
+        <span className="text-[10px] font-sans font-normal text-zinc-600">FV </span>{named(fair, "text-xs font-semibold text-zinc-300")}
       </div>
-      <div className="font-mono text-[11px] text-zinc-500"><span className="font-sans">Price </span>{refTeam && <span className="break-words font-sans text-zinc-400">{refTeam} </span>}{refTeam ? <span className="whitespace-nowrap">{price}</span> : price}</div>
+      <div className="font-mono text-[11px] text-zinc-500"><span className="font-sans">Price </span>{named(price, "text-zinc-400")}</div>
     </div>
   );
 }
 
-/** Under the headline of an Official Play whose edge now is below the bar. The chip stays Official Play. */
+/** Under the headline of a CZarp Play whose edge now is below the bar. The chip stays CZarp Play. */
 function LineMoveNote({ className = "" }: { className?: string }) {
   return <div className={`text-[11px] font-medium leading-snug text-amber-300/90 ${className}`}>{LINE_MOVE_NOTE}</div>;
 }
@@ -502,8 +506,9 @@ function HeadlineBody({ headline, subtitle, hasEdge, verdict, edgeLabel, lineMov
   return (
     <>
       <div className="min-w-0">
-        <div className="flex items-center gap-1 text-sm font-semibold text-zinc-300">
-          <span className="truncate">{headline}</span>
+        {/* Wraps instead of truncating: at 320px "Spread · fair vs price" is a few px wider than the column. */}
+        <div className="flex items-start gap-1 text-sm font-semibold leading-snug text-zinc-300">
+          <span className="min-w-0 break-words">{headline}</span>
           <InfoTip term="edge" />
         </div>
         {subtitle && (
@@ -734,11 +739,11 @@ function GameSheet({ g, sportKey, bets, tvHot, onClose }: { g: SlateGame | null;
   );
 }
 
-/** Headline Edge % color: posted plays in brand green, Favor a step down, the rest muted. */
+/** Headline Edge % color: CZarp Plays in brand green, Late Value and Value a step down, the rest muted. */
 function edgeNumberClass(hasEdge: boolean, verdict: VerdictLevel): string {
   if (!hasEdge) return "text-zinc-700";
   if (verdict === "official") return "text-edge-400";
-  if (verdict === "favor") return "text-zinc-300";
+  if (verdict === "late_value" || verdict === "value") return "text-zinc-300";
   return "text-zinc-500";
 }
 

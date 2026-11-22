@@ -1,3 +1,4 @@
+import { VERDICT_LADDER } from "@/lib/verdicts";
 import type { Metadata } from "next";
 import { H, LegalPage } from "@/components/LegalPage";
 import { SHOW_METHODOLOGY_PLACEHOLDERS, visibleMethodologySections } from "@/lib/methodology";
@@ -47,7 +48,7 @@ export default function MethodologyPage() {
       ))}
       <section id={GLOSSARY_ANCHOR} className="scroll-mt-24">
         <H>Glossary</H>
-        <p>Tap the ⓘ on any verdict, game chip or style tag on the site for its definition. Each game gets two verdicts, one for the spread and one for the total, judged on the current line, from weakest to strongest. Style tags describe how a team plays relative to the rest of D-I; a dashed chip marked “· tent.” means the sample is still early.</p>
+        <p>Tap the ⓘ on any verdict, game chip or style tag on the site for its definition. Each game gets two ratings, one for the spread and one for the total, judged on the edge vs the current line, from weakest to strongest: {VERDICT_LADDER.map((d) => d.label).join(", ")}. Style tags describe how a team plays relative to the rest of D-I; a dashed chip marked “· tent.” means the sample is still early.</p>
         <GlossaryBlock title="Verdicts" group="verdict" />
         <GlossaryBlock title="Game chips" group="chip" />
         <GlossaryBlock title="Style tags" group="style" />
