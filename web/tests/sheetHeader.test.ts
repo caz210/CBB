@@ -87,3 +87,29 @@ test("PK in the spread footer when the value is 0; totals never PK", () => {
   assert.match(team, /\$\{next\.home\} \$\{fmtSpread\(next\.proj_spread\)\}/);
   assert.match(team, /\$\{next\.home\} \$\{fmtSpread\(next\.market_spread\)\}/);
 });
+
+test("no customer-visible 'needs X%' / 'vs now' headline copy remains in the app source", () => {
+  const hits: string[] = [];
+  const walk = (dir: string) => {
+    for (const f of readdirSync(dir)) {
+      const p = join(dir, f);
+      if (statSync(p).isDirectory()) walk(p);
+      else if (/\.(ts|tsx)$/.test(f)) {
+        const src = readFileSync(p, "utf8");
+        if (/\bvs now\b/i.test(src) || /\(needs\b|needs \$\{|needs \d/i.test(src)) hits.push(p);
+      }
+    }
+  };
+  walk(join(root, "src"));
+  assert.deepEqual(hits, []);
+});
+
+test("the team page's next game uses the same one-row headline and note as the card and sheet", () => {
+  const team = read("src/app/[sport]/team/[slug]/page.tsx");
+  assert.match(team, /<HeaderRow row=\{cardHeaderRow\(next, next\.officialBets \?\? \[\]\)\} \/>/);
+  assert.match(team, /cardNoteLine\(next, next\.officialBets \?\? \[\]\)/);
+  assert.doesNotMatch(team, /subtitle|fair vs price|cardHeadline\(|notAPlayLine\(/);
+  // One shared component file; the card and sheet import it too.
+  assert.match(slate(), /import \{ HeaderRow, LineMoveNote \} from "\.\/HeaderRow"/);
+  assert.doesNotMatch(slate(), /function HeaderRow\(|function HeadlineBody\(|function edgeNumberClass\(/);
+});

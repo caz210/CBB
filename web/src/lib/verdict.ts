@@ -100,8 +100,6 @@ export type CardHeadline = {
   officialBet: ValueBet | null;
   edgeNow: number | null;
   edgeVsOpen: number | null;
-  /** "vs now 4.5% (needs 4%)" or "Posted 4.2% · vs now 3.1%". Hidden when stored edges are missing. */
-  subtitle: string | null;
   /** CZarp Play whose edge now is below the bar: show LINE_MOVE_NOTE under the headline. */
   lineMoveNote: boolean;
 };
@@ -126,9 +124,6 @@ export function cardHeadline(g: SlateGame, officialBets: ValueBet[]): CardHeadli
     const edgeNow = marketEdgeNow(g, market);
     const edgeVsOpen = marketEdgeVsOpen(g, market);
     const postedLabel = FINITE(posted) ? fmtPlayPct(posted) : null;
-    const subtitle = postedLabel && edgeNow != null
-      ? `Posted ${postedLabel} · vs now ${fmtEdgeVsBar(edgeNow, market)}`
-      : null;
     return {
       market,
       verdict: "official",
@@ -139,7 +134,6 @@ export function cardHeadline(g: SlateGame, officialBets: ValueBet[]): CardHeadli
       officialBet,
       edgeNow,
       edgeVsOpen,
-      subtitle,
       lineMoveNote: showsLineMoveNote(market, true, edgeNow),
     };
   }
@@ -169,14 +163,8 @@ export function cardHeadline(g: SlateGame, officialBets: ValueBet[]): CardHeadli
     officialBet: null,
     edgeNow,
     edgeVsOpen,
-    subtitle: notPostedSubtitle(market, edgeNow),
     lineMoveNote: false,
   };
-}
-
-function notPostedSubtitle(market: Market | null, edgeNow: number | null): string | null {
-  if (!market || edgeNow == null) return null;
-  return `vs now ${fmtEdgeVsBar(edgeNow, market)} (needs ${fmtThresholdPct(market)})`;
 }
 
 const COACH_SKIP = "new_coach_lock";

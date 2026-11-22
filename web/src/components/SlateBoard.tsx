@@ -19,9 +19,9 @@ import { useTeamIndex } from "@/lib/useTeamIndex";
 import { SHOW_TRACKED_TIER } from "@/lib/pickTier";
 import { gameTitle, sideLabel, spreadNotationNote } from "@/lib/gameTitle";
 import { cardHeadline, marketRatings, notAPlayAlso, type MarketRating } from "@/lib/verdict";
-import { LINE_MOVE_NOTE } from "@/lib/verdicts";
 import { fmtLinesAsOf } from "@/lib/linesAsOf";
-import { cardHeaderRow, cardNoteLine, type EdgeTone } from "@/lib/cardHeader";
+import { cardHeaderRow, cardNoteLine, nowLine } from "@/lib/cardHeader";
+import { HeaderRow, LineMoveNote } from "./HeaderRow";
 import { evPer100, fmtEv100 } from "@/lib/stats";
 import { POSTED_TOTAL_NOTE, betCoverProb, postedVsNow, totalFair } from "@/lib/posted";
 
@@ -491,28 +491,6 @@ function MarketStat({ label, fair, price, refTeam, rating }: { label: string; fa
   );
 }
 
-/** Under the headline of a CZarp Play whose edge now is below the bar. The chip stays CZarp Play. */
-function LineMoveNote({ className = "" }: { className?: string }) {
-  return <div className={`text-[11px] font-medium leading-snug text-amber-300/90 ${className}`}>{LINE_MOVE_NOTE}</div>;
-}
-
-const EDGE_TONE: Record<EdgeTone, string> = { green: "text-edge-400", neutral: "text-zinc-300", dim: "text-zinc-500" };
-
-/** "SPREAD  Texas St. -2.5  2.5%". The tier lives in the top-row chip; the % color follows it (lib/cardHeader). */
-function HeaderRow({ row }: { row: import("@/lib/cardHeader").CardHeaderRow }) {
-  return (
-    <div>
-      <div className="flex items-baseline gap-2">
-        {row.marketLabel && <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">{row.marketLabel}</span>}
-        <span className={`min-w-0 flex-1 break-words text-[15px] font-bold leading-tight ${row.pick ? "text-white" : "font-semibold text-zinc-400"}`}>{row.pick ?? row.fallback}</span>
-        <span className={`shrink-0 font-mono text-2xl font-black leading-none ${EDGE_TONE[row.tone]}`}>{row.edgeLabel ?? "—"}</span>
-      </div>
-      {row.now && <div className="mt-0.5 font-mono text-[11px] text-zinc-500">{row.now}</div>}
-      {row.lineMoveNote && <LineMoveNote className="mt-1" />}
-    </div>
-  );
-}
-
 function ValueSheet({ sel, onClose }: { sel: Sel; onClose: () => void }) {
   useEffect(() => {
     const k = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -640,9 +618,9 @@ function GameSheet({ g, sportKey, bets, tvHot, onClose }: { g: SlateGame | null;
         <div className="mt-3 overflow-hidden rounded-xl border border-ink-700 text-xs sm:text-sm">
           <div className={`${LINE_GRID} items-center bg-ink-850 py-2 text-[9px] uppercase tracking-normal text-zinc-500 sm:text-[10px] sm:tracking-wider`}>
             <span />
-            <span className="flex items-center justify-end text-right"><TermLabel term="fairValue" gap="gap-0.5">FV</TermLabel></span>
+            <span className="flex items-center justify-end text-right"><TermLabel term="fairValue" gap="gap-0.5" iconFirst>FV</TermLabel></span>
             <span className="text-right">Open</span>
-            <span className="flex items-center justify-end text-right"><TermLabel term="price" gap="gap-0.5">Price</TermLabel></span>
+            <span className="flex items-center justify-end text-right"><TermLabel term="price" gap="gap-0.5" iconFirst>Price</TermLabel></span>
             <span className="flex items-center gap-0.5 pl-1"><TermLabel term="ladderRule">Rating</TermLabel></span>
           </div>
           {[
@@ -688,7 +666,7 @@ function GameSheet({ g, sportKey, bets, tvHot, onClose }: { g: SlateGame | null;
         {bets.length > 0 && (
           <div className="mt-4 space-y-1.5">
             {bets.map((b) => {
-              const compact = bets.length > 1 ? cardHeadline(g, [b]).subtitle : null;
+              const compact = bets.length > 1 ? nowLine(b, g) : null; // "Now 138.5" when the line moved
               return (
                 <div key={`${b.market}-${b.side}`} className="flex items-center gap-2 rounded-xl border border-edge-400/30 px-3 py-2 text-sm">
                   <span className="min-w-0 flex-1 truncate">

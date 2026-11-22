@@ -3,6 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { HOLD_CODES, LATE_VALUE_NOTE, LINE_MOVE_NOTE, NO_LINE_TIP, TIER_BOUNDS, VERDICT_LADDER, VERDICT_RANK, clearsBar, holdCodes, ladderLevel, showsLineMoveNote, verdictLabel, type LadderInput, type VerdictLevel } from "../src/lib/verdicts";
+import { cardHeaderRow } from "../src/lib/cardHeader";
 import { cardHeadline, marketRatings, marketVerdict, notAPlayLine, notAPlayLines } from "../src/lib/verdict";
 import { EXPLAINERS } from "../src/lib/explainers";
 import { POSTED_TOTAL_NOTE, totalFair } from "../src/lib/posted";
@@ -204,7 +205,6 @@ test("Drexel @ Maine 11-14 card: Value on the current line (2.68% total; stake h
   assert.equal(h.verdict, "value");
   assert.deepEqual(h.holds, []);
   assert.equal(h.edgeLabel, "2.6%");
-  assert.equal(h.subtitle, "vs now 2.6% (needs 3%)");
   assert.equal(notAPlayLine(g, []), "Not a play: stake under $1");
 });
 
@@ -222,7 +222,6 @@ test("near-bar edges never display as meeting the bar", () => {
   const h = cardHeadline(g, []);
   assert.equal(h.verdict, "value");
   assert.equal(h.edgeLabel, "3.9%");
-  assert.equal(h.subtitle, "vs now 3.9% (needs 4%)");
 });
 
 test("no-line card: Toss Up with a neutral tip, not 'below the bar'", () => {
@@ -245,20 +244,20 @@ test("line-move wording is one string everywhere", () => {
   for (const d of VERDICT_LADDER) assert.doesNotMatch(d.short, /total moved/);
 });
 
-test("one decimal style for every edge: posted, vs now, vs open, headline", () => {
+test("one decimal style for every edge: posted, current, vs open, headline", () => {
   assert.equal(fmtPlayPct(0.02), "2.0%");
   assert.equal(fmtPlayPct(0.045), "4.5%");
-  // Posted 2% · vs now 2.0% used to mix styles.
+  // Posted and current edges both read one decimal.
   const g = game({ edge_now_pct_total: 0.02, edge_vs_open_pct_total: 0.035, skip_reasons_total: [] });
   const h = cardHeadline(g, [bet({ edge_at_post_pct: 0.02, line_edge_pct: 0.02 })]);
-  assert.equal(h.subtitle, "Posted 2.0% · vs now 2.0%");
+  assert.equal(cardHeaderRow(g, [bet({ edge_at_post_pct: 0.02, line_edge_pct: 0.02 })]).edgeLabel, "2.0%"); // current edge
   assert.equal(h.edgeLabel, "2.0%");
   assert.equal(
     fmtPostedVsNow({ fair: 142, edge: 0.0173, line: 144.5, now: 144.5, vsOpen: 0.0373, market: "total" }),
     "Posted 142.0 · 1.7% (line 144.5) → Now 144.5 · 3.7% vs open",
   );
   assert.equal(fmtPostedVsNow({ vsOpen: 0.0299, market: "total" }), "· 2.9% vs open");
-  for (const s of [h.subtitle!, h.edgeLabel!]) assert.doesNotMatch(s, /(?<![\d.])\d+%/);
+  for (const s of [h.edgeLabel!]) assert.doesNotMatch(s, /(?<![\d.])\d+%/);
 });
 
 // ---- Real games under rule A (stored values from slate_games / official_picks_locked) ----
