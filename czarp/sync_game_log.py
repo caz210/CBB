@@ -29,12 +29,14 @@ import argparse
 import json
 import sys
 import urllib.request
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
 from backtest import NameMatcher
 from czarp.supabase_writer import LEAGUE, SPORT, Client, _season
-from czarp.sync_finals import DEFAULT_LOOKBACK, date_window, game_status, today_ct
+from czarp.sync_finals import (
+    DEFAULT_LOOKBACK, date_window, espn_end_utc, resolve_final_at, today_ct,
+)
 
 CENTRAL = ZoneInfo("America/Chicago")
 
@@ -110,7 +112,7 @@ def fetch_scoreboard(day: date, opener=None) -> list[dict]:
 
 
 def fetch_di_espn_ids(opener=None) -> set[str]:
-    """ESPN ids for the 365 D-I teams. Empty set means 'fall back to name match'."""
+    """ESPN ids for the 365 D-I teams. Empty set means the call failed; do not guess."""
     opener = opener or urllib.request.urlopen
     try:
         with opener(TEAMS_URL, timeout=20) as r:
@@ -130,30 +132,41 @@ def fetch_di_espn_ids(opener=None) -> set[str]:
 def classify(row: dict, match: NameMatcher, di_ids: set[str] | None = None) -> dict:
     """Return {home_name, away_name, kind} where kind is di, non_di, or skip.
 
-    A side is D-I when its ESPN name maps to a stored team. If ESPN D-I ids
-    are available and *both* sides are D-I but a name failed to map, the
-    event is skipped (never stored as a non-D-I result).
+    When `di_ids` is non-empty, a side is D-I only if its ESPN id is in that
+    set *and* its name maps to a stored team. Both-name matches without
+    both ESPN ids are not treated as D-I (avoids a non-D-I namesake).
+    If ESPN ids say both sides are D-I but a name failed to map, skip
+    (never store that event as a non-D-I result).
     """
     home = match(row.get("home") or "") or match(row.get("home_full") or "")
     away = match(row.get("away") or "") or match(row.get("away_full") or "")
     di_ids = di_ids or set()
     h_espn_di = bool(row.get("home_id") and row["home_id"] in di_ids)
     a_espn_di = bool(row.get("away_id") and row["away_id"] in di_ids)
-    both_espn_di = h_espn_di and a_espn_di
-    if home and away:
-        kind = "di"
-    elif (home or away) and not both_espn_di:
-        kind = "non_di"
+    if di_ids:
+        home_di = bool(home) and h_espn_di
+        away_di = bool(away) and a_espn_di
+        if home_di and away_di:
+            kind = "di"
+        elif h_espn_di and a_espn_di:
+            kind = "skip"  # both ESPN D-I, but a name failed to map
+        elif home_di or away_di:
+            kind = "non_di"
+        else:
+            kind = "skip"
     else:
-        kind = "skip"
+        # Caller must skip non-D-I writes when ids were unavailable.
+        home_di, away_di = bool(home), bool(away)
+        if home and away:
+            kind = "di"
+        elif home or away:
+            kind = "non_di"
+        else:
+            kind = "skip"
     return {
         "home_name": home, "away_name": away, "kind": kind,
-        "home_di": bool(home), "away_di": bool(away),
+        "home_di": home_di, "away_di": away_di,
     }
-
-
-def _row_status(row: dict) -> str:
-    return game_status(row)
 
 
 def _tip_iso(row: dict) -> str | None:
@@ -163,9 +176,27 @@ def _tip_iso(row: dict) -> str | None:
     return None
 
 
+def _final_at(row: dict, event_id: str, end_time) -> tuple[str | None, bool | None]:
+    """ESPN end clock when available, otherwise tip + 2 hours (estimated)."""
+    end = None
+    if end_time is not None:
+        try:
+            end = end_time(event_id)
+        except Exception:
+            end = None
+    return resolve_final_at({}, tip=row.get("tip_ct"), end_utc=end)
+
+
+_EMPTY = {
+    "non_di_new": 0, "non_di_unchanged": 0, "non_di_updated": 0,
+    "di_inserted": 0, "ids_filled": 0, "days": 0, "ids_unavailable": False,
+}
+
+
 def sync_game_log(lookback: int = DEFAULT_LOOKBACK, day: date | None = None, *,
                   now: datetime | None = None, client: Client | None = None,
-                  scoreboard=None, di_ids: set[str] | None = None, log=print) -> dict:
+                  scoreboard=None, di_ids: set[str] | None = None,
+                  end_time=None, log=print) -> dict:
     """Sync non-D-I results and missing D-I finals for `day` and `lookback` days."""
     c = client or Client()
     end = day or today_ct(now)
@@ -173,11 +204,20 @@ def sync_game_log(lookback: int = DEFAULT_LOOKBACK, day: date | None = None, *,
     teams = get_all(c, "teams", select="id,name", league=f"eq.{LEAGUE}")
     if not teams:
         log("  game log: no teams in db — skip")
-        return {"non_di_upserted": 0, "di_inserted": 0, "ids_filled": 0, "days": len(days)}
+        return {**_EMPTY, "days": len(days)}
     tid = {t["name"]: t["id"] for t in teams}
     match = NameMatcher(tid.keys())
+    ids_unavailable = False
     if di_ids is None:
         di_ids = fetch_di_espn_ids()
+        if not di_ids:
+            ids_unavailable = True
+            log("  game log: ESPN teams list failed — skipping non-D-I writes")
+    elif not di_ids:
+        ids_unavailable = True
+        log("  game log: ESPN D-I ids unavailable — skipping non-D-I writes")
+    if end_time is None:
+        end_time = espn_end_utc
 
     sport = c.get("sports", code=f"eq.{SPORT}", select="id")
     if not sport:
@@ -215,6 +255,7 @@ def sync_game_log(lookback: int = DEFAULT_LOOKBACK, day: date | None = None, *,
                     if eid in seen_di:
                         continue
                     seen_di.add(eid)
+                    fa, est = _final_at(ev, eid, end_time)
                     di_rows.append({
                         **base,
                         "season": _season(ev["game_date"]),
@@ -230,6 +271,8 @@ def sync_game_log(lookback: int = DEFAULT_LOOKBACK, day: date | None = None, *,
                         "status": "final",
                         "home_score": ev["home_score"],
                         "away_score": ev["away_score"],
+                        "final_at": fa,
+                        "final_at_estimated": est,
                     })
                 else:
                     patch = {}
@@ -242,6 +285,8 @@ def sync_game_log(lookback: int = DEFAULT_LOOKBACK, day: date | None = None, *,
                         patches.append(patch)
                 continue
             # non-D-I: exactly one side mapped
+            if ids_unavailable:
+                continue
             if eid in seen_nd or eid in by_eid:
                 # already a D-I slate game (shouldn't be) — leave it alone
                 continue
@@ -263,6 +308,7 @@ def sync_game_log(lookback: int = DEFAULT_LOOKBACK, day: date | None = None, *,
                 "status": "final",
                 "home_score": ev["home_score"],
                 "away_score": ev["away_score"],
+                "final_at": _final_at(ev, eid, end_time)[0],
             })
 
     # Also repair null team_ids on stored D-I games even if they were not in this window's scoreboard
@@ -284,21 +330,51 @@ def sync_game_log(lookback: int = DEFAULT_LOOKBACK, day: date | None = None, *,
         if changed:
             patches.append(patch)
 
-    n_nd = n_di = n_id = 0
-    if non_di_rows:
-        c.upsert("non_di_games", non_di_rows, on_conflict="league,external_id", returning=False)
-        n_nd = len(non_di_rows)
-    if di_rows:
-        c.upsert("games", di_rows, on_conflict="league,external_id", returning=False)
-        n_di = len(di_rows)
+    existing_nd = get_all(
+        c, "non_di_games",
+        select="external_id,home,away,home_team_id,away_team_id,home_score,away_score,neutral,status,date",
+        league=f"eq.{LEAGUE}",
+    )
+    by_nd = {str(r["external_id"]): r for r in existing_nd if r.get("external_id")}
+
+    def _nd_same(row, cur):
+        keys = ("home", "away", "home_team_id", "away_team_id", "home_score", "away_score",
+                "neutral", "status", "date")
+        return all(row.get(k) == cur.get(k) for k in keys)
+
+    n_new = n_unchanged = n_updated = 0
+    for row in non_di_rows:
+        cur = by_nd.get(str(row["external_id"]))
+        if cur is None:
+            n_new += 1
+        elif _nd_same(row, cur):
+            n_unchanged += 1
+        else:
+            n_updated += 1
+
+    # Fill team_ids first so a later upsert failure cannot skip the repair.
+    n_id = 0
     for p in patches:
         eid = p.pop("external_id")
         c.patch("games", p, league="eq." + LEAGUE, external_id=f"eq.{eid}")
         n_id += 1
+    try:
+        if non_di_rows:
+            c.upsert("non_di_games", non_di_rows, on_conflict="league,external_id", returning=False)
+        if di_rows:
+            c.upsert("games", di_rows, on_conflict="league,external_id", returning=False)
+    except Exception:
+        log(f"  game log: team_id repair applied ({n_id}); upsert failed")
+        raise
 
-    log(f"  game log: {n_nd} non-D-I upserted, {n_di} missing D-I finals inserted, "
-        f"{n_id} team_id(s) filled, {len(days)} day(s)")
-    return {"non_di_upserted": n_nd, "di_inserted": n_di, "ids_filled": n_id, "days": len(days)}
+    skip = "non-D-I skipped (ESPN teams list unavailable); " if ids_unavailable else ""
+    log(f"  game log: {skip}{n_new} new, {n_unchanged} unchanged, {n_updated} updated non-D-I, "
+        f"{len(di_rows)} missing D-I finals inserted, {n_id} team_id(s) filled, {len(days)} day(s)")
+    return {
+        "non_di_new": n_new, "non_di_unchanged": n_unchanged, "non_di_updated": n_updated,
+        "di_inserted": len(di_rows), "ids_filled": n_id, "days": len(days),
+        "ids_unavailable": ids_unavailable,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:

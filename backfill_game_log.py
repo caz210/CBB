@@ -23,7 +23,7 @@ Re-run after Scantron approves; do not apply from this report alone.
 from __future__ import annotations
 
 import argparse
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 try:
@@ -32,7 +32,6 @@ try:
 except Exception:
     pass
 
-from czarp.sync_finals import date_window
 from czarp.sync_game_log import sync_game_log
 from czarp.supabase_writer import Client
 
@@ -75,9 +74,12 @@ def main():
     stats = sync_game_log(lookback=lookback, day=end, client=client)
     mode = "APPLY" if a.apply else "DRY RUN"
     print(f"{mode} {start} .. {end}  ({lookback} lookback day(s))")
-    print(f"  non_di_games upserts: {stats['non_di_upserted']}")
+    print(f"  non_di_games: {stats['non_di_new']} new, {stats['non_di_unchanged']} unchanged, "
+          f"{stats['non_di_updated']} updated")
     print(f"  games inserts (missing D-I finals): {stats['di_inserted']}")
     print(f"  games team_id patches: {stats['ids_filled']}")
+    if stats.get("ids_unavailable"):
+        print("  non-D-I writes skipped: ESPN teams list was unavailable")
     if not a.apply and isinstance(client, DryRunClient):
         for table, rows in client.upserts.items():
             print(f"  would upsert {len(rows)} row(s) into {table}")
