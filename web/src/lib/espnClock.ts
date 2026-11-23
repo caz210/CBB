@@ -272,6 +272,54 @@ export function teamMatchKey(raw: string, loose = false): string {
   return (loose ? toks.filter((t) => t !== "st") : toks).join(" ");
 }
 
+/** Site-side equivalent names for Live Line ESPN matching. Bidirectional.
+ *  These are the 11/22 slate misses plus the ESPN location/abbreviation forms they need.
+ *  Do not add short keys that would also fit another school (Illinois, Albany St., Tennessee, Seattle Pacific). */
+export const LIVE_LINE_TEAM_ALIAS_GROUPS: readonly (readonly string[])[] = [
+  ["Illinois Chicago", "UIC"],
+  ["Albany", "UAlbany"],
+  ["Cal Baptist", "California Baptist", "CA Baptist"],
+  ["Tennessee Martin", "UT Martin"],
+  ["Seattle", "Seattle U"],
+];
+
+function buildAliasKeyMap(): Map<string, ReadonlySet<string>> {
+  const map = new Map<string, Set<string>>();
+  for (const group of LIVE_LINE_TEAM_ALIAS_GROUPS) {
+    const keys = group.map((n) => teamMatchKey(n, false)).filter(Boolean);
+    for (const k of keys) {
+      const set = map.get(k) ?? new Set<string>();
+      for (const x of keys) set.add(x);
+      map.set(k, set);
+    }
+  }
+  return map;
+}
+
+const ALIAS_KEYS = buildAliasKeyMap();
+
+/** Tight keys for a name, including every equivalent in its alias group. */
+export function teamAliasKeys(raw: string): Set<string> {
+  const tight = teamMatchKey(raw, false);
+  const out = new Set<string>();
+  if (tight) out.add(tight);
+  const extra = ALIAS_KEYS.get(tight);
+  if (extra) for (const k of extra) out.add(k);
+  return out;
+}
+
+/** Loose keys must not treat "Albany" and "Albany St." as the same school. */
+function looseKeysCompatible(tightA: string, tightB: string): boolean {
+  const looseA = tightA.split(" ").filter((t) => t !== "st").join(" ");
+  const looseB = tightB.split(" ").filter((t) => t !== "st").join(" ");
+  if (!looseA || !looseB || looseA !== looseB || looseA.length < 4) return false;
+  if (tightA === tightB) return true;
+  const aHas = tightA.split(" ").includes("st");
+  const bHas = tightB.split(" ").includes("st");
+  if (aHas !== bHas) return false;
+  return true;
+}
+
 function isPrefixTokens(short: string, long: string): boolean {
   if (!short || !long || short === long) return false;
   const a = short.split(" ");
@@ -359,19 +407,19 @@ function rankAgainstSide(ours: OurTeamSides, side: "home" | "away", comp: EspnCo
   const ourId = side === "home" ? ours.homeEspnId : ours.awayEspnId;
   const ourName = side === "home" ? ours.home : ours.away;
   if (ourId && comp.espnId && String(ourId).trim() === comp.espnId) return RANK_ID;
-  const ourTight = teamMatchKey(ourName, false);
-  const ourLoose = teamMatchKey(ourName, true);
+  const ourKeys = teamAliasKeys(ourName);
   let best = 0;
   for (const lab of comp.labels) {
-    const tight = teamMatchKey(lab, false);
-    const loose = teamMatchKey(lab, true);
-    if (ourTight && tight && ourTight === tight) { best = Math.max(best, RANK_TIGHT); continue; }
-    if (ourTight && tight && (isPrefixTokens(ourTight, tight) || isPrefixTokens(tight, ourTight))) {
-      best = Math.max(best, RANK_PREFIX);
-      continue;
-    }
-    if (ourLoose && loose && ourLoose.length >= 4 && ourLoose === loose) {
-      best = Math.max(best, RANK_LOOSE);
+    const labKeys = teamAliasKeys(lab);
+    for (const ok of ourKeys) {
+      for (const lk of labKeys) {
+        if (ok && lk && ok === lk) { best = Math.max(best, RANK_TIGHT); continue; }
+        if (ok && lk && (isPrefixTokens(ok, lk) || isPrefixTokens(lk, ok))) {
+          best = Math.max(best, RANK_PREFIX);
+          continue;
+        }
+        if (looseKeysCompatible(ok, lk)) best = Math.max(best, RANK_LOOSE);
+      }
     }
   }
   return best;
