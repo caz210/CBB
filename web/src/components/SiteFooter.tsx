@@ -8,6 +8,12 @@ export function SiteFooter() {
         <div className="flex flex-col gap-3 text-xs text-zinc-400 md:flex-row md:items-start md:justify-between">
           <div className="max-w-xl space-y-1.5">
             <p>© 2026 CZarp Analytics · CZarpAnalytics.com · 21+ only.</p>
+            <p>
+              Daily plays on X:{" "}
+              <a href="https://x.com/CZarpAnalytics" target="_blank" rel="noopener noreferrer" className="font-semibold text-zinc-200 hover:text-white">@CZarpAnalytics</a>
+              {" "}· Instagram:{" "}
+              <a href="https://www.instagram.com/czarp_analytics_club" target="_blank" rel="noopener noreferrer" className="font-semibold text-zinc-200 hover:text-white">@czarp_analytics_club</a>
+            </p>
             <p>Not a sportsbook. For information/entertainment.</p>
             <p>
               If gambling is a problem, call{" "}

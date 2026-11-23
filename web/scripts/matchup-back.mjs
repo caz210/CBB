@@ -35,7 +35,7 @@ check("1b. Forward then Back again keeps them", same((await state()).teams, ["Te
 // 2. deep link, change B, leave, Back
 await p.goto(`${base}/cbb/matchup?a=520&b=78&venue=neutral`, { waitUntil: "networkidle" });
 await pick(1, "kansas", "Kansas"); await p.waitForTimeout(800);
-await p.locator("nav.fixed a", { hasText: "Portfolio" }).click(); await p.waitForURL(/results/);
+await p.locator("nav.fixed a", { hasText: "Record" }).click(); await p.waitForURL(/results/);
 await p.goBack(); await p.waitForTimeout(1200);
 const s2 = await state();
 check("2. Back after changing B shows the new B, not the deep-link one", same(s2.teams, ["Texas St.", "Kansas"]), s2);

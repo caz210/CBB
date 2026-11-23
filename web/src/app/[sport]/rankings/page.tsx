@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 import { notFound } from "next/navigation";
 import { getSport } from "@/lib/sports";
 import { loadRankings } from "@/lib/data";
@@ -14,10 +15,12 @@ export async function generateMetadata({ params }: { params: Promise<{ sport: st
   const { sport: key } = await params;
   const sport = getSport(key);
   const who = sport?.long ?? "College basketball";
-  return {
+  const path = sport ? `/${sport.key}/rankings` : "/cbb/rankings";
+  return pageMetadata({
     title: "CZarp Top 25",
     description: `${who} rankings: CZarp Top 25 by projected margin vs an average D-I team on a neutral court, with D-I-only records.`,
-  };
+    path,
+  });
 }
 
 export default async function RankingsPage({

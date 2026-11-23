@@ -721,8 +721,9 @@ export type ResultsData = {
     winCi: { lo: number; hi: number } | null;
     smallSample: boolean;
   };
-  /** per-market ¼-Kelly units rolled up from the ledger (tier_record.units is flat 1u) */
-  byMarketUnits: Record<string, { kelly: number; flat: number }>;
+  /** per-market ¼-Kelly P/L, stake, and ROI rolled up from the ledger (same data as the headline record).
+   *  tier_record.units / roi are the flat 1u book and are not used for the large ROI. */
+  byMarketUnits: Record<string, MarketUnits>;
   risk: PortfolioRisk;
   cumulativeUnits: number[];
 };
@@ -733,12 +734,34 @@ const NAME_LOOKUP_LIMIT = 200;
 /** Units for a ledger row: official = ¼-Kelly profit_units; tracked = flat 1u result. */
 export const rowUnits = (r: LedgerRow) => (r.pick_tier === "track" ? r.flat_units ?? r.profit_units : r.profit_units);
 
+export type MarketUnits = { kelly: number; flat: number; staked: number; roi: number | null };
+
 /** Infer market from a ledger pick label (ledger view has no market column). */
 export function marketFromPick(pick: string): Market {
   const s = pick.toLowerCase();
   if (s.startsWith("under") || s.startsWith("over")) return "total";
-  if (/ml/.test(s) || s.includes("moneyline")) return "moneyline";
+  if (/\bml\b/.test(s) || s.includes("moneyline")) return "moneyline";
   return "spread";
+}
+
+/** Stake-sized (¼-Kelly) P/L, staked units, and ROI per market, from the same ledger the headline uses. */
+export function rollupMarketUnits(ledger: LedgerRow[], tier: PickTier): Record<string, MarketUnits> {
+  const out: Record<string, MarketUnits> = {};
+  for (const r of ledger) {
+    if (r.result == null) continue;
+    const mk = marketFromPick(r.pick);
+    const slot = out[mk] ?? (out[mk] = { kelly: 0, flat: 0, staked: 0, roi: null });
+    slot.kelly += rowUnits(r) ?? 0;
+    slot.flat += r.flat_units ?? 0;
+    slot.staked += tier === "track" ? 1 : r.stake_units ?? 0;
+  }
+  for (const slot of Object.values(out)) {
+    slot.kelly = Math.round(slot.kelly * 100) / 100;
+    slot.flat = Math.round(slot.flat * 100) / 100;
+    slot.staked = Math.round(slot.staked * 100) / 100;
+    slot.roi = slot.staked ? slot.kelly / slot.staked : null;
+  }
+  return out;
 }
 
 export async function loadResults(sport: Sport, range: RangeKey, tier: PickTier, opts: { titles?: boolean } = {}): Promise<Loaded<ResultsData>> {
@@ -784,7 +807,6 @@ export async function loadResults(sport: Sport, range: RangeKey, tier: PickTier,
 
   // KPIs from the ledger (respects range and tier). Official units = ¼-Kelly profit_units.
   let wins = 0, losses = 0, pushes = 0, pending = 0, units = 0, flatUnits = 0, staked = 0, clvS = 0, clvN = 0, beatClose = 0;
-  const byMarketUnits: ResultsData["byMarketUnits"] = {};
   for (const r of ledger) {
     if (r.result == null) { pending++; continue; }
     if (r.result === "W") wins++; else if (r.result === "L") losses++; else pushes++;
@@ -794,11 +816,8 @@ export async function loadResults(sport: Sport, range: RangeKey, tier: PickTier,
     flatUnits += f;
     staked += tier === "track" ? 1 : r.stake_units ?? 0;
     if (r.clv != null) { clvS += r.clv; clvN++; if (r.clv > 0) beatClose++; }
-    const mk = marketFromPick(r.pick);
-    const slot = byMarketUnits[mk] ?? (byMarketUnits[mk] = { kelly: 0, flat: 0 });
-    slot.kelly += k;
-    slot.flat += f;
   }
+  const byMarketUnits = rollupMarketUnits(ledger, tier);
   const decided = wins + losses;
   const winCi = wilsonCi(wins, decided);
   const smallSample = decided > 0 && decided < SMALL_SAMPLE_N;

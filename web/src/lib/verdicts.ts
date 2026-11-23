@@ -5,7 +5,8 @@
  *  stored edges to the boundaries below, at full precision (display rounds to one decimal).
  *
  *  Glossary entries (lib/glossary.ts) and tap-to-learn tips (lib/explainers.ts) read VERDICT_LADDER. */
-import { PLAY_THRESHOLD, type Market } from "./labels";
+import { MIN_STAKE_UNITS, PLAY_THRESHOLD, type Market } from "./labels";
+import { OFFICIAL_POST_TIME } from "./officialPost";
 
 /** Internal keys. "official" is the CZarp Play (a posted pick); customers never see the key. */
 export type VerdictLevel = "toss_up" | "lean" | "value" | "late_value" | "official";
@@ -22,7 +23,7 @@ export type VerdictDef = {
 export const HOLD_CODES = {
   new_coach_lock: "new-coach pause",
   line_moved_against: "Line moved 3+ pts away from CZarp since open",
-  kelly_too_small: "stake under $1",
+  kelly_too_small: `stake under ${MIN_STAKE_UNITS}u`,
 } as const;
 export type HoldCode = keyof typeof HOLD_CODES;
 const HOLD_ORDER = Object.keys(HOLD_CODES) as HoldCode[];
@@ -36,7 +37,7 @@ export const TIER_BOUNDS = {
 
 const boundsFor = (m: Market) => (m === "total" ? TIER_BOUNDS.total : TIER_BOUNDS.spread);
 
-export const LATE_VALUE_NOTE = "Value on the current line. Not part of the official record; official plays are set at 7:15 AM CT.";
+export const LATE_VALUE_NOTE = `Value on the current line. Not part of the official record; official plays are set at ${OFFICIAL_POST_TIME}.`;
 
 /** Weakest to strongest; also the glossary order. */
 export const VERDICT_LADDER: readonly VerdictDef[] = [
@@ -53,7 +54,7 @@ export const VERDICT_LADDER: readonly VerdictDef[] = [
   {
     level: "value",
     label: "Value",
-    short: "A real edge on the current line: 3% to 4% on sides, 2.25% to 3% on totals. Also an edge past our play bar (4% sides, 3% totals) that a hold rule (new-coach pause, big market move, or stake under $1) keeps off the record; the note says which.",
+    short: `A real edge on the current line: 3% to 4% on sides, 2.25% to 3% on totals. Also an edge past our play bar (4% sides, 3% totals) that a hold rule (new-coach pause, big market move, or stake under ${MIN_STAKE_UNITS}u) keeps off the record; the note says which.`,
   },
   {
     level: "late_value",
@@ -63,7 +64,7 @@ export const VERDICT_LADDER: readonly VerdictDef[] = [
   {
     level: "official",
     label: "CZarp Play",
-    short: "Our official play, posted at the 7:15 AM CT run. It's time-stamped, graded in the public record, and stays a CZarp Play even if the line moves later.",
+    short: `Our official play, posted at the ${OFFICIAL_POST_TIME} run. It's time-stamped, graded in the public record, and stays a CZarp Play even if the line moves later.`,
   },
 ] as const;
 
@@ -112,7 +113,7 @@ export function clearsBar(market: Market, edgeNow: number | null | undefined): b
 }
 
 /** One market's tier. Precedence, first match wins:
- *  1. CZarp Play: posted at the 7:15 AM CT run, whatever the edge does later.
+ *  1. CZarp Play: posted at the morning run, whatever the edge does later.
  *  2. Toss Up: no stored edge.
  *  3. Past the bar (≥ 4% sides / 3% totals): a hold code → Value (with the holds); none → Late Value.
  *  4. Value: ≥ 3% / 2.25%.   5. Lean: ≥ 2% / 1.5%.   6. Toss Up otherwise.

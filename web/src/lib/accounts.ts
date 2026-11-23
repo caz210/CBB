@@ -35,7 +35,7 @@ export function headerNavLinks(sport: string, show: boolean = SHOW_ACCOUNTS): Na
     { href: `/${sport}/slate`, label: "Daily Slate", match: "/slate" },
     { href: `/${sport}/rankings`, label: "Rankings", match: "/rankings" },
     { href: `/${sport}/matchup`, label: "Matchup", match: "/matchup" },
-    { href: `/${sport}/results`, label: "Portfolio", match: "/results" },
+    { href: `/${sport}/results`, label: "Record", match: "/results" },
   ];
   if (show) {
     links.push({ href: "/models", label: "My Models", match: "/models" });
@@ -51,7 +51,7 @@ export function bottomNavLinks(sport: string, show: boolean = SHOW_ACCOUNTS): Na
     { href: `/${sport}/slate`, label: "Slate", match: "/slate" },
     { href: `/${sport}/rankings`, label: "Rankings", match: "/rankings" },
     { href: `/${sport}/matchup`, label: "Matchup", match: "/matchup" },
-    { href: `/${sport}/results`, label: "Portfolio", match: "/results" },
+    { href: `/${sport}/results`, label: "Record", match: "/results" },
   ];
   if (show) links.push({ href: "/models", label: "My Models", match: "/models" });
   return links;
@@ -71,7 +71,10 @@ export function footerLinks(show: boolean = SHOW_ACCOUNTS): { href: string; labe
 /** Landing-page hero CTAs. */
 export function homeCtas(show: boolean = SHOW_ACCOUNTS): AccountLink[] {
   if (!show) {
-    return [{ href: SLATE_HREF, label: "See today's slate", tone: "primary" }];
+    return [
+      { href: SLATE_HREF, label: "Today's slate", tone: "primary" },
+      { href: `/${DEFAULT_SPORT}/results`, label: "See the record", tone: "secondary" },
+    ];
   }
   return [
     { href: "/signup", label: "Create free account", tone: "primary" },

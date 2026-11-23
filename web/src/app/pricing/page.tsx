@@ -1,9 +1,14 @@
 import Link from "next/link";
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 import { redirect } from "next/navigation";
 import { pricingCta, SHOW_ACCOUNTS, type PricingTierKey } from "@/lib/accounts";
 
-export const metadata: Metadata = { title: "Pricing" };
+export const metadata: Metadata = pageMetadata({
+  title: "Pricing",
+  description: "CZarp Analytics plans: follow the daily official record for free during beta, with optional Pro tools when accounts open.",
+  path: "/pricing",
+});
 
 // Tier keys match profiles.tier ('free' | 'pro' | 'syndicate').
 const TIERS: {

@@ -269,7 +269,7 @@ const BAR_CODES = new Set(["below_open_threshold", "below_current_threshold"]);
  *    stored reason, e.g. "game already started", still shows).
  *  - Value past the bar: the hold rule(s) as the note (new-coach pause leads).
  *  - Below the bar (Toss Up, Lean, Value): no bar reason (the chip and the edge say it); only other
- *    stored reasons (e.g. stake under $1, game already started), or the stored text with
+ *    stored reasons (e.g. stake under 0.1u, game already started), or the stored text with
  *    opening-line wording removed. */
 function skipForMarket(g: SlateGame, officialBets: ValueBet[], market: Market): SkipDetail {
   const m: Market = market === "moneyline" ? "spread" : market;
@@ -283,7 +283,7 @@ function skipForMarket(g: SlateGame, officialBets: ValueBet[], market: Market): 
   const human = structured ? null : m === "total" ? g.skip_reason_total : g.skip_reason_spread;
   const d = formatSkip(human, codes, market === "moneyline" ? "moneyline" : m, g.coachLocks);
   // Late Value: nothing on the ladder held it back. Any other stored reason (game started, a new
-  // pipeline rule) still shows; otherwise it's value that came after the 7:15 AM CT run.
+  // pipeline rule) still shows; otherwise it's value that came after the morning run.
   if (v.level === "late_value" && !d.primary) return { primary: LATE_VALUE_NOTE, also: [] };
   return d;
 }

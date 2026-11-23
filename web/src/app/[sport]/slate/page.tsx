@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 import { notFound } from "next/navigation";
 import { getSport } from "@/lib/sports";
 import { isIsoDate, loadSlate, shiftDate, todayCT } from "@/lib/data";
@@ -27,13 +28,17 @@ export async function generateMetadata({ params, searchParams }: {
 }): Promise<Metadata> {
   const { sport: key } = await params;
   const sport = getSport(key);
-  if (!sport) return { title: "Slate" };
+  if (!sport) return pageMetadata({ title: "Today's CBB Slate — Official Plays & Edge %", description: "Today's D1 men's basketball slate: official plays, market price vs fair value, and edge % on every game.", path: "/cbb/slate" });
   const sp = await searchParams;
   const date = isIsoDate(sp.date) ? sp.date : null;
-  return {
-    title: `${sport.label} slate${date ? ` · ${fmtGameDate(date)}` : " · Today"}`,
-    description: `${sport.long}: fair value vs market price and edge % on every game${date ? ` for ${fmtGameDate(date)}` : " today"}.`,
-  };
+  const path = date ? `/${sport.key}/slate?date=${date}` : `/${sport.key}/slate`;
+  const title = date
+    ? `${sport.label} Slate · ${fmtGameDate(date)} — Official Plays & Edge %`
+    : "Today's CBB Slate — Official Plays & Edge %";
+  const description = date
+    ? `The ${fmtGameDate(date)} D1 men's basketball slate: official plays, market price vs fair value, and edge % on every game.`
+    : "Today's D1 men's basketball slate: official plays, market price vs fair value, and edge % on every game.";
+  return pageMetadata({ title, description, path });
 }
 
 export default async function SlatePage({

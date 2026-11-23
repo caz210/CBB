@@ -126,6 +126,9 @@ export const fmtUnits = (u: number, dp = 2) => `${u > 0 ? "+" : u < 0 ? "−" : 
 /** Play bar on line edge % (fractions, 0.04 = 4%): sides (spread/moneyline) 4%, totals 3%.
  *  The verdict ladder that uses it lives in lib/verdicts.ts. */
 export const PLAY_THRESHOLD: Record<Market, number> = { spread: 0.04, moneyline: 0.04, total: 0.03 };
+/** Pipeline MIN_STAKE is $1 on a $1,000 notional bankroll. 1u = 1% of bankroll, so the floor is 0.1u. */
+export const MIN_STAKE_UNITS = 0.1;
+
 
 /** "Posted 3:12 PM CT · 4h 18m before tip" from logged_at vs tipoff. Kept for callers that still want the tip gap. */
 export function fmtPostedProof(loggedAt: string | null | undefined, tipoff: string | null | undefined) {

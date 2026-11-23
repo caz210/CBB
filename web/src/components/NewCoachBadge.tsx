@@ -11,6 +11,7 @@ import {
   type NewCoachLock,
 } from "@/lib/coach";
 import { notAPlayLines } from "@/lib/verdict";
+import { HOLD_CODES } from "@/lib/verdicts";
 import type { SlateGame } from "@/lib/types";
 import type { Market } from "@/lib/labels";
 
@@ -120,7 +121,7 @@ export const SKIP_LABELS: Record<string, string> = {
   below_open_threshold: "edge vs open below threshold",
   line_moved_against: "Line moved 3+ pts away from CZarp since open", // = HOLD_CODES.line_moved_against
   new_coach_lock: "new coach",
-  kelly_too_small: "stake under $1",
+  kelly_too_small: HOLD_CODES.kelly_too_small,
   game_started: "game already started",
   no_current_line: "no current line",
   no_opening_line: "no opening line yet",

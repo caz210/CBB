@@ -1,14 +1,18 @@
 import type { Metadata } from "next";
-import { H, LegalPage } from "@/components/LegalPage";
+import { pageMetadata } from "@/lib/seo";
+import { ContactEmail, H, LegalPage } from "@/components/LegalPage";
 
-export const metadata: Metadata = { title: "Privacy Policy" };
+export const metadata: Metadata = pageMetadata({
+  title: "Privacy Policy",
+  description: "How CZarp Analytics handles information you provide when you visit the site. For entertainment, not betting advice.",
+  path: "/privacy",
+});
 
 export default function PrivacyPage() {
   return (
     <LegalPage
       eyebrow="Legal"
       title="Privacy Policy"
-      banner="TEMPLATE — pending owner review. This is a placeholder describing intended practices, not a finished policy."
     >
       <p>Last updated: November 9, 2026. This draft will be reviewed by the site owner before it is treated as the official policy.</p>
       <H>Information we may collect</H>
@@ -20,7 +24,7 @@ export default function PrivacyPage() {
       <H>Cookies and local storage</H>
       <p>We may use cookies for sessions and localStorage for preferences (for example a device watchlist) until accounts can sync them.</p>
       <H>Retention and your choices</H>
-      <p>You may ask to access, correct, or delete account data once authentication is live. Contact will be listed here after owner review.</p>
+      <p>You may ask to access, correct, or delete account data once authentication is live. Contact us at <ContactEmail />.</p>
       <H>Children</H>
       <p>This service is for adults 21 and older. We do not knowingly collect information from anyone under 21.</p>
     </LegalPage>

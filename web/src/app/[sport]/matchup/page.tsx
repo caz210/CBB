@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { getSport } from "@/lib/sports";
@@ -8,10 +9,16 @@ import { MatchupMaker } from "@/components/MatchupMaker";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
-  title: "Matchup maker",
-  description: "Pick any two teams and a court. CZarp projects the score, spread, total and win chance.",
-};
+export async function generateMetadata({ params }: { params: Promise<{ sport: string }> }): Promise<Metadata> {
+  const { sport: key } = await params;
+  const sport = getSport(key);
+  const path = sport ? `/${sport.key}/matchup` : "/cbb/matchup";
+  return pageMetadata({
+    title: "Matchup maker",
+    description: "Pick any two D1 men's basketball teams and a court. CZarp projects the score, spread, total, and win chance — a what-if line, not an official pick.",
+    path,
+  });
+}
 
 export default async function MatchupPage({ params }: { params: Promise<{ sport: string }> }) {
   const { sport: key } = await params;

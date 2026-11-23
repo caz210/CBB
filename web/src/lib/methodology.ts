@@ -21,13 +21,13 @@ export const METHODOLOGY_SECTIONS: MethodologySection[] = [
   {
     title: "Fair value, price, and edge",
     placeholder: true,
-    body: "Edge is the gap between our number and the Vegas price, as a share of the expected total score: |fair − price| ÷ Vegas total, for both sides and totals. Play bar: sides 4%, totals 3%. Each game gets two ratings, one for the spread and one for the total, judged on the edge vs the current line: Toss Up (under 2% sides / 1.5% totals), Lean (2–3% / 1.5–2.25%), Value (3–4% / 2.25–3%, or past the bar with a hold rule), Late Value (past the bar with no hold, after the 7:15 AM CT run; not part of the official record), and CZarp Play (posted at the 7:15 AM CT run).",
+    body: "Edge is the gap between our number and the market price, as a share of the expected total score: |fair − price| ÷ market total, for both sides and totals. Play bar: sides 4%, totals 3%. Each game gets two ratings, one for the spread and one for the total, judged on the edge vs the current line: Toss Up (under 2% sides / 1.5% totals), Lean (2–3% / 1.5–2.25%), Value (3–4% / 2.25–3%, or past the bar with a hold rule), Late Value (past the bar with no hold, after the morning run; not part of the official record), and CZarp Play (posted at the morning run).",
   },
   {
     title: "Official vs tracked",
     placeholder: true,
     tracked: true,
-    body: "Official picks are the ones CZarp actually stakes (¼-Kelly units) and go on the public portfolio. Tracked picks are flat 1u, tracked for testing, not part of the official record.",
+    body: "Official picks are the ones CZarp actually stakes (¼-Kelly units) and go on the public record. Tracked picks are flat 1u, tracked for testing, not part of the official record.",
   },
   {
     title: "Stake sizing",

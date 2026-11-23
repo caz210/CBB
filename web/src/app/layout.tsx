@@ -7,33 +7,31 @@ import { BottomNav } from "@/components/BottomNav";
 import { HomeScreenHint } from "@/components/HomeScreenHint";
 import { SITE_URL } from "@/lib/site";
 import { PWA_NAME, PWA_THEME_COLOR } from "@/lib/pwa";
+import { HOME_DESCRIPTION, HOME_TITLE, OG_IMAGE, TITLE_SUFFIX } from "@/lib/seo";
 
 export const viewport = { width: "device-width", initialScale: 1, viewportFit: "cover" as const, themeColor: PWA_THEME_COLOR };
-
-const SITE_TITLE = "CZarp Analytics · College basketball fair value vs price";
-const SITE_DESCRIPTION = "Daily college basketball fair values vs the market price, edge % on every game, and a public, time-stamped record. For entertainment and information, not betting advice.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   applicationName: PWA_NAME,
   title: {
-    default: SITE_TITLE,
-    template: "%s · CZarp Analytics",
+    default: HOME_TITLE,
+    template: `%s${TITLE_SUFFIX}`,
   },
-  description: SITE_DESCRIPTION,
+  description: HOME_DESCRIPTION,
   openGraph: {
     siteName: "CZarp Analytics",
     type: "website",
     url: SITE_URL,
-    title: SITE_TITLE,
-    description: SITE_DESCRIPTION,
-    images: [{ url: "/og.png", width: 1200, height: 630, alt: "CZarp Analytics" }],
+    title: HOME_TITLE,
+    description: HOME_DESCRIPTION,
+    images: [OG_IMAGE],
   },
   twitter: {
     card: "summary_large_image",
-    title: SITE_TITLE,
-    description: SITE_DESCRIPTION,
-    images: ["/og.png"],
+    title: HOME_TITLE,
+    description: HOME_DESCRIPTION,
+    images: [OG_IMAGE.url],
   },
   appleWebApp: {
     capable: true,

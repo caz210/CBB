@@ -1,3 +1,5 @@
+import { CONTACT_EMAIL, CONTACT_MAILTO } from "@/lib/contact";
+
 /** Simple document layout for /terms, /privacy, /methodology, /about. */
 export function LegalPage({
   eyebrow, title, banner, children,
@@ -25,4 +27,11 @@ export function LegalPage({
 
 export function H({ children }: { children: React.ReactNode }) {
   return <h2 className="pt-2 text-lg font-bold text-white">{children}</h2>;
+}
+
+/** Mailto to the public contact address. Use this instead of a hardcoded email. */
+export function ContactEmail({ className = "font-semibold text-court-400 hover:underline" }: { className?: string }) {
+  return (
+    <a href={CONTACT_MAILTO} className={className}>{CONTACT_EMAIL}</a>
+  );
 }

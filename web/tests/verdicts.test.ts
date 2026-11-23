@@ -3,6 +3,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { HOLD_CODES, LATE_VALUE_NOTE, LINE_MOVE_NOTE, NO_LINE_TIP, TIER_BOUNDS, VERDICT_LADDER, VERDICT_RANK, clearsBar, holdCodes, ladderLevel, showsLineMoveNote, verdictLabel, type LadderInput, type VerdictLevel } from "../src/lib/verdicts";
+import { OFFICIAL_POST_TIME } from "../src/lib/officialPost";
+import { MIN_STAKE_UNITS } from "../src/lib/labels";
 import { cardHeaderRow } from "../src/lib/cardHeader";
 import { cardHeadline, marketRatings, marketVerdict, notAPlayLine, notAPlayLines } from "../src/lib/verdict";
 import { EXPLAINERS } from "../src/lib/explainers";
@@ -112,8 +114,8 @@ test("line-move note: CZarp Play whose edge now is below the bar", () => {
 });
 
 test("ladder copy: Late Value says it's off the record; no paper, model-version or KenPom wording", () => {
-  assert.equal(LATE_VALUE_NOTE, "Value on the current line. Not part of the official record; official plays are set at 7:15 AM CT.");
-  assert.match(VERDICT_LADDER[3].short, /Not part of the official record; official plays are set at 7:15 AM CT\.$/);
+  assert.equal(LATE_VALUE_NOTE, `Value on the current line. Not part of the official record; official plays are set at ${OFFICIAL_POST_TIME}.`);
+  assert.ok(VERDICT_LADDER[3].short.endsWith(`official plays are set at ${OFFICIAL_POST_TIME}.`));
   for (const d of VERDICT_LADDER) {
     assert.doesNotMatch(`${d.label} ${d.short}`, /paper|\bv[12]\b|kenpom|\bfavor\b/i, d.level);
     assert.doesNotMatch(`${d.label} ${d.short}`, /Official Play/, d.level);
@@ -205,7 +207,7 @@ test("Drexel @ Maine 11-14 card: Value on the current line (2.68% total; stake h
   assert.equal(h.verdict, "value");
   assert.deepEqual(h.holds, []);
   assert.equal(h.edgeLabel, "2.6%");
-  assert.equal(notAPlayLine(g, []), "Not a play: stake under $1");
+  assert.equal(notAPlayLine(g, []), `Not a play: stake under ${MIN_STAKE_UNITS}u`);
 });
 
 test("near-bar edges never display as meeting the bar", () => {

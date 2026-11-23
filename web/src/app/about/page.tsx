@@ -1,18 +1,23 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { H, LegalPage } from "@/components/LegalPage";
+import { pageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = { title: "About" };
+export const metadata: Metadata = pageMetadata({
+  title: "About",
+  description: "CZarp prices every D1 men's game and only plays when the edge is real. A public, time-stamped record in units. For entertainment, not betting advice.",
+  path: "/about",
+});
 
 export default function AboutPage() {
   return (
     <LegalPage eyebrow="CZarp Analytics" title="About">
       <p>
-        CZarp Analytics is a model-driven projection site that starts with NCAA men&apos;s basketball. The idea is simple: treat bets like buying stocks — look at every game, understand the price versus our fair value, and keep a public book.
+        CZarp prices every D1 men&apos;s game and only plays when the edge is real. Every official pick is time-stamped before tip. Every loss stays on the record.
       </p>
       <H>What you get</H>
       <p>
-        A daily slate with price, fair value, and edge on every game. Official picks posted and time-stamped before tip. A portfolio with units, ROI, closing-line value, and the losing streaks — not just the wins.
+        A daily slate with price, fair value, and edge on every game. Official picks posted and time-stamped before tip. A public record with units, ROI, closing-line value, and the losing streaks — not just the wins.
       </p>
       <H>How to read it</H>
       <p>
