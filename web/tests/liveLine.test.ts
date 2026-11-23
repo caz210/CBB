@@ -30,11 +30,14 @@ test("1H at 20 equals tip: remaining share is 1 and the rounded total is the sto
 
 test("slider endpoints: 1H 20/1, Halftime, 2H 20/1, OT 5/1", () => {
   const s = (period: "1H" | "2H" | "OT" | "HALFTIME", m: number) => remainingShare(period, m);
-  assert.equal(s("1H", 20), SHARE_1H * 1 + SHARE_2H);
-  assert.equal(s("1H", 1), SHARE_1H * (1 / 20) + SHARE_2H);
-  assert.equal(s("HALFTIME", 0), SHARE_2H);
-  assert.equal(s("2H", 20), SHARE_2H);
+  assert.equal(SHARE_1H, 0.47);
+  assert.equal(SHARE_2H, 0.53);
+  assert.equal(s("1H", 20), 1);
+  assert.equal(s("1H", 1), 0.5535);
+  assert.equal(s("HALFTIME", 0), 0.53);
+  assert.equal(s("2H", 20), 0.53);
   assert.equal(s("HALFTIME", 99), s("2H", 20));
+  assert.equal(s("2H", 10), 0.265);
   assert.equal(s("2H", 1), SHARE_2H * (1 / 20));
   assert.equal(s("OT", 5), 5 / 40);
   assert.equal(s("OT", 1), 1 / 40);
@@ -48,14 +51,14 @@ test("slider endpoints: 1H 20/1, Halftime, 2H 20/1, OT 5/1", () => {
   assert.equal(timeLeftMin("HALFTIME", 0), 20);
 });
 
-test("Halftime matches 2H at 20: remaining is 52.5% of the official total, split by stored team scores", () => {
+test("Halftime matches 2H at 20: remaining is 53% of the official total, split by stored team scores", () => {
   const a = liveLine({ ...duke, homeScore: 34, awayScore: 25, period: "HALFTIME", minutesLeft: 20 });
   const b = liveLine({ ...duke, homeScore: 34, awayScore: 25, period: "2H", minutesLeft: 20 });
   assert.ok(a && b);
   assert.equal(a!.remShare, SHARE_2H);
   assert.equal(a!.liveTotal, b!.liveTotal);
   assert.equal(a!.liveSpread, b!.liveSpread);
-  assert.equal(a!.liveTotal, 138.5);
+  assert.equal(a!.liveTotal, 139);
 });
 
 test("round to the nearest half-point; PK at 0", () => {

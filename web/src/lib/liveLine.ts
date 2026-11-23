@@ -3,8 +3,10 @@
  *  stored czarp_total / proj_home / proj_away (or proj_spread as a fallback). No book line, no
  *  Edge %, no in-game pace blend, and nothing is written to the official record. */
 
-export const SHARE_1H = 0.475;
-export const SHARE_2H = 0.525;
+/** First-half share of scoring. */
+export const SHARE_1H = 0.47;
+/** Second-half share of scoring. Remaining in 2H is 0.53 * (c/20). */
+export const SHARE_2H = 0.53;
 /** Margin SD for a full game, in points. Win % uses 12.5 * sqrt(time_left / 40). */
 export const MARGIN_SD = 12.5;
 export const REG_MIN = 40;
