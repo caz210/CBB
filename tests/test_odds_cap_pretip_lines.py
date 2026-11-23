@@ -52,7 +52,7 @@ def _missing():
 
 def test_cap_two_per_day_daily_cannot_take_pretip_slot_third_refused(odds):
     calls, usage, _ = odds
-    assert dr.ODDS_API_MAX_CALLS_PER_DAY == 2 and dr.ODDS_API_JOB_SLOTS == {"daily": 1, "pretip": 1}
+    assert dr.ODDS_API_MAX_CALLS_PER_DAY == 6 and dr.ODDS_API_JOB_SLOTS == {"daily": 1, "pretip": 1, "refresh": 4}
     dr.odds_api_fallback(_missing(), TODAY, allow=True)                     # 7 AM run: its 1 slot
     dr.odds_api_fallback(_missing(), TODAY, allow=True)                     # 7 AM re-run: refused (pre-tip slot kept)
     assert len(calls) == 1
@@ -63,7 +63,7 @@ def test_cap_two_per_day_daily_cannot_take_pretip_slot_third_refused(odds):
     assert len(calls) == 2
     u = json.loads(usage.read_text())
     assert u["calls"][TODAY] == 2 and u["calls_by_job"][TODAY] == {"daily": 1, "pretip": 1}
-    assert dr.odds_api_claim("pretip") == (False, "daily budget used (2/2 across all jobs)")
+    assert dr.odds_api_claim("pretip") == (False, "pretip slot used (1/1; the other slot is reserved)")
     # a new CT day (real clock) starts fresh
     CLOCK["now"] += timedelta(days=1)
     dr.odds_api_fallback(_missing(), "2026-11-22", allow=True, job="pretip")
@@ -75,6 +75,7 @@ def test_cap_two_per_day_daily_cannot_take_pretip_slot_third_refused(odds):
 
 def test_total_cap_holds_even_if_slots_were_larger(odds, monkeypatch):
     calls, _, _ = odds
+    monkeypatch.setattr(dr, "ODDS_API_MAX_CALLS_PER_DAY", 2)
     monkeypatch.setattr(dr, "ODDS_API_JOB_SLOTS", {"daily": 5, "pretip": 5})
     for job in ("daily", "pretip", "daily", "pretip"):
         dr.odds_api_fallback(_missing(), TODAY, allow=True, job=job)
@@ -182,7 +183,8 @@ def test_init_creates_only_when_absent(tmp_path):
     from czarp import odds_usage as ou
     p = tmp_path / "ledger" / "odds_api_usage.json"
     assert ou.main(["--check", "--path", str(p)]) == 1
-    assert ou.main(["--init", "--path", str(p)]) == 0 and ou.load(str(p)) == {"calls": {}, "remaining": None}
+    assert ou.main(["--init", "--path", str(p)]) == 0
+    assert ou.load(str(p)) == {"calls": {}, "remaining": None, "created_on": ou.today_ct()}
     legacy = '{"calls": {"2026-11-08": 1}, "remaining": "19982", "last_call_ct": "2026-11-08T07:20:46-06:00"}'
     p.write_text(legacy)                                         # production's current (pre-PR) format
     assert ou.main(["--init", "--path", str(p)]) == 0 and p.read_text() == legacy    # never overwritten
@@ -375,7 +377,13 @@ class FakeClient:
             return list(self.games)
         if table == "market_lines":
             return [dict(r) for r in self.lines]
+        if table in ("projections", "picks"):     # edge recompute after a fill: no stored projections here
+            return []
         raise AssertionError(f"unexpected read of {table}")
+
+    def get_all(self, table, order, page=1000, **params):
+        assert order
+        return self.get(table, **params)
 
     def insert(self, table, rows):
         self.writes.append(("insert", table, rows))

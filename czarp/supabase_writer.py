@@ -70,10 +70,19 @@ def _row(d: dict) -> dict:
     return {k: _clean(v) for k, v in d.items()}
 
 
+def rest_base(url: str) -> str:
+    """PostgREST base for a project URL. Accepts the plain project URL or one pasted with a trailing /rest/v1
+    and/or trailing slashes (a common secret-entry mistake), and always returns '<project>/rest/v1'."""
+    u = (url or "").strip().rstrip("/")
+    while u.lower().endswith("/rest/v1"):
+        u = u[: -len("/rest/v1")].rstrip("/")
+    return u + "/rest/v1"
+
+
 class Client:
     def __init__(self, url: str | None = None, key: str | None = None):
         # SUPABASE_REST_URL overrides the REST base (self-hosted PostgREST / local testing)
-        self.base = os.getenv("SUPABASE_REST_URL") or (url or os.environ["SUPABASE_URL"]).rstrip("/") + "/rest/v1"
+        self.base = os.getenv("SUPABASE_REST_URL") or rest_base(url or os.environ["SUPABASE_URL"])
         key = key or os.environ["SUPABASE_SERVICE_KEY"]
         self.s = requests.Session()
         self.s.headers.update({"apikey": key, "Authorization": f"Bearer {key}",
@@ -83,6 +92,27 @@ class Client:
         r = self.s.get(f"{self.base}/{table}", params=params, timeout=30)
         self._check(r, table)
         return r.json()
+
+    def get_all(self, table: str, order: str, page: int = 1000, **params) -> list[dict]:
+        """Every row matching `params`, paged with limit/offset under a stable `order` (PostgREST caps a single
+        response at max-rows, 1000 on Supabase by default)."""
+        out, off = [], 0
+        while True:
+            rows = self.get(table, order=order, limit=str(page), offset=str(off), **params)
+            out.extend(rows)
+            if len(rows) < page:
+                return out
+            off += page
+
+    def count(self, table: str, **params) -> int:
+        """Exact row count for PostgREST filters without fetching rows (HEAD + Prefer: count=exact)."""
+        r = self.s.head(f"{self.base}/{table}", params={"select": "id", **params},
+                        headers={"Prefer": "count=exact"}, timeout=30)
+        self._check(r, table)
+        total = (r.headers.get("Content-Range") or "").rsplit("/", 1)[-1]
+        if not total.isdigit():
+            raise RuntimeError(f"{table}: no exact count in Content-Range")
+        return int(total)
 
     def upsert(self, table: str, rows: list[dict], on_conflict: str | None = None,
                returning: bool = True, ignore_duplicates: bool = False) -> list[dict]:
@@ -372,6 +402,9 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
                      "skip_reason_total": g.get("skip_reason_total"),
                      **_edge_fields(g),
                      **extra,
+                     # full precision (the 0.1-rounded spread/total above are what customers see); the intraday
+                     # refresh recomputes edges from these so they match this run exactly
+                     "home_margin_full": float(hm), "total_full": float(T),
                      "created_at": ts})
         if g.get("v1_total") is not None:
             t1, m1 = g["v1_total"], g.get("v1_home_margin")
@@ -383,10 +416,11 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
                          "skip_reason_total": g.get("skip_reason_total"),
                          **_edge_fields(g),
                          **extra,
+                         "home_margin_full": float(m1) if m1 is not None else None, "total_full": float(t1),
                          "created_at": ts})
     # Merge on the table's unique key so a re-run with the same stamp fills fields
     # (reason, pace, upset, skip reasons, stored edges) instead of silently keeping the old row.
-    c.upsert("projections", proj, on_conflict=PROJ_KEY, returning=False)
+    upsert_projections(c, proj, log=log)
 
     # market lines: DK open + current; Kalshi board snapshot
     ml = []
@@ -482,6 +516,21 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
 
 
 LINE_PRICE_KEYS = ("home_spread_price", "away_spread_price", "over_price", "under_price")
+FULL_PRECISION_COLS = ("home_margin_full", "total_full")   # db/migrations/2026-11-21_intraday_line_refresh.sql
+
+
+def upsert_projections(c: "Client", rows: list[dict], log=print) -> None:
+    """Upsert projections. If the database does not have the full-precision columns yet (migration not applied:
+    PostgREST PGRST204), retry once without them so the 7 AM slate never breaks over an optional column."""
+    try:
+        c.upsert("projections", rows, on_conflict=PROJ_KEY, returning=False)
+    except RuntimeError as e:
+        if "PGRST204" not in str(e) or not any(k in str(e) for k in FULL_PRECISION_COLS):
+            raise
+        log("  projections: full-precision columns missing (apply 2026-11-21_intraday_line_refresh.sql) — "
+            "written without them")
+        c.upsert("projections", [{k: v for k, v in r.items() if k not in FULL_PRECISION_COLS} for r in rows],
+                 on_conflict=PROJ_KEY, returning=False)
 
 
 def newest_vegas_current(rows: list[dict]) -> dict[int, dict]:

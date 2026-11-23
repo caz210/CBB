@@ -187,8 +187,10 @@ def apply_pace_fix(games, today: str, data_dir: str = "data") -> int:
     return n
 
 
-ODDS_API_MAX_CALLS_PER_DAY = 2   # hard cap per America/Chicago day, across ALL jobs and processes
-ODDS_API_JOB_SLOTS = {"daily": 1, "pretip": 1}   # per-job share: the 7 AM run can never use the pre-tip slot
+ODDS_API_MAX_CALLS_PER_DAY = 6   # hard cap per America/Chicago day, across ALL jobs and processes
+# Per-job share: no job can use another job's slot. 'refresh' is refresh_lines.py (intraday line refresh:
+# up to 4 runs a day, at most 1 call each, only for games ESPN has no line for).
+ODDS_API_JOB_SLOTS = {"daily": 1, "pretip": 1, "refresh": 4}
 ODDS_API_RESERVE = 100
 ODDS_API_MIN_MISSING = 0.0      # use the Odds API whenever ANY D-I game lacks an ESPN/DK line (0 = any);
                                 # the per-day call cap and the credit reserve still apply
@@ -370,7 +372,14 @@ def odds_api_claim(job: str) -> tuple[bool, str]:
                 return False, f"daily budget used ({total}/{ODDS_API_MAX_CALLS_PER_DAY} across all jobs)"
             if used >= slot:
                 return False, f"{job} slot used ({used}/{slot}; the other slot is reserved)"
-            if u.get("remaining") is not None and float(u["remaining"]) < ODDS_API_RESERVE:
+            if job == "refresh" and u.get("created_on") == day:
+                # the counter was created today (first run, or the Actions cache was missing/evicted): it cannot
+                # see refresh calls already made today, so the refresh job stays ESPN-only until tomorrow.
+                return False, "counter created today (no history): refresh is ESPN-only today"
+            if u.get("remaining") is None:
+                # unknown credits never skip the reserve check: no call until 'remaining' is known
+                return False, "credits left unknown (no 'remaining' recorded); not calling"
+            if float(u["remaining"]) < ODDS_API_RESERVE:
                 return False, f"{u['remaining']} credits left (< reserve {ODDS_API_RESERVE})"
             u["calls"][day] = total + 1
             by[job] = used + 1
@@ -387,6 +396,38 @@ def odds_api_claim(job: str) -> tuple[bool, str]:
     return False, f"REFUSED (fail closed) — {why}"
 
 
+ODDS_API_SPORTS_URL = "https://api.the-odds-api.com/v4/sports/"   # free: does not count against the quota
+
+
+def odds_api_seed_remaining(key: str, get=None) -> None:
+    """When the counter has no 'remaining', read it from The Odds API's FREE /v4/sports endpoint (0 credits;
+    x-requests-remaining header) and record it, so the reserve check has a real number. Never counts a call.
+    Any failure leaves 'remaining' unknown, which means no paid call (odds_api_claim refuses)."""
+    try:
+        with _usage_lock():
+            if _usage().get("remaining") is not None:
+                return
+    except Exception:
+        return                                  # the claim reports counter problems
+    try:
+        r = (get or _S.get)(ODDS_API_SPORTS_URL, headers={"x-api-key": key}, timeout=20)
+        rem = r.headers.get("x-requests-remaining") if r.status_code == 200 else None
+        rem = float(rem) if rem is not None else None
+        if rem is None or not math.isfinite(rem):
+            return
+    except Exception:
+        return
+    try:
+        with _usage_lock():
+            u = _usage()
+            if u.get("remaining") is None:
+                u["remaining"] = rem
+                _write_usage(u)
+                log(f"  Odds API: credits left read from the free /sports endpoint: {rem:g}")
+    except Exception as e:
+        log(f"  Odds API: could not record credits ({type(e).__name__}); usage file left untouched")
+
+
 def _odds_api_record(remaining) -> None:
     try:
         with _usage_lock():
@@ -399,10 +440,12 @@ def _odds_api_record(remaining) -> None:
         log(f"  Odds API: could not record credits ({type(e).__name__}: {e}); usage file left untouched")
 
 
-def odds_api_fallback(games: list[dict], today: str, allow: bool, job: str = "daily") -> int:
+def odds_api_fallback(games: list[dict], today: str, allow: bool, job: str = "daily", claim=None) -> int:
     """Fill missing DK lines from The Odds API: at most ODDS_API_MAX_CALLS_PER_DAY calls a day across all jobs,
     at most ODDS_API_JOB_SLOTS[job] for this job, never below the credit reserve. `today` is the slate date and is
-    NOT used for budgeting: calls always count under today's real CT date (odds_api_budget_day)."""
+    NOT used for budgeting: calls always count under today's real CT date (odds_api_budget_day).
+    `claim`: optional callable -> (ok, why) that replaces the local-file claim (refresh_lines uses a Supabase-backed,
+    server-capped claim); when given, the local counter's seed/claim are not used."""
     missing = [g for g in games if g.get("current_home_spread") is None or g.get("current_total") is None]
     if not games or not missing:
         if games:
@@ -423,17 +466,26 @@ def odds_api_fallback(games: list[dict], today: str, allow: bool, job: str = "da
     if not of.ODDS_API_KEY:
         log("  Odds API: no ODDS_API_KEY — skipped")
         return 0
-    ok, why = odds_api_claim(job)
+    if claim is None:
+        odds_api_seed_remaining(of.ODDS_API_KEY)
+        ok, why = odds_api_claim(job)
+    else:
+        try:
+            ok, why = claim()
+        except Exception as e:                 # a claim that errors is a refusal
+            ok, why = False, f"claim failed ({type(e).__name__})"
     if not ok:
         log(f"  Odds API: skipped — {why}")
         return 0
     try:
         df = of.fetch_vegas_lines()
     except Exception as e:
-        log(f"  Odds API: failed ({type(e).__name__}: {e})")
+        redact = getattr(of, "redact_key", lambda t: "(details withheld)")
+        log(f"  Odds API: failed ({type(e).__name__}: {redact(str(e))})")
         return 0
     finally:
-        _odds_api_record(getattr(of, "_odds_credits_remaining", None))
+        if claim is None:
+            _odds_api_record(getattr(of, "_odds_credits_remaining", None))
     try:
         rem = _usage().get("remaining")
     except Exception:
@@ -895,9 +947,15 @@ def candidates(games, now) -> list[dict]:
             why.append("Not a play: market moved 3+ pts away from CZarp since open")
         if c["market"] == "spread" and ma is not None and ma >= SIDE_MOVE_AGAINST_PTS and SIDE_MOVE_SKIP:
             why.append(f"spread moved {ma:g} pts against our side since open (market disagrees)")
-        locks = coach_locks(c["g"], market=c["market"])
-        c["coach_tag"] = coach_tag(c["g"], c["market"])
-        why.extend(coach_hold_reasons(locks))
+        holds = c["g"].get("coach_holds")
+        if holds is not None:
+            # intraday refresh (refresh_lines.py): the 7:15 run's new-coach holds, carried over as-is
+            why.extend(holds.get(c["market"]) or [])
+            c["coach_tag"] = ""
+        else:
+            locks = coach_locks(c["g"], market=c["market"])
+            c["coach_tag"] = coach_tag(c["g"], c["market"])
+            why.extend(coach_hold_reasons(locks))
         c["reasons"] = why
         c["rule_ok"] = not why
         # SHADOW 'track' tier: sides whose ONLY failing rule is the vs-current bar, with >= TRACK_SIDE_CUR_THR left
@@ -987,7 +1045,9 @@ def skip_codes(c, kelly_ok: bool = True) -> list[str]:
         codes.append("line_moved_against")
     if c.get("market") == "spread" and c.get("flagged") and LINE_MOVE_EXCLUDE:
         codes.append("line_moved_against")
-    if any(x.get("locked") for x in coach_locks(c["g"], market=c.get("market"))):
+    holds = c["g"].get("coach_holds")
+    if (holds or {}).get(c.get("market")) or any(
+            x.get("locked") for x in coach_locks(c["g"], market=c.get("market"))):
         codes.append("new_coach_lock")
     if not kelly_ok:
         codes.append("kelly_too_small")
@@ -1019,8 +1079,19 @@ def attach_market_edges(games, now) -> None:
         c["g"][f"edge_vs_open_pct_{key}"] = c["edge_pct_vs_open"]
 
 
+def clears_bar(c) -> bool:
+    """A candidate whose edge clears its market's bar (4% sides / 3% totals): it passes every rule, or its edge
+    vs the CURRENT line is at or above the bar. kelly_too_small is checked for all of these, not only official
+    plays, so the side/total ladders can tell a too-small stake apart from a clean edge. Started games never."""
+    if c.get("started"):
+        return False
+    ec, thr = c.get("edge_pct"), c.get("thr")
+    return bool(c.get("rule_ok")) or (ec is not None and thr is not None and ec >= thr)
+
+
 def attach_skip_reasons(games, now, bankroll: float) -> None:
-    """Stamp skip reasons and per-market edges (via attach_market_edges) on each game."""
+    """Stamp skip reasons and per-market edges (via attach_market_edges) on each game.
+    kelly_too_small is computed for every candidate that clears the bar (clears_bar), not only official plays."""
     attach_market_edges(games, now)
     for g in games:
         g.setdefault("skip_reasons_spread", [])
@@ -1029,7 +1100,7 @@ def attach_skip_reasons(games, now, bankroll: float) -> None:
         g.setdefault("skip_reason_total", None)
     for c in candidates(games, now):
         kelly_ok = True
-        if c.get("rule_ok"):
+        if clears_bar(c):
             stake = kelly_stake(c["p_est"], c["price"], bankroll)
             kelly_ok = stake >= MIN_STAKE
         codes = skip_codes(c, kelly_ok=kelly_ok)

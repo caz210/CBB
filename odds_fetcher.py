@@ -575,6 +575,15 @@ def _load_team_map() -> dict:
 KENPOM_TO_ODDS = _load_team_map()
 
 
+def redact_key(text: str) -> str:
+    """Remove the Odds API key (and any apiKey=... query value) from text before it is printed or raised."""
+    import re
+    text = re.sub(r"(?i)(apiKey=)[^&\s'\"]+", r"\1***", text or "")
+    if ODDS_API_KEY:
+        text = text.replace(ODDS_API_KEY, "***")
+    return text
+
+
 def fetch_vegas_lines() -> pd.DataFrame:
     if not ODDS_API_KEY:
         print("     ODDS_API_KEY not set — skipping Vegas lines.")
@@ -587,8 +596,9 @@ def fetch_vegas_lines() -> pd.DataFrame:
     day_end_ct   = day_start_ct + timedelta(hours=32)
     to_iso = lambda dt: dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
+    # The key goes in the x-api-key header (Odds API v4 supports it), never in the URL, so request/HTTP error
+    # text (which includes the URL) can't leak it into logs.
     params = {
-        "apiKey":             ODDS_API_KEY,
         "regions":            "us",
         "markets":            "spreads,totals,h2h",
         "oddsFormat":         "american",
@@ -599,9 +609,9 @@ def fetch_vegas_lines() -> pd.DataFrame:
     }
 
     try:
-        resp = requests.get(BASE_URL, params=params, timeout=10)
+        resp = requests.get(BASE_URL, params=params, headers={"x-api-key": ODDS_API_KEY}, timeout=10)
     except Exception as e:
-        print(f"    Odds API request failed: {e}")
+        print(f"    Odds API request failed: {redact_key(str(e))}")
         return pd.DataFrame()
 
     if resp.status_code == 401:
@@ -610,7 +620,8 @@ def fetch_vegas_lines() -> pd.DataFrame:
     if resp.status_code == 429:
         print("    Odds API: 429 Too Many Requests — rate limited.")
         return pd.DataFrame()
-    resp.raise_for_status()
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Odds API HTTP {resp.status_code}")   # no URL / key in the message
 
     games = resp.json()
     global _odds_credits_remaining
