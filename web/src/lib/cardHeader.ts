@@ -15,11 +15,11 @@ export const NO_EDGE_TEXT = "No edge at this price";
 export const NO_LINE_TEXT = "No line yet";
 
 /** Edge-number color: CZarp Play and Late Value green; Value and Lean neutral; Toss Up dim.
- *  A CZarp Play that lost value (line-move note) is neutral, not green. */
+ *  A CZarp Play whose edge now is below the bar is neutral, not green. */
 export type EdgeTone = "green" | "neutral" | "dim";
-export function edgeTone(verdict: VerdictLevel, lineMoveNote: boolean, hasEdge = true): EdgeTone {
+export function edgeTone(verdict: VerdictLevel, belowBar: boolean, hasEdge = true): EdgeTone {
   if (!hasEdge) return "dim";
-  if (verdict === "official") return lineMoveNote ? "neutral" : "green";
+  if (verdict === "official") return belowBar ? "neutral" : "green";
   if (verdict === "late_value") return "green";
   if (verdict === "value" || verdict === "lean") return "neutral";
   return "dim";
@@ -76,6 +76,8 @@ export type CardHeaderRow = {
   tone: EdgeTone;
   verdict: VerdictLevel;
   lineMoveNote: boolean;
+  openNowContext: string | null;
+  belowBar: boolean;
   headline: CardHeadline;
 };
 
@@ -83,8 +85,8 @@ export function cardHeaderRow(g: SlateGame, bets: ValueBet[]): CardHeaderRow {
   const h = cardHeadline(g, bets);
   const m = h.market;
   const edgeLabel = m && h.edgeNow != null ? fmtEdgeVsBar(h.edgeNow, m) : null;
-  const base = { market: m, marketLabel: m ? MARKET_LABEL[m] : null, edgeLabel, verdict: h.verdict, lineMoveNote: h.lineMoveNote, headline: h };
-  const tone = edgeTone(h.verdict, h.lineMoveNote, edgeLabel != null);
+  const base = { market: m, marketLabel: m ? MARKET_LABEL[m] : null, edgeLabel, verdict: h.verdict, lineMoveNote: h.lineMoveNote, openNowContext: h.openNowContext, belowBar: h.belowBar, headline: h };
+  const tone = edgeTone(h.verdict, h.belowBar, edgeLabel != null);
   if (h.officialBet) {
     return { ...base, pick: postedPick(h.officialBet), fallback: null, now: nowLine(h.officialBet, g), tone };
   }

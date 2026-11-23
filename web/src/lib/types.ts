@@ -41,6 +41,11 @@ export type SlateGame = {
   market_spread: number | null;
   market_total: number | null;
   market_source: MarketSource | null;
+  /** Current DraftKings American odds from market_lines.prices (line_type=current). */
+  market_over_price?: number | null;
+  market_under_price?: number | null;
+  market_home_spread_price?: number | null;
+  market_away_spread_price?: number | null;
   reason?: string | null;
   proj_possessions?: number | null;
   upset_alert?: boolean;

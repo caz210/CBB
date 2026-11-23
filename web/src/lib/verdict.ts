@@ -7,7 +7,9 @@
 import { fmtEdgeVsBar, fmtPlayPct, fmtThresholdPct, type Market } from "./labels";
 import type { SlateGame, ValueBet } from "./types";
 import { marketPauseText } from "./coach";
-import { HOLD_CODES, LATE_VALUE_NOTE, ladderLevel, showsLineMoveNote, VERDICT_RANK, type HoldCode, type VerdictLevel } from "./verdicts";
+import { currentLineForBet } from "./posted";
+import { kellyHoldLabel } from "./kelly";
+import { HOLD_CODES, LATE_VALUE_NOTE, officialBelowBar, officialOpenNowContext, ladderLevel, showsLineMoveNote, VERDICT_RANK, type HoldCode, type VerdictLevel } from "./verdicts";
 
 /** The pipeline's stored verdict_* column (not the customer ladder). */
 export type StoredVerdict = "official" | "low_value";
@@ -65,22 +67,58 @@ export type MarketRating = {
   edgeNow: number | null;
   /** No stored edge for this market (no line yet). */
   noLine: boolean;
-  /** CZarp Play whose edge now is below the bar: show LINE_MOVE_NOTE. */
+  /** CZarp Play whose edge now is below the bar and the line has moved away from CZarp since post. */
   lineMoveNote: boolean;
+  /** Official play below the bar, but no adverse move since post: "4.0% at open 150.5 · 2.7% now". */
+  openNowContext: string | null;
+  /** Official play whose edge now is below the bar (mutes the % color). */
+  belowBar: boolean;
 };
+
+/** Posted line, current line, and CZarp number for the official-play move rule. */
+export function officialLinePoints(g: SlateGame, officialBets: ValueBet[], market: Market): {
+  postedLine: number | null;
+  currentLine: number | null;
+  fair: number | null;
+  openLine: number | null;
+  edgeVsOpen: number | null;
+} {
+  const bet = officialBetFor(officialBetsOnly(officialBets), market);
+  const postedLine = bet?.line_at_post ?? bet?.posted_line ?? null;
+  const currentLine = currentLineForBet(g, market === "moneyline" ? "spread" : market, bet?.side);
+  const fair = bet?.fair_at_post ?? (market === "total" ? g.czarp_total ?? null : g.proj_spread);
+  const openLine = bet?.open_line ?? (market === "total" ? g.insight?.open_total ?? null : g.insight?.open_spread ?? null);
+  const edgeVsOpen = (bet?.edge_vs_open_pct != null && Number.isFinite(bet.edge_vs_open_pct) ? bet.edge_vs_open_pct : marketEdgeVsOpen(g, market));
+  return { postedLine, currentLine, fair, openLine, edgeVsOpen };
+}
+
+function officialLineFlags(g: SlateGame, officialBets: ValueBet[], market: Market, official: boolean, edgeNow: number | null): {
+  lineMoveNote: boolean;
+  openNowContext: string | null;
+  belowBar: boolean;
+} {
+  const belowBar = officialBelowBar(market, official, edgeNow);
+  const pts = officialLinePoints(g, officialBets, market);
+  const lineMoveNote = showsLineMoveNote({ official, market, edgeNow, postedLine: pts.postedLine, currentLine: pts.currentLine, fair: pts.fair });
+  const openNowContext = belowBar && !lineMoveNote
+    ? officialOpenNowContext(market, pts.edgeVsOpen, pts.openLine, edgeNow)
+    : null;
+  return { lineMoveNote, openNowContext, belowBar };
+}
 
 /** Both ladder ratings for a game: spread (sides) and total. */
 export function marketRatings(g: SlateGame, officialBets: ValueBet[]): { spread: MarketRating; total: MarketRating } {
   const one = (market: "spread" | "total"): MarketRating => {
     const v = marketVerdict(g, officialBets, market);
     const edgeNow = marketEdgeNow(g, market);
+    const flags = officialLineFlags(g, officialBets, market, v.level === "official", edgeNow);
     return {
       market,
       level: v.level,
       holds: v.holds,
       edgeNow,
       noLine: edgeNow == null && v.level !== "official",
-      lineMoveNote: showsLineMoveNote(market, v.level === "official", edgeNow),
+      ...flags,
     };
   };
   return { spread: one("spread"), total: one("total") };
@@ -100,8 +138,10 @@ export type CardHeadline = {
   officialBet: ValueBet | null;
   edgeNow: number | null;
   edgeVsOpen: number | null;
-  /** CZarp Play whose edge now is below the bar: show LINE_MOVE_NOTE under the headline. */
+  /** CZarp Play: line moved away from CZarp since post and the edge now is below the bar. */
   lineMoveNote: boolean;
+  openNowContext: string | null;
+  belowBar: boolean;
 };
 
 function officialBetsOnly(bets: ValueBet[]): ValueBet[] {
@@ -134,7 +174,7 @@ export function cardHeadline(g: SlateGame, officialBets: ValueBet[]): CardHeadli
       officialBet,
       edgeNow,
       edgeVsOpen,
-      lineMoveNote: showsLineMoveNote(market, true, edgeNow),
+      ...officialLineFlags(g, official, market, true, edgeNow),
     };
   }
 
@@ -164,6 +204,8 @@ export function cardHeadline(g: SlateGame, officialBets: ValueBet[]): CardHeadli
     edgeNow,
     edgeVsOpen,
     lineMoveNote: false,
+    openNowContext: null,
+    belowBar: false,
   };
 }
 
@@ -228,7 +270,7 @@ function textReasons(text: string): string[] {
   return text
     .split(/\s*;\s*/)
     .map((x) => x.replace(NOT_A_PLAY_PREFIX, "").trim())
-    .filter((x) => x && !SNAKE_TOKEN.test(x) && !/\bvs\.?\s+open\b/i.test(x))
+    .filter((x) => x && !SNAKE_TOKEN.test(x) && !/\bvs\.?\s+open\b/i.test(x) && !/\$|kelly stake/i.test(x))
     .map((x) => (/\bmoved\b.*\bagainst\b/i.test(x) ? LINE_MOVED_LABEL : /\bagainst\b/i.test(x) ? "" : rewriteLockWords(x)))
     .filter((x) => x && !isCoachOrLockCopy(x));
 }
@@ -241,6 +283,7 @@ export function formatSkip(
   codes: string[] | null | undefined,
   market: Market,
   locks?: SlateGame["coachLocks"],
+  g?: SlateGame | null,
 ): SkipDetail {
   const threshold = fmtThresholdPct(market);
   const all = codes ?? [];
@@ -248,7 +291,7 @@ export function formatSkip(
   const coach = all.includes(COACH_SKIP) || /\bnew\s*coach\b/i.test(text);
   const known = all
     .filter((c) => c !== COACH_SKIP)
-    .map((c) => knownSkipCodeLabel(c, threshold))
+    .map((c) => c === "kelly_too_small" ? kellyHoldLabel(HOLD_CODES.kelly_too_small, market, g) : knownSkipCodeLabel(c, threshold))
     .filter((x): x is string => !!x);
   const others = known.length ? known : textReasons(text);
   const uniq = [...new Set(others)];
@@ -281,7 +324,7 @@ function skipForMarket(g: SlateGame, officialBets: ValueBet[], market: Market): 
   // still carry opening-line or stale wording). Unknown codes and the coach pause still read it.
   const structured = !!stored?.length && codes.every((c) => c !== COACH_SKIP && knownSkipCodeLabel(c, "") != null);
   const human = structured ? null : m === "total" ? g.skip_reason_total : g.skip_reason_spread;
-  const d = formatSkip(human, codes, market === "moneyline" ? "moneyline" : m, g.coachLocks);
+  const d = formatSkip(human, codes, market === "moneyline" ? "moneyline" : m, g.coachLocks, g);
   // Late Value: nothing on the ladder held it back. Any other stored reason (game started, a new
   // pipeline rule) still shows; otherwise it's value that came after the morning run.
   if (v.level === "late_value" && !d.primary) return { primary: LATE_VALUE_NOTE, also: [] };

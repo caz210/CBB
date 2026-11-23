@@ -122,13 +122,21 @@ test("% color by tier; a CZarp Play that lost value is neutral", () => {
   assert.equal(edgeTone("lean", false), "neutral");
   assert.equal(edgeTone("toss_up", false), "dim");
   assert.equal(edgeTone("official", false, false), "dim");
-  // Troy vs Nicholls: posted 2.2%, edge now 2.2% < 3% → line-move note, neutral.
-  const r = cardHeaderRow(troy(), [posted()]);
-  assert.equal(r.lineMoveNote, true);
+  // Troy vs Nicholls 11-22: posted Over 136.5, open 134.5 toward CZarp 139.5, no move since post.
+  // Edge now 2.2% is below the bar, but the line did not move away — no line-move tag, still neutral %.
+  const troyBet = posted({ open_line: 134.5, edge_vs_open_pct: 0.0372, edge_at_post_pct: 0.022 });
+  const r = cardHeaderRow(troy(), [troyBet]);
+  assert.equal(r.lineMoveNote, false);
+  assert.equal(r.belowBar, true);
   assert.equal(r.tone, "neutral");
+  assert.equal(r.openNowContext, "3.7% at open 134.5 · 2.2% now");
+  assert.equal(r.now, null); // posted 136.5, current 136.5
   assert.equal(LINE_MOVE_NOTE, "No longer a value play due to line movement.");
-  // Same pick with the edge back at the bar: green.
-  assert.equal(cardHeaderRow({ ...troy(), edge_now_pct_total: 0.03 }, [posted()]).tone, "green");
+  // Same pick with the edge back at the bar: green, no context.
+  const atBar = cardHeaderRow({ ...troy(), edge_now_pct_total: 0.03 }, [troyBet]);
+  assert.equal(atBar.tone, "green");
+  assert.equal(atBar.openNowContext, null);
+  assert.equal(atBar.lineMoveNote, false);
   assert.equal(cardHeaderRow(game(), []).tone, "neutral"); // Lean
   assert.equal(cardHeaderRow(game({ edge_now_pct_spread: 0.006 }), []).tone, "dim"); // Toss Up
 });

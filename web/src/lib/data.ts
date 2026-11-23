@@ -27,6 +27,7 @@ import { wilsonCi, SMALL_SAMPLE_N } from "./stats";
 import { newCoachLock, type NewCoachLock } from "./coach";
 import { parseVerdict } from "./verdict";
 import { newestByGame, pickLinesAsOf } from "./linesAsOf";
+import { parseMarketPrices } from "./kelly";
 
 export type Loaded<T> =
   | { state: "live"; data: T }
@@ -313,6 +314,7 @@ export async function loadSlateFrom(sb: SB, sport: Sport, date: string): Promise
     }
     attachRawEdges(games, (pr.data ?? []) as Row[]);
     await attachLinesAsOf(sb, games);
+    await attachMarketPrices(sb, games);
     // Pause chips read the team's CURRENT profile, so only show them on today's and future slates.
     // Past slates keep the reason that was stored with that day's projection instead.
     if (date >= todayCT()) await attachNewCoaches(sb, games, st.data ?? []);
@@ -592,6 +594,32 @@ export async function attachLinesAsOf(sb: SB, games: SlateGame[]): Promise<void>
     });
     g.lines_as_of = p?.at ?? null;
     g.lines_as_of_source = p?.source ?? null;
+  }
+}
+
+/** Stamp current DraftKings American odds from market_lines.prices onto each game.
+ *  Used only to word a kelly_too_small hold when the price is what kills the 0.1u floor.
+ *  A missing or unreadable prices blob leaves the fields null (generic hold wording). */
+export async function attachMarketPrices(sb: SB, games: SlateGame[]): Promise<void> {
+  if (!games.length) return;
+  const ids = games.map((g) => g.game_id);
+  let rows: Row[] = [];
+  try {
+    const r = await sb.from("market_lines").select("game_id,prices,fetched_at").in("game_id", ids).eq("source", "vegas").eq("line_type", "current");
+    if (!r.error) rows = (r.data ?? []) as Row[];
+  } catch { /* odds stay null; hold copy stays generic */ }
+  const newest = new Map<number, Row>();
+  for (const r of rows) {
+    const id = Number(r.game_id);
+    const cur = newest.get(id);
+    if (!cur || Date.parse(str(r.fetched_at)) > Date.parse(str(cur.fetched_at))) newest.set(id, r);
+  }
+  for (const g of games) {
+    const prices = parseMarketPrices(newest.get(g.game_id)?.prices);
+    g.market_over_price = prices.over;
+    g.market_under_price = prices.under;
+    g.market_home_spread_price = prices.homeSpread;
+    g.market_away_spread_price = prices.awaySpread;
   }
 }
 
@@ -1044,6 +1072,7 @@ export async function loadTeam(sport: Sport, slug: string): Promise<Loaded<TeamP
     // Same pause chips as the slate card / game sheet (name lookup is enough if game rows have no ids).
     await attachNewCoaches(sb, [g], []);
     await attachLinesAsOf(sb, [g]);
+    await attachMarketPrices(sb, [g]);
     next = { ...g, officialBets };
   }
   const neutral = await neutralP;

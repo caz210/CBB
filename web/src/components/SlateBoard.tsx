@@ -21,7 +21,7 @@ import { gameTitle, sideLabel, spreadNotationNote } from "@/lib/gameTitle";
 import { cardHeadline, marketRatings, notAPlayAlso, type MarketRating } from "@/lib/verdict";
 import { fmtLinesAsOf } from "@/lib/linesAsOf";
 import { cardHeaderRow, cardNoteLine } from "@/lib/cardHeader";
-import { HeaderRow, LineMoveNote } from "./HeaderRow";
+import { HeaderRow, LineMoveNote, OpenNowNote } from "./HeaderRow";
 import { evPer100, fmtEv100 } from "@/lib/stats";
 import { postedVsNow, totalFair } from "@/lib/posted";
 import { GameSheetTabs, useSheetExtras } from "./GameSheetTabs";
@@ -505,6 +505,7 @@ function ValueSheet({ sel, onClose }: { sel: Sel; onClose: () => void }) {
   const { game: g, bet: b } = sel;
   const ev = evPer100(b.model_prob, b.posted_odds);
   const evOdds = b.posted_odds == null || !Number.isFinite(b.posted_odds) || b.posted_odds === 0 ? null : b.posted_odds;
+  const officialRating = marketRatings(g, [b])[b.market === "total" ? "total" : "spread"];
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center" role="dialog" aria-modal="true">
       <button aria-label="Close" onClick={onClose} className="absolute inset-0 bg-black/70" />
@@ -518,7 +519,8 @@ function ValueSheet({ sel, onClose }: { sel: Sel; onClose: () => void }) {
           </span>
         </div>
         <div className="mt-1 text-sm text-zinc-400">{MARKET_LABEL[b.market]}</div>
-        {marketRatings(g, [b])[b.market === "total" ? "total" : "spread"].lineMoveNote && <LineMoveNote className="mt-1" />}
+        {officialRating.lineMoveNote && <LineMoveNote className="mt-1" />}
+        {!officialRating.lineMoveNote && officialRating.openNowContext && <OpenNowNote text={officialRating.openNowContext} className="mt-1" />}
 
         <div className="mt-4 text-center">
           <div className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
@@ -614,11 +616,25 @@ function GameSheet({ g, sportKey, bets, tvHot, onClose }: { g: SlateGame | null;
 }
 
 /** Headline Edge % color: CZarp Plays in brand green, Late Value and Value a step down, the rest muted. */
+
+/** Keep tokens like "(-115)" and "0.1u+" from wrapping mid-token; wrap between chunks. */
+function noteChunks(line: string) {
+  const juice = line.match(/^(Not a play: price too juiced \([^)]+\)) (for a stake of [\d.]+u\+)$/);
+  const parts = juice ? [juice[1], juice[2]] : line.split(" · ");
+  if (parts.length === 1) return line;
+  return parts.map((part, i) => (
+    <span key={i}>
+      {i > 0 ? (juice ? " " : " · ") : null}
+      <span className="whitespace-nowrap">{part}</span>
+    </span>
+  ));
+}
+
 function NotAPlay({ line, className = "", showTip = true }: { line: string | null; className?: string; showTip?: boolean }) {
   if (!line) return null;
   return (
     <div className={`flex items-start gap-1 text-[11px] leading-snug text-zinc-400 ${className}`}>
-      <span>{line}</span>
+      <span>{noteChunks(line)}</span>
       {showTip && <InfoTip term="ladderRule" />}
     </div>
   );
