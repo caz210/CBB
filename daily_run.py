@@ -1239,6 +1239,71 @@ def write_ledger(df: pd.DataFrame) -> None:
     os.replace(tmp, LEDGER)
 
 
+class LedgerBusy(RuntimeError):
+    """Another job holds the ledger lock (see ledger_lock)."""
+
+
+def ledger_lock_path() -> str:
+    return os.getenv("CZARP_LEDGER_LOCK") or (LEDGER + ".lock")
+
+
+@contextlib.contextmanager
+def ledger_lock(wait: float | None = None, poll: float = 1.0):
+    """Exclusive flock around a ledger read -> write, shared by daily_run, pretip_check and grade_finals.
+
+    Every job that rewrites data/ledger/ledger.csv must hold this lock from its read_ledger() to its
+    write_ledger(), so one job never writes back a stale copy over another job's changes (a stale
+    'open' row over a fresh grade is refused by check_immutable; a stale pretip_flag would be lost).
+    wait=None blocks until the lock is free; otherwise give up after `wait` seconds (0 = try once) and
+    raise LedgerBusy. Linux flock: released when the holder exits, even on a crash."""
+    import fcntl
+    import time as _t
+    path = ledger_lock_path()
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "a") as fh:
+        if wait is None:
+            fcntl.flock(fh, fcntl.LOCK_EX)
+        else:
+            deadline = _t.monotonic() + max(0.0, wait)
+            while True:
+                try:
+                    fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if _t.monotonic() >= deadline:
+                        raise LedgerBusy(f"ledger is locked by another job ({path})") from None
+                    _t.sleep(poll)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+
+
+def close_fields(r, ln: dict, flipped: bool) -> tuple:
+    """(close_line, close_price, clv_pts) for a ledger row from ESPN/DK lines (home frame; `flipped` = ESPN's home
+    is our stored away). Any of the three is None when DK has no close yet."""
+    line = float(r.line)
+    if r.market == "spread":
+        home = r.side == r.home
+        cl = ln.get("close_home_spread")
+        if cl is not None and flipped:
+            cl = -float(cl)
+        elif cl is not None:
+            cl = float(cl)
+        close = (cl if home else -cl) if cl is not None else None
+        home_px, away_px = "close_home_spread_price", "close_away_spread_price"
+        if flipped:
+            home_px, away_px = away_px, home_px
+        cpx = ln.get(home_px if home else away_px)
+        clv = (line - close) if close is not None else None
+    else:
+        over = r.side == "Over"
+        close = ln.get("close_total")
+        cpx = ln.get("close_over_price" if over else "close_under_price")
+        clv = ((close - line) if over else (line - close)) if close is not None else None
+    return close, cpx, clv
+
+
 def grade(ledger: pd.DataFrame, now: datetime) -> list[int]:
     """Grade open plays whose games are final; record closing line + CLV."""
     for c in ("status", "graded_ct", "away_score", "home_score", "close_line", "close_price", "clv_pts", "result", "pnl",
@@ -1284,23 +1349,10 @@ def grade(ledger: pd.DataFrame, now: datetime) -> list[int]:
                 home = r.side == r.home
                 diff = (hs - as_) if home else (as_ - hs)
                 res = diff + line
-                cl = ln.get("close_home_spread")
-                if cl is not None and flipped:
-                    cl = -float(cl)
-                elif cl is not None:
-                    cl = float(cl)
-                close = (cl if home else -cl) if cl is not None else None
-                home_px, away_px = "close_home_spread_price", "close_away_spread_price"
-                if flipped:
-                    home_px, away_px = away_px, home_px
-                cpx = ln.get(home_px if home else away_px)
-                clv = (line - close) if close is not None else None
             else:
                 over = r.side == "Over"
                 res = (hs + as_ - line) if over else (line - hs - as_)
-                close = ln.get("close_total")
-                cpx = ln.get("close_over_price" if over else "close_under_price")
-                clv = ((close - line) if over else (line - close)) if close is not None else None
+            close, cpx, clv = close_fields(r, ln, flipped)
             stake = float(r.stake or 0)
             win_u = american_to_decimal(r.price) - 1
             if res > 0:
@@ -2110,6 +2162,19 @@ def main(argv=None) -> int:
         PACE_FIX = a.pace_fix
     if a.pace_fix_w is not None:
         PACE_FIX_MKT_W = a.pace_fix_w
+    # hold the ledger lock from read to write so grade_finals / pretip_check never interleave with this run
+    with contextlib.ExitStack() as held:
+        try:
+            held.enter_context(ledger_lock(wait=DAILY_LOCK_WAIT_S))
+        except LedgerBusy as e:
+            log(f"  ⚠ {e}; waited {DAILY_LOCK_WAIT_S:g}s — running without it (check_immutable still guards the ledger)")
+        return _daily(a)
+
+
+DAILY_LOCK_WAIT_S = 600.0
+
+
+def _daily(a) -> int:
     now = now_ct()
     today = a.date or now.date().isoformat()
     notes: list[str] = []

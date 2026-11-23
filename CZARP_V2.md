@@ -188,6 +188,20 @@ moved ≥3 against us is flagged ⚠ only (`--skip-side-moves` to skip): there w
 seasons, so there is nothing to test. The Top 10 "Line move" column now says how far and whether it
 moved with or against our side.
 
+**Grading between 7 AM runs** (`grade_finals.py`). Grades open plays (official and track) whose games are final —
+the same `daily_run.grade()` the 7 AM run uses (result, scores, P&L, DK closing line + CLV; postponed/canceled -> void) —
+then fills a DK close that was not posted yet on plays graded in the last 2 days (NULL fields only), writes the ledger
+and PATCHes only the still-NULL grading columns of those Supabase `picks` rows (what `picks_immutable` allows).
+Free ESPN only: no KenPom, Odds API, Kalshi, new picks, or games/projections/market_lines writes. Re-runs are no-ops;
+a broken hash chain stops it before any write. Run it on the same box and checkout as the 7 AM run:
+
+    python grade_finals.py [--dry-run] [--no-supabase] [--lock-wait SECONDS] [-v]
+
+**Ledger lock.** `daily_run.py`, `pretip_check.py` and `grade_finals.py` all rewrite `data/ledger/ledger.csv`, so each
+holds an exclusive flock on `data/ledger/ledger.csv.lock` from its ledger read to its write (`daily_run.ledger_lock`).
+The 7 AM run waits up to 10 min for it, pretip_check up to 2 min for its `pretip_flag` write (on a fresh read), and
+grade_finals skips the cycle when it is busy. The 7 AM grading stays as the backstop.
+
 **Pre-tip check** (`pretip_check.py`). Re-pulls the DK line (ESPN; Odds API only for plays ESPN lacks,
 within the daily budget) for today's open plays that have not tipped, and prints a short summary of any
 play whose line moved ≥2 pts against us since the pick or (sides only) whose edge vs the current line fell
