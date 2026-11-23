@@ -57,6 +57,9 @@ export type SlateGame = {
   away_score?: number | null;
   /** games.external_id — the ESPN event id. Used only to prefill the Live Line clock. */
   external_id?: string | null;
+  /** teams.external_ids.espn for the slate home/away teams, when stored. */
+  home_espn_id?: string | null;
+  away_espn_id?: string | null;
   /** extra detail for the game sheet; fields are null when not published */
   insight?: GameInsight;
   /** Raw |fair − price| ÷ Vegas total (not official-pick sort). */

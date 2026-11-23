@@ -13,6 +13,16 @@ import {
   periodFromEspnPeriod,
   scoresFromEspnPayload,
   statusFromEspnPayload,
+  phaseFromEspnStatus,
+  feedFromEspnStatus,
+  applyEspnFeed,
+  shouldFetchLiveFeed,
+  competitorsFromEspnPayload,
+  matchEspnScores,
+  bindFeedScores,
+  feedFromEspnPayload,
+  teamMatchKey,
+  type LiveLineUiState,
 } from "../src/lib/espnClock";
 
 test("parseDisplayClock: 12:34, 0:45.2, 20:00, and garbage", () => {
@@ -139,4 +149,122 @@ test("espn event ids are numeric; mapping lives in games.external_id", () => {
   assert.ok(root);
   const src = readFileSync(resolve(root, "lib/data.ts"), "utf8");
   assert.match(src, /external_id/);
+});
+
+const scheduledDefaults = (): LiveLineUiState => ({ period: "1H", minutesLeft: 20, home: 0, away: 0, fromFeed: false });
+const staleInProgress = (): LiveLineUiState => ({ period: "2H", minutesLeft: 20, home: 10, away: 8, fromFeed: false });
+
+test("ESPN pre keeps the panel defaults; in prefills period, clock, and scores; post is Final", () => {
+  const pre = { period: 1, displayClock: "20:00", type: { name: "STATUS_SCHEDULED", state: "pre", description: "Scheduled" } };
+  assert.equal(phaseFromEspnStatus(pre), "pre");
+  const afterPre = applyEspnFeed(scheduledDefaults(), feedFromEspnStatus(pre, { home: 0, away: 0 })!, false);
+  assert.deepEqual(afterPre, { period: "1H", minutesLeft: 20, home: 0, away: 0, fromFeed: false });
+
+  const live = { period: 2, displayClock: "3:36", type: { name: "STATUS_IN_PROGRESS", state: "in", description: "In Progress" } };
+  assert.equal(phaseFromEspnStatus(live), "in");
+  const afterIn = applyEspnFeed(scheduledDefaults(), feedFromEspnStatus(live, { home: 59, away: 66 })!, false);
+  assert.equal(afterIn.period, "2H");
+  assert.equal(afterIn.minutesLeft, 4); // 3:36 rounds to 4
+  assert.equal(afterIn.home, 59);
+  assert.equal(afterIn.away, 66);
+  assert.equal(afterIn.fromFeed, true);
+
+  const post = { period: 2, displayClock: "0:00", type: { name: "STATUS_FINAL", state: "post", completed: true, description: "Final" } };
+  assert.equal(phaseFromEspnStatus(post), "post");
+  const afterPost = applyEspnFeed(scheduledDefaults(), feedFromEspnStatus(post, { home: 72, away: 68 })!, false);
+  assert.deepEqual(afterPost, { period: "FINAL", minutesLeft: 0, home: 72, away: 68, fromFeed: true });
+});
+
+test("ESPN post wins over a stale DB in_progress default", () => {
+  const post = { period: 2, displayClock: "0:00", type: { name: "STATUS_FINAL", state: "post", completed: true, description: "Final" } };
+  const next = applyEspnFeed(staleInProgress(), feedFromEspnStatus(post, { home: 81, away: 77 })!, false);
+  assert.deepEqual(next, { period: "FINAL", minutesLeft: 0, home: 81, away: 77, fromFeed: true });
+  // dirty edits are left alone
+  assert.deepEqual(applyEspnFeed(staleInProgress(), feedFromEspnStatus(post, { home: 81, away: 77 })!, true), staleInProgress());
+});
+
+test("shouldFetchLiveFeed: scheduled-but-tipped (LUC vs SJSU) fetches; too-early and closed games do not", () => {
+  const luc = { externalId: "401911233", status: "scheduled", tipoff: "2026-11-23T04:59:00.000Z" };
+  assert.equal(shouldFetchLiveFeed({ ...luc, now: Date.parse("2026-11-23T05:30:00.000Z") }), true);
+  assert.equal(shouldFetchLiveFeed({ ...luc, now: Date.parse("2026-11-23T04:54:00.000Z") }), true); // tip - 5 min
+  assert.equal(shouldFetchLiveFeed({ ...luc, now: Date.parse("2026-11-23T04:53:59.000Z") }), false);
+  assert.equal(shouldFetchLiveFeed({ ...luc, status: "in_progress", now: Date.parse("2026-11-23T05:30:00.000Z") }), true);
+  assert.equal(shouldFetchLiveFeed({ ...luc, status: "final", now: Date.parse("2026-11-23T08:00:00.000Z") }), false);
+  assert.equal(shouldFetchLiveFeed({ ...luc, status: "postponed", now: Date.parse("2026-11-23T05:30:00.000Z") }), false);
+  assert.equal(shouldFetchLiveFeed({ ...luc, status: "canceled", now: Date.parse("2026-11-23T05:30:00.000Z") }), false);
+  assert.equal(shouldFetchLiveFeed({ externalId: null, status: "scheduled", tipoff: luc.tipoff, now: Date.parse("2026-11-23T05:30:00.000Z") }), false);
+});
+
+const lucSjsuPayload = {
+  header: {
+    competitions: [{
+      status: { period: 2, displayClock: "0:00", type: { name: "STATUS_FINAL", state: "post", completed: true, description: "Final" } },
+      competitors: [
+        { homeAway: "home", score: "63", id: "23", team: { id: "23", displayName: "San José State Spartans", abbreviation: "SJSU", location: "San José State", name: "Spartans", nickname: "San José St" } },
+        { homeAway: "away", score: "72", id: "2350", team: { id: "2350", displayName: "Loyola Chicago Ramblers", abbreviation: "LUC", location: "Loyola Chicago", name: "Ramblers", nickname: "Loyola Chicago" } },
+      ],
+    }],
+  },
+};
+
+const oursLucHome = { home: "Loyola Chicago", away: "San Jose St." };
+
+test("neutral-site swap: LUC vs SJSU maps ESPN's home (SJSU 63) onto our away", () => {
+  assert.equal(teamMatchKey("San Jose St."), teamMatchKey("San José State"));
+  const competitors = competitorsFromEspnPayload(lucSjsuPayload);
+  assert.ok(competitors);
+  // ESPN's own sides are the reverse of ours
+  assert.equal(scoresFromEspnPayload(lucSjsuPayload)!.home, 63);
+  assert.equal(scoresFromEspnPayload(lucSjsuPayload)!.away, 72);
+  const scores = matchEspnScores(oursLucHome, competitors);
+  assert.deepEqual(scores, { home: 72, away: 63 });
+  const feed = bindFeedScores(feedFromEspnPayload(lucSjsuPayload)!, oursLucHome);
+  assert.ok(feed);
+  assert.deepEqual(feed.scores, { home: 72, away: 63 });
+  const next = applyEspnFeed(scheduledDefaults(), feed, false);
+  assert.equal(next.period, "FINAL");
+  assert.equal(next.home, 72); // Loyola Chicago
+  assert.equal(next.away, 63); // San Jose St.
+});
+
+test("normal home/away: ESPN sides already match ours", () => {
+  const payload = {
+    header: {
+      competitions: [{
+        competitors: [
+          { homeAway: "home", score: "80", team: { id: "150", displayName: "Duke Blue Devils", abbreviation: "DUKE", location: "Duke" } },
+          { homeAway: "away", score: "70", team: { id: "152", displayName: "Wake Forest Demon Deacons", abbreviation: "WAKE", location: "Wake Forest" } },
+        ],
+      }],
+    },
+  };
+  const scores = matchEspnScores({ home: "Duke", away: "Wake Forest" }, competitorsFromEspnPayload(payload));
+  assert.deepEqual(scores, { home: 80, away: 70 });
+});
+
+test("ambiguous or unmatched pairs do not prefill", () => {
+  const competitors = competitorsFromEspnPayload(lucSjsuPayload);
+  // Both of our names are the same team — SJSU hits both sides equally.
+  assert.equal(matchEspnScores({ home: "San Jose St.", away: "San José State" }, competitors), null);
+  // Neither name matches the payload.
+  assert.equal(matchEspnScores({ home: "Duke", away: "Wake Forest" }, competitors), null);
+  assert.equal(bindFeedScores(feedFromEspnPayload(lucSjsuPayload)!, { home: "Duke", away: "Wake Forest" }), null);
+  const post = { period: 2, displayClock: "0:00", type: { name: "STATUS_FINAL", state: "post", completed: true, description: "Final" } };
+  assert.deepEqual(applyEspnFeed(scheduledDefaults(), feedFromEspnStatus(post, null)!, false), scheduledDefaults());
+});
+
+test("partial match (only one side) means no prefill", () => {
+  const competitors = competitorsFromEspnPayload(lucSjsuPayload);
+  assert.equal(matchEspnScores({ home: "Loyola Chicago", away: "Wake Forest" }, competitors), null);
+  assert.equal(matchEspnScores({ home: "Duke", away: "San Jose St." }, competitors), null);
+  assert.equal(bindFeedScores(feedFromEspnPayload(lucSjsuPayload)!, { home: "Loyola Chicago", away: "Wake Forest" }), null);
+});
+
+test("stored ESPN team ids match even when the names would not", () => {
+  const competitors = competitorsFromEspnPayload(lucSjsuPayload);
+  const scores = matchEspnScores(
+    { home: "Team A", away: "Team B", homeEspnId: "2350", awayEspnId: "23" },
+    competitors,
+  );
+  assert.deepEqual(scores, { home: 72, away: 63 });
 });

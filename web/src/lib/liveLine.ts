@@ -14,13 +14,35 @@ export const HALF_MIN = 20;
 export const OT_MIN = 5;
 
 /** Periods the util accepts. HALFTIME is 2H with 20 minutes left; TIP is 1H with 20 minutes left. */
-export type LivePeriod = "1H" | "2H" | "OT" | "HALFTIME" | "TIP";
+export type LivePeriod = "1H" | "2H" | "OT" | "HALFTIME" | "TIP" | "FINAL";
+
+export const LIVE_LINE_PERIODS = ["1H", "HALFTIME", "2H", "OT"] as const;
+export type LiveLinePeriod = (typeof LIVE_LINE_PERIODS)[number];
+
+/** Next period for Arrow / Home / End on the Live Line radiogroup. Null for unrelated keys. */
+export function nextLiveLinePeriod(current: LivePeriod, key: string): LiveLinePeriod | null {
+  const n = LIVE_LINE_PERIODS.length;
+  const i = LIVE_LINE_PERIODS.indexOf(current as LiveLinePeriod);
+  if (i < 0) {
+    // FINAL (or anything else): Home/Right start at 1H, End/Left at OT.
+    if (key === "ArrowRight" || key === "ArrowDown" || key === "Home") return LIVE_LINE_PERIODS[0];
+    if (key === "ArrowLeft" || key === "ArrowUp" || key === "End") return LIVE_LINE_PERIODS[n - 1];
+    return null;
+  }
+  if (key === "ArrowRight" || key === "ArrowDown") return LIVE_LINE_PERIODS[(i + 1) % n];
+  if (key === "ArrowLeft" || key === "ArrowUp") return LIVE_LINE_PERIODS[(i - 1 + n) % n];
+  if (key === "Home") return LIVE_LINE_PERIODS[0];
+  if (key === "End") return LIVE_LINE_PERIODS[n - 1];
+  return null;
+}
+
 
 export type LiveClock = { period: Exclude<LivePeriod, "HALFTIME" | "TIP">; minutesLeft: number };
 
 const finite = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
 
 export function clampMinutes(period: LivePeriod, minutesLeft: number): number {
+  if (period === "FINAL") return 0;
   if (!finite(minutesLeft)) return period === "OT" ? OT_MIN : HALF_MIN;
   const max = period === "OT" ? OT_MIN : HALF_MIN;
   return Math.min(max, Math.max(0, minutesLeft));
@@ -30,12 +52,13 @@ export function clampMinutes(period: LivePeriod, minutesLeft: number): number {
 export function normalizeClock(period: LivePeriod, minutesLeft: number): LiveClock {
   if (period === "TIP") return { period: "1H", minutesLeft: HALF_MIN };
   if (period === "HALFTIME") return { period: "2H", minutesLeft: HALF_MIN };
+  if (period === "FINAL") return { period: "FINAL", minutesLeft: 0 };
   return { period, minutesLeft: clampMinutes(period, minutesLeft) };
 }
 
 /** Slider range in whole minutes, or null when the control should be hidden (Halftime / Tip). */
 export function sliderBounds(period: LivePeriod): { min: number; max: number } | null {
-  if (period === "HALFTIME" || period === "TIP") return null;
+  if (period === "HALFTIME" || period === "TIP" || period === "FINAL") return null;
   if (period === "OT") return { min: 1, max: OT_MIN };
   return { min: 1, max: HALF_MIN };
 }
@@ -43,6 +66,7 @@ export function sliderBounds(period: LivePeriod): { min: number; max: number } |
 /** Remaining scoring share of the official (pregame) total. */
 export function remainingShare(period: LivePeriod, minutesLeft: number): number {
   const c = normalizeClock(period, minutesLeft);
+  if (c.period === "FINAL") return 0;
   if (c.period === "1H") return SHARE_1H * (c.minutesLeft / HALF_MIN) + SHARE_2H;
   if (c.period === "2H") return SHARE_2H * (c.minutesLeft / HALF_MIN);
   return Math.max(0, c.minutesLeft) / REG_MIN;
@@ -165,9 +189,12 @@ export function liveLine(input: LiveLineInput): LiveLineResult | null {
   };
 }
 
-/** Opening defaults: pregame/scheduled is 1H at 20; a live game starts at 2H at 20 with the stored score. */
+/** Opening defaults before ESPN answers. A scheduled-but-tipped game stays 1H at 20 / 0-0
+ *  (DB scores are not live). in_progress is a 2H-at-20 fallback with stored scores. Final uses stored scores. */
 export function defaultLiveState(status: string | null | undefined): { period: Exclude<LivePeriod, "TIP">; minutesLeft: number } {
-  if (status === "in_progress") return { period: "2H", minutesLeft: HALF_MIN };
+  const s = (status ?? "").toLowerCase().trim();
+  if (s === "final" || s === "completed") return { period: "FINAL", minutesLeft: 0 };
+  if (s === "in_progress") return { period: "2H", minutesLeft: HALF_MIN };
   return { period: "1H", minutesLeft: HALF_MIN };
 }
 
@@ -175,7 +202,10 @@ export function defaultLiveScores(
   status: string | null | undefined,
   scores: { home_score?: number | null; away_score?: number | null },
 ): { home: number; away: number } {
-  if (status === "in_progress") {
+  const s = (status ?? "").toLowerCase().trim();
+  // Only trust stored scores when the DB itself says the game is live or over.
+  // scheduled-but-tipped rows still have stale / empty scores, so stay at 0-0 until ESPN fills in.
+  if (s === "in_progress" || s === "final" || s === "completed") {
     return {
       home: finite(scores.home_score) ? Math.max(0, Math.round(scores.home_score)) : 0,
       away: finite(scores.away_score) ? Math.max(0, Math.round(scores.away_score)) : 0,

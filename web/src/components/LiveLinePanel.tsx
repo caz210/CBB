@@ -1,25 +1,31 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import type { SlateGame } from "@/lib/types";
 import { fmtOne, fmtSpread } from "@/lib/labels";
 import {
   LIVE_LINE_DISCLAIMER,
+  LIVE_LINE_PERIODS,
   defaultLiveScores,
   defaultLiveState,
   liveLine,
+  nextLiveLinePeriod,
   sliderBounds,
   type LivePeriod,
 } from "@/lib/liveLine";
 import {
   ESPN_MEN_CBB_SUMMARY,
-  clockFromEspnPayload,
-  clockFromEspnStatus,
+  applyEspnFeed,
+  bindFeedScores,
+  feedFromEspnPayload,
+  feedFromEspnStatus,
   isEspnEventId,
-  scoresFromEspnPayload,
-  type EspnLiveClock,
+  shouldFetchLiveFeed,
+  type LiveFeedSnapshot,
+  type OurTeamSides,
 } from "@/lib/espnClock";
+import { createLiveFeedPoller } from "@/lib/liveClock";
 
 type PeriodKey = Exclude<LivePeriod, "TIP">;
 
@@ -32,33 +38,33 @@ const SEGMENTS: { k: PeriodKey; label: string }[] = [
 
 const POLL_MS = 30_000;
 
-async function loadLiveFeed(eventId: string): Promise<{ clock: EspnLiveClock; scores: { home: number; away: number } | null } | null> {
+function ourSides(g: { home: string; away: string; home_espn_id?: string | null; away_espn_id?: string | null }): OurTeamSides {
+  return { home: g.home, away: g.away, homeEspnId: g.home_espn_id, awayEspnId: g.away_espn_id };
+}
+
+async function loadLiveFeed(eventId: string, ours: OurTeamSides): Promise<LiveFeedSnapshot | null> {
   if (!isEspnEventId(eventId)) return null;
-  const fromSummary = (j: unknown) => {
-    const clock = clockFromEspnPayload(j);
-    return clock ? { clock, scores: scoresFromEspnPayload(j) } : null;
-  };
-  const fromProxy = (j: { status?: unknown; scores?: { home: number; away: number } | null }) => {
-    const clock = j.status ? clockFromEspnStatus(j.status) : null;
-    return clock ? { clock, scores: j.scores ?? null } : null;
-  };
   try {
     const res = await fetch(ESPN_MEN_CBB_SUMMARY(eventId), { cache: "no-store" });
     if (res.ok) {
-      const parsed = fromSummary(await res.json());
+      const raw = feedFromEspnPayload(await res.json());
+      const parsed = raw ? bindFeedScores(raw, ours) : null;
       if (parsed) return parsed;
     }
   } catch { /* CORS or network — try the read-only proxy */ }
   try {
     const res = await fetch(`/api/live-clock?event=${encodeURIComponent(eventId)}`, { cache: "no-store" });
     if (!res.ok) return null;
-    return fromProxy(await res.json());
+    const j = await res.json() as { status?: unknown; competitors?: LiveFeedSnapshot["competitors"] };
+    const feed = feedFromEspnStatus(j.status, null, j.competitors ?? null);
+    return feed ? bindFeedScores(feed, ours) : null;
   } catch {
     return null;
   }
 }
 
 function clampToPeriod(period: PeriodKey, minutes: number): number {
+  if (period === "FINAL") return 0;
   if (period === "HALFTIME") return 20;
   const b = sliderBounds(period);
   if (!b) return minutes;
@@ -95,35 +101,45 @@ function LivePanel({ g, onClose }: { g: SlateGame; onClose: () => void }) {
   const [home, setHome] = useState(initScores.home);
   const [away, setAway] = useState(initScores.away);
   const dirty = useRef(false);
+  const poller = useRef<ReturnType<typeof createLiveFeedPoller> | null>(null);
   const [fromFeed, setFromFeed] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const uiRef = useRef({ period, minutesLeft: minutes, home, away, fromFeed });
+  uiRef.current = { period, minutesLeft: minutes, home, away, fromFeed };
 
   useEffect(() => { setMounted(true); }, []);
 
-  const markDirty = useCallback(() => { dirty.current = true; setFromFeed(false); }, []);
+  const markDirty = useCallback(() => {
+    dirty.current = true;
+    setFromFeed(false);
+    poller.current?.stop();
+  }, []);
 
-  const applyFeed = useCallback((feed: { clock: EspnLiveClock; scores: { home: number; away: number } | null }) => {
+  const applyFeed = useCallback((feed: LiveFeedSnapshot) => {
     if (dirty.current) return;
-    setPeriod(feed.clock.period);
-    setMinutes(clampToPeriod(feed.clock.period, feed.clock.minutesLeft));
-    if (feed.scores) {
-      setHome(Math.max(0, Math.round(feed.scores.home)));
-      setAway(Math.max(0, Math.round(feed.scores.away)));
-    }
-    setFromFeed(true);
+    const next = applyEspnFeed(uiRef.current, feed, false);
+    setPeriod(next.period);
+    setMinutes(clampToPeriod(next.period, next.minutesLeft));
+    setHome(next.home);
+    setAway(next.away);
+    setFromFeed(next.fromFeed);
+    uiRef.current = next;
+    if (feed.phase === "post") poller.current?.stop();
   }, []);
 
   useEffect(() => {
-    if (g.status !== "in_progress" || !g.external_id) return;
+    if (!shouldFetchLiveFeed({ externalId: g.external_id, status: g.status, tipoff: g.tipoff })) return;
     let cancelled = false;
-    const pull = async () => {
-      const feed = await loadLiveFeed(g.external_id!);
-      if (!cancelled && feed) applyFeed(feed);
-    };
-    void pull();
-    const t = setInterval(pull, POLL_MS);
-    return () => { cancelled = true; clearInterval(t); };
-  }, [g.status, g.external_id, applyFeed]);
+    const p = createLiveFeedPoller(() => {
+      if (dirty.current || cancelled) return;
+      void loadLiveFeed(g.external_id!, ourSides(g)).then((feed) => {
+        if (!cancelled && !dirty.current && feed) applyFeed(feed);
+      });
+    }, POLL_MS);
+    poller.current = p;
+    p.start();
+    return () => { cancelled = true; p.stop(); if (poller.current === p) poller.current = null; };
+  }, [g.status, g.external_id, g.tipoff, g.home, g.away, g.home_espn_id, g.away_espn_id, applyFeed]);
 
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
@@ -140,6 +156,15 @@ function LivePanel({ g, onClose }: { g: SlateGame; onClose: () => void }) {
     markDirty();
     setPeriod(next);
     setMinutes((m) => clampToPeriod(next, m));
+  };
+
+  const onPeriodKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const next = nextLiveLinePeriod(period, e.key);
+    if (!next) return;
+    e.preventDefault();
+    setSeg(next);
+    const el = document.getElementById(`live-line-period-${next}`);
+    if (el instanceof HTMLElement) el.focus();
   };
 
   const result = useMemo(
@@ -184,19 +209,22 @@ function LivePanel({ g, onClose }: { g: SlateGame; onClose: () => void }) {
         </div>
 
         <div className="mb-1.5 mt-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">Time left</div>
-        <div role="radiogroup" aria-label="Period" className="grid grid-cols-4 gap-1 rounded-xl border border-ink-700 bg-ink-850 p-1">
-          {SEGMENTS.map((s) => {
-            const on = period === s.k;
+        <div role="radiogroup" aria-label="Period" onKeyDown={onPeriodKeyDown} className="grid grid-cols-4 gap-1 rounded-xl border border-ink-700 bg-ink-850 p-1">
+          {LIVE_LINE_PERIODS.map((k) => {
+            const on = period === k;
+            const label = SEGMENTS.find((s) => s.k === k)!.label;
             return (
-              <button key={s.k} type="button" role="radio" aria-checked={on} onClick={() => setSeg(s.k)}
+              <button key={k} type="button" role="radio" id={`live-line-period-${k}`} aria-checked={on} tabIndex={on || (period === "FINAL" && k === "1H") ? 0 : -1} onClick={() => setSeg(k)}
                 className={`min-h-11 rounded-lg px-1 text-[13px] font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-court-400 ${on ? "bg-court-500 text-ink-950" : "text-zinc-300 hover:bg-ink-700"}`}>
-                {s.label}
+                {label}
               </button>
             );
           })}
         </div>
 
-        {bounds ? (
+        {period === "FINAL" ? (
+          <p className="mt-2 font-mono text-[13px] font-semibold text-zinc-200">Final</p>
+        ) : bounds ? (
           <div className="mt-2">
             <label htmlFor={sliderId} className="block font-mono text-[13px] font-semibold text-zinc-200">{valueText}</label>
             <input
