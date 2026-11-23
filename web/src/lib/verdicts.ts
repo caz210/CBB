@@ -22,7 +22,7 @@ export type VerdictDef = {
 /** Hold rules that keep an edge at or past the bar off the record. Keys are the pipeline's skip codes. */
 export const HOLD_CODES = {
   new_coach_lock: "new-coach pause",
-  line_moved_against: "Line moved 3+ pts away from CZarp since open",
+  line_moved_against: "Total moved 3+ pts away from CZarp since open",
   kelly_too_small: `stake under ${MIN_STAKE_UNITS}u`,
 } as const;
 export type HoldCode = keyof typeof HOLD_CODES;
@@ -54,7 +54,7 @@ export const VERDICT_LADDER: readonly VerdictDef[] = [
   {
     level: "value",
     label: "Value",
-    short: `A real edge on the current line: 3% to 4% on sides, 2.25% to 3% on totals. Also an edge past our play bar (4% sides, 3% totals) that a hold rule (new-coach pause, big market move, or stake under ${MIN_STAKE_UNITS}u) keeps off the record; the note says which.`,
+    short: `A real edge on the current line: 3% to 4% on sides, 2.25% to 3% on totals. Also an edge past our play bar (4% sides, 3% totals) that a hold rule (new-coach pause, a 3+ point move against our total, or stake under ${MIN_STAKE_UNITS}u) keeps off the record; the note says which.`,
   },
   {
     level: "late_value",

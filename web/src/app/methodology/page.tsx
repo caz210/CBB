@@ -44,7 +44,7 @@ export default function MethodologyPage() {
       eyebrow="How it works"
       title="Methodology"
     >
-      <p>Edge % compares our fair number to the market price. Official picks have to clear the play bar at the morning run: 4% edge on sides, 3% on totals, a stake of at least 0.1u, and no 3-point-or-more move against us since the open. A new-coach pause can also keep a pick off the record. Every official pick is time-stamped and can&apos;t be edited.</p>
+      <p>Edge % compares our fair number to the market price. Official picks have to clear the play bar at the morning run: 4% edge on sides, 3% on totals, a stake of at least 0.1u, and on totals, no 3-point-or-more move against us since the open. A new-coach pause can also keep a pick off the record. Every official pick is time-stamped and can&apos;t be edited.</p>
       {sections.map((s) => (
         <div key={s.title}>
           <H>{s.title}</H>

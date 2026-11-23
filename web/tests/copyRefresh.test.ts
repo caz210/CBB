@@ -23,6 +23,20 @@ test("the unit floor is 0.1u (pipeline MIN_STAKE $1 on a $1,000 bankroll) and pu
   assert.match(read("src/app/methodology/page.tsx"), /stake of at least 0\.1u/);
 });
 
+test("methodology intro and hold copy: the 3+ pt move skip is totals-only", () => {
+  const intro = read("src/app/methodology/page.tsx");
+  assert.match(
+    intro,
+    /4% edge on sides, 3% on totals, a stake of at least 0\.1u, and on totals, no 3-point-or-more move against us since the open/,
+  );
+  assert.doesNotMatch(intro, /0\.1u, and no 3-point-or-more move/);
+  assert.equal(HOLD_CODES.line_moved_against, "Total moved 3+ pts away from CZarp since open");
+  assert.match(
+    read("src/lib/verdicts.ts"),
+    /new-coach pause, a 3\+ point move against our total, or stake under/,
+  );
+});
+
 test("official post time is 7:30 AM CT, in one constant, and 7:15 is gone from public copy", () => {
   assert.equal(OFFICIAL_POST_TIME, "7:30 AM CT");
   assert.equal(
@@ -194,6 +208,8 @@ test("terms and privacy drop the template banner and share one contact-email con
   for (const rel of ["src/app/terms/page.tsx", "src/app/privacy/page.tsx"]) {
     const src = read(rel);
     assert.doesNotMatch(src, /TEMPLATE|pending owner review|banner=/);
+    assert.doesNotMatch(src, /will be reviewed|This draft|draft pending|pending review/i);
+    assert.match(src, /Last updated: November 9, 2026\./);
     assert.match(src, /<ContactEmail/);
     assert.doesNotMatch(src, /CZarp210@gmail\.com/);
   }

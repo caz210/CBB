@@ -129,14 +129,19 @@ test("defaults: scheduled is 1H at 20 with 0-0; in_progress is 2H at 20 with sto
 
 test("disclaimer is the customer copy; live line source has no book line, Edge %, paper, KenPom, or v1/v2", () => {
   assert.match(LIVE_LINE_DISCLAIMER, /This is an estimate, not an official CZarp play\. It never goes on the official record\./);
-  const root = resolve(__dirname, "../src");
+  // Resolve src from both the TypeScript tests/ tree and the compiled .test-build/tests/ tree.
+  const root = [resolve(__dirname, "../src"), resolve(__dirname, "../../src")].find((d) => {
+    try { readFileSync(resolve(d, "lib/liveLine.ts")); return true; } catch { return false; }
+  });
+  assert.ok(root, "src/lib/liveLine.ts");
   const files = [
     "lib/liveLine.ts", "lib/espnClock.ts", "lib/liveClock.ts", "components/LiveLinePanel.tsx", "app/api/live-clock/route.ts",
-  ].map((f) => resolve(root, f));
-  for (const f of files) {
-    let src: string;
-    try { src = readFileSync(f, "utf8"); } catch { continue; }
-    assert.doesNotMatch(src, /KenPom|v1\/v2|\bpaper\b|book line|Edge %|edge_pct|bookSpread|bookTotal/i, f);
+  ];
+  for (const rel of files) {
+    const src = readFileSync(resolve(root, rel), "utf8");
+    // Headers may name the things we do not implement ("No book line, no Edge %"). Scan the code only.
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+    assert.doesNotMatch(code, /KenPom|v1\/v2|\bpaper\b|book line|Edge %|edge_pct|bookSpread|bookTotal/i, rel);
   }
 });
 

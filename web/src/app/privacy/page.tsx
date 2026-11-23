@@ -14,7 +14,7 @@ export default function PrivacyPage() {
       eyebrow="Legal"
       title="Privacy Policy"
     >
-      <p>Last updated: November 9, 2026. This draft will be reviewed by the site owner before it is treated as the official policy.</p>
+      <p>Last updated: November 9, 2026.</p>
       <H>Information we may collect</H>
       <p>If you create an account: email, display name, and authentication data from a provider (for example Google or Apple). If you use the site as a guest: standard server logs (IP, browser, pages) and optional local data such as a watchlist stored in your browser.</p>
       <H>How we use it</H>

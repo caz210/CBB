@@ -151,7 +151,7 @@ test("the 'Not a play: edge now below' line is gone; only hold reasons remain", 
   // Rice @ Lamar 11-22: held Value total (4.83%, market moved 3+ pts) keeps its hold reason.
   const rice = game({ home: "Lamar", away: "Rice", proj_spread: -0.3, market_spread: -2.5, czarp_total: 157.5, market_total: 165.5,
     edge_now_pct_spread: 0.013, edge_now_pct_total: 0.0483, skip_reasons_total: ["line_moved_against"] });
-  assert.equal(cardNoteLine(rice, []), "Not a play: Line moved 3+ pts away from CZarp since open");
+  assert.equal(cardNoteLine(rice, []), "Not a play: Total moved 3+ pts away from CZarp since open");
   assert.equal(cardHeaderRow(rice, []).pick, "Under 165.5");
   // New-coach hold.
   const coach = game({ edge_now_pct_total: 0.05, skip_reasons_total: ["new_coach_lock"], skip_reason_total: "paused until game 4 (new coach, 2 played)" });

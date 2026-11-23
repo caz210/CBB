@@ -14,7 +14,7 @@ export default function TermsPage() {
       eyebrow="Legal"
       title="Terms of Use"
     >
-      <p>Last updated: November 9, 2026. These terms will be reviewed and finalized by the site owner before they apply as a binding agreement.</p>
+      <p>Last updated: November 9, 2026.</p>
       <H>1. What this site is</H>
       <p>CZarp Analytics publishes model-driven sports projections and a public record of official picks. It is for information and entertainment. It is not a sportsbook, not a wagering service, and not betting advice.</p>
       <H>2. Eligibility</H>
