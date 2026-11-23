@@ -10,15 +10,31 @@ import { PWA_NAME, PWA_THEME_COLOR } from "@/lib/pwa";
 
 export const viewport = { width: "device-width", initialScale: 1, viewportFit: "cover" as const, themeColor: PWA_THEME_COLOR };
 
+const SITE_TITLE = "CZarp Analytics · College basketball fair value vs price";
+const SITE_DESCRIPTION = "Daily college basketball fair values vs the market price, edge % on every game, and a public, time-stamped record. For entertainment and information, not betting advice.";
+
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   applicationName: PWA_NAME,
   title: {
-    default: "CZarp Analytics · College basketball fair value vs price",
+    default: SITE_TITLE,
     template: "%s · CZarp Analytics",
   },
-  description: "Daily college basketball fair values vs the market price, edge % on every game, and a public, time-stamped record. For entertainment and information, not betting advice.",
-  openGraph: { siteName: "CZarp Analytics", type: "website", url: SITE_URL },
+  description: SITE_DESCRIPTION,
+  openGraph: {
+    siteName: "CZarp Analytics",
+    type: "website",
+    url: SITE_URL,
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    images: [{ url: "/og.png", width: 1200, height: 630, alt: "CZarp Analytics" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    images: ["/og.png"],
+  },
   appleWebApp: {
     capable: true,
     title: PWA_NAME,

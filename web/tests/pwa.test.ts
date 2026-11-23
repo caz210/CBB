@@ -12,6 +12,7 @@ import {
   PWA_DISPLAY,
   PWA_NAME,
   PWA_SCOPE,
+  PWA_SHORT_NAME,
   PWA_START_URL,
   PWA_THEME_COLOR,
   SAFARI_HOME_HINT_COPY,
@@ -62,7 +63,8 @@ test("theme and background colors are the site ink-950 token, not invented", () 
   assert.match(css, /--color-ink-950:\s*#07090d/);
   assert.equal(PWA_THEME_COLOR, "#07090d");
   assert.equal(PWA_BACKGROUND_COLOR, "#07090d");
-  assert.equal(PWA_NAME, "CZarp");
+  assert.equal(PWA_NAME, "CZarp Analytics");
+  assert.equal(PWA_SHORT_NAME, "CZarp");
   assert.equal(PWA_START_URL, "/cbb/slate");
   assert.equal(PWA_SCOPE, "/");
   assert.equal(PWA_DISPLAY, "standalone");
@@ -71,7 +73,7 @@ test("theme and background colors are the site ink-950 token, not invented", () 
 test("manifest.ts uses the shared PWA constants and the three icon files", () => {
   const src = read("src/app/manifest.ts");
   assert.match(src, /name:\s*PWA_NAME/);
-  assert.match(src, /short_name:\s*PWA_NAME/);
+  assert.match(src, /short_name:\s*PWA_SHORT_NAME/);
   assert.match(src, /start_url:\s*PWA_START_URL/);
   assert.match(src, /scope:\s*PWA_SCOPE/);
   assert.match(src, /display:\s*PWA_DISPLAY/);
@@ -108,6 +110,12 @@ test("root layout sets iOS / theme-color metadata and the apple-touch icon", () 
   assert.match(src, /window\.__bip/);
   assert.match(src, /beforeinstallprompt/);
   assert.match(src, /preventDefault/);
+  assert.match(src, /metadataBase:\s*new URL\(SITE_URL\)/);
+  assert.match(src, /openGraph:/);
+  assert.match(src, /twitter:/);
+  assert.match(src, /summary_large_image/);
+  assert.match(src, /\/og\.png/);
+  assert.match(src, /alt:\s*"CZarp Analytics"/);
 });
 
 test("iOS Safari gets the Safari Share copy, and not the Chrome address-bar copy", () => {
@@ -147,7 +155,7 @@ test("Android and desktop Chrome show the Install hint only after beforeinstallp
     assert.equal(homeHintKind({ ...open, userAgent: ua, hasInstallPrompt: true, standalone: true }), null, ua);
   }
   assert.equal(homeHintCopy("install"), INSTALL_HOME_HINT_COPY);
-  assert.equal(INSTALL_HOME_HINT_COPY, "Add CZarp to your Home Screen.");
+  assert.equal(INSTALL_HOME_HINT_COPY, "Add CZarp Analytics to your Home Screen.");
 });
 
 test("in-app browsers (Instagram, Facebook, Line, TikTok) never get the hint", () => {
