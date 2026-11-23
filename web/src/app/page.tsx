@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { ExampleBadge, ExampleBanner } from "@/components/ExampleBadge";
 import { ArchetypeChip } from "@/components/ArchetypeChip";
@@ -32,6 +33,14 @@ export default async function Landing() {
         <div className="pointer-events-none absolute -top-40 left-1/2 h-[500px] w-[900px] -translate-x-1/2 rounded-full bg-court-500/15 blur-3xl" />
         <div className="relative mx-auto grid max-w-7xl gap-8 px-4 py-10 md:gap-12 md:px-6 md:py-24 lg:grid-cols-[1.1fr_1fr] lg:items-center">
           <div>
+            <Image
+              src="/brand/wordmark-hero@2x.webp"
+              alt="CZarp Analytics"
+              width={292}
+              height={112}
+              priority
+              className="mb-4 h-10 w-auto md:mb-6 md:h-14"
+            />
             <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-ink-600 bg-ink-850 px-3 py-1 text-xs text-zinc-300 md:mb-6">
               <span className="h-1.5 w-1.5 rounded-full bg-edge-400" /> 2026–27 · official record in public
             </div>

@@ -7,7 +7,7 @@ export function SiteFooter() {
       <div className="mx-auto max-w-7xl px-4 py-6 md:px-6 md:py-8">
         <div className="flex flex-col gap-3 text-xs text-zinc-400 md:flex-row md:items-start md:justify-between">
           <div className="max-w-xl space-y-1.5">
-            <p>© 2026 CZarpAnalytics.com · 21+ only.</p>
+            <p>© 2026 CZarp Analytics · CZarpAnalytics.com · 21+ only.</p>
             <p>Not a sportsbook. For information/entertainment.</p>
             <p>
               If gambling is a problem, call{" "}

@@ -1,8 +1,10 @@
 /** Installable-app constants and Home Screen hint helpers.
  *  Colors come from src/app/globals.css @theme — do not invent new ones. */
 
-/** Site name as it should appear under a home-screen icon. */
-export const PWA_NAME = "CZarp";
+/** Full name used in the manifest and install UI. */
+export const PWA_NAME = "CZarp Analytics";
+/** Short label under a home-screen icon. */
+export const PWA_SHORT_NAME = "CZarp";
 export const PWA_START_URL = "/cbb/slate";
 export const PWA_SCOPE = "/";
 export const PWA_DISPLAY = "standalone" as const;
@@ -15,11 +17,11 @@ export const HOME_HINT_KEY = "czarp.homescreen-hint.dismissed";
 export const HOME_HINT_KEY_LEGACY = "czarp.ios-homescreen-hint.dismissed";
 
 export const SAFARI_HOME_HINT_COPY =
-  "Add CZarp to your Home Screen: tap Share, then Add to Home Screen.";
+  "Add CZarp Analytics to your Home Screen: tap Share, then Add to Home Screen.";
 /** iOS Chrome (16.4+), and the same Share-based path on iOS Edge / Firefox. */
 export const IOS_SHARE_HOME_HINT_COPY =
-  "Add CZarp to your Home Screen: tap the Share icon in the address bar, then Add to Home Screen.";
-export const INSTALL_HOME_HINT_COPY = "Add CZarp to your Home Screen.";
+  "Add CZarp Analytics to your Home Screen: tap the Share icon in the address bar, then Add to Home Screen.";
+export const INSTALL_HOME_HINT_COPY = "Add CZarp Analytics to your Home Screen.";
 
 export type HomeHintKind = "safari" | "ios-share" | "install" | null;
 
