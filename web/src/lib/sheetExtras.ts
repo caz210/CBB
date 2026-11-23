@@ -14,6 +14,18 @@ export const SHEET_TABS = [
 export type SheetTab = (typeof SHEET_TABS)[number]["k"];
 export const DEFAULT_SHEET_TAB: SheetTab = "bet";
 
+/** Next tab for arrow / Home / End keys on the sheet tablist. Null for unrelated keys. */
+export function nextSheetTab(current: SheetTab, key: string): SheetTab | null {
+  const i = SHEET_TABS.findIndex((t) => t.k === current);
+  if (i < 0) return null;
+  const n = SHEET_TABS.length;
+  if (key === "ArrowRight" || key === "ArrowDown") return SHEET_TABS[(i + 1) % n].k;
+  if (key === "ArrowLeft" || key === "ArrowUp") return SHEET_TABS[(i - 1 + n) % n].k;
+  if (key === "Home") return SHEET_TABS[0].k;
+  if (key === "End") return SHEET_TABS[n - 1].k;
+  return null;
+}
+
 /** A team name (may wrap) kept apart from a number that must stay whole and visible. */
 export type NamedNum = { name: string | null; value: string };
 
@@ -37,13 +49,16 @@ export type OfficialPickResult = {
 
 
 export type SheetRecentGame = {
-  game_id: number;
+  /** Null for non-D-I games that live only in team_game_log. */
+  game_id: number | null;
   date: string;
   opponent: string;
   location: "home" | "away" | "neutral";
   team_score: number | null;
   opp_score: number | null;
   result: "W" | "L" | "T" | null;
+  /** False for non-D-I opponents; those rows never get a CZarp chip. */
+  vs_di: boolean;
   official: OfficialPickResult[];
 };
 
@@ -70,7 +85,7 @@ export type SheetTeamExtras = {
   rank: number | null;
   prev_rank: number | null;
   rating: number | null;
-  /** D-I W-L from the latest weekly snapshot, when present. */
+  /** D-I W-L from team_game_log finals (vs_di). Not the weekly ratings snapshot, which can lag a game. */
   di_wins: number | null;
   di_losses: number | null;
   rank_week_of: string | null;
@@ -105,7 +120,7 @@ export type CompareRow = {
 export const COMPARE_ROWS: CompareRow[] = [
   { key: "rating", label: "Rating", hint: "CZarp rating vs an average D-I team", kind: "high" },
   { key: "rank", label: "Rank", kind: "low" },
-  { key: "record", label: "D-I record", hint: "From the games in our log", kind: "style" },
+  { key: "record", label: "D-I record", hint: "D-I finals in our log, not the weekly ratings snapshot (which can lag a game).", kind: "style" },
   { key: "adj_oe", label: "Offense", hint: "Points per 100 possessions", kind: "high" },
   { key: "adj_de", label: "Defense", hint: "Points allowed per 100 possessions (lower is better)", kind: "low" },
   { key: "tempo", label: "Tempo", hint: "Possessions per 40 minutes — style, not better or worse", kind: "style" },
@@ -115,7 +130,7 @@ export const COMPARE_ROWS: CompareRow[] = [
   { key: "d_to_pct_pctile", label: "Force TOs", hint: "Forced-turnover percentile", kind: "high", pctile: true },
   { key: "or_pct_pctile", label: "Off. glass", hint: "Offensive-rebound percentile", kind: "high", pctile: true },
   { key: "opp_or_pct_pctile", label: "Def. glass", hint: "Defensive-rebound percentile", kind: "high", pctile: true },
-  { key: "rest", label: "Rest", hint: "Nights off since the last final in our log. Shown only when every game is in the log.", kind: "style" },
+  { key: "rest", label: "Rest", hint: "Nights off since the last final in our log. Hidden only when the log is short of the profile's games_played.", kind: "style" },
 ];
 
 /** A tighter set for the tale-of-the-tape layout. */
@@ -151,8 +166,8 @@ export function teamValue(t: SheetTeamExtras | null, key: string): number | null
 export function formatTeamValue(t: SheetTeamExtras | null, row: CompareRow): string {
   if (!t) return "—";
   if (row.key === "record") {
-    if (t.log_games === 0) return "—";
-    return `${t.log_wins}–${t.log_losses}`;
+    if (t.di_wins == null || t.di_losses == null || t.di_wins + t.di_losses === 0) return "—";
+    return `${t.di_wins}–${t.di_losses}`;
   }
   if (row.key === "rank") return t.rank != null ? `#${t.rank}` : "—";
   if (row.key === "rating") return fmtRating(t.rating);

@@ -1,5 +1,5 @@
-/** Anon-key extras for the game sheet: profiles, our rankings, recent finals,
- *  and official-pick results only. Never uses the service-role key. */
+/** Anon-key extras for the game sheet: profiles, our rankings, recent finals
+ *  from team_game_log, and official-pick results only. Never uses the service-role key. */
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { SUPABASE_ANON_KEY, SUPABASE_URL, supabaseConfigured } from "@/lib/supabase/env";
@@ -67,21 +67,27 @@ export async function GET(req: Request) {
   if (ids.length === 0) return NextResponse.json({ away: null, home: null });
 
   const dateFilter = gameDate || "9999-12-31";
-  const [profiles, records, ranks, games] = await Promise.all([
+  // One query per team, generous cap: a combined 80-row cap used to truncate later in the season.
+  const logQueries = ids.map((id) =>
+    sb.from("team_game_log")
+      .select("team_id,game_id,game_date,tipoff,status,neutral,opponent,venue,team_score,opp_score,vs_di")
+      .eq("team_id", id)
+      .eq("league", sport.league)
+      .eq("status", "final")
+      .lt("game_date", dateFilter)
+      .order("game_date", { ascending: false })
+      .order("tipoff", { ascending: false })
+      .limit(400),
+  );
+  const [profiles, records, ranks, ...logResults] = await Promise.all([
     sb.from("team_profile_latest").select("team_id,team_name,games_played,tentative,adj_oe,adj_de,tempo,tempo_pctile,efg_pctile,d_efg_pctile,to_pct_pctile,d_to_pct_pctile,or_pct_pctile,opp_or_pct_pctile,ftr_pctile,d_ftr_pctile,tags,tags_all").in("team_id", ids),
     sb.from("team_model_record").select("team_id,official_wins,official_losses,official_pushes,official_ats_wins,official_ats_losses,official_ou_wins,official_ou_losses").in("team_id", ids),
     Promise.all(ids.map((id) => sb.from("ranking_snapshots").select(TEAM_RANKING_COLUMNS).eq("team_id", id).eq("league", sport.league).order("week_of", { ascending: false }).limit(1))),
-    sb.from("games").select("id,date,home,away,home_team_id,away_team_id,home_score,away_score,status,neutral")
-      .or(`home_team_id.in.(${ids.join(",")}),away_team_id.in.(${ids.join(",")})`)
-      .eq("league", sport.league)
-      .lt("date", dateFilter)
-      .order("date", { ascending: false })
-      .limit(80),
+    ...logQueries,
   ]);
 
   if (profiles.error) console.error(`[supabase] team_profile_latest: ${profiles.error.message}`);
   if (records.error) console.error(`[supabase] team_model_record: ${records.error.message}`);
-  if (games.error) console.error(`[supabase] games: ${games.error.message}`);
 
   const rankById = new Map<number, ReturnType<typeof parseTeamRanking>>();
   ranks.forEach((r, i) => {
@@ -90,8 +96,12 @@ export async function GET(req: Request) {
     rankById.set(ids[i], parseTeamRanking(row ?? null));
   });
 
-  const gameRows = (games.error ? [] : games.data ?? []) as Row[];
-  const gameIds = [...new Set(gameRows.map((g) => Number(g.id)).filter(Number.isFinite))];
+  const logRows: Row[] = [];
+  for (const r of logResults) {
+    if (r.error) console.error(`[supabase] team_game_log: ${r.error.message}`);
+    else logRows.push(...((r.data ?? []) as Row[]));
+  }
+  const gameIds = [...new Set(logRows.map((g) => Number(g.game_id)).filter(Number.isFinite))];
   const officialByGame = new Map<number, OfficialPickResult[]>();
   if (gameIds.length) {
     // Query official rows only; officialPicksFromLedger is the same guard the UI relies on.
@@ -114,35 +124,50 @@ export async function GET(req: Request) {
     const p = (profiles.data ?? []).find((r) => Number(r.team_id) === teamId) as Row | undefined;
     const rec = (records.data ?? []).find((r) => Number(r.team_id) === teamId) as Row | undefined;
     const ranking = rankById.get(teamId) ?? null;
-    const mine = gameRows.filter((g) => Number(g.home_team_id) === teamId || Number(g.away_team_id) === teamId);
-    let log_wins = 0, log_losses = 0;
+    const mine = logRows
+      .filter((g) => Number(g.team_id) === teamId)
+      .sort((a, b) => {
+        const da = str(a.game_date), db = str(b.game_date);
+        if (da !== db) return db.localeCompare(da);
+        return str(b.tipoff).localeCompare(str(a.tipoff));
+      });
+    let log_wins = 0, log_losses = 0, di_wins = 0, di_losses = 0;
     const recents: SheetRecentGame[] = [];
     let lastFinal: string | null = null;
     for (const g of mine) {
-      const isHome = Number(g.home_team_id) === teamId;
+      const vsDi = g.vs_di === true;
       const neutral = g.neutral === true;
-      const opponent = isHome ? str(g.away) : str(g.home);
-      const team_score = num(isHome ? g.home_score : g.away_score);
-      const opp_score = num(isHome ? g.away_score : g.home_score);
-      const status = g.status ? str(g.status) : null;
+      const venue = str(g.venue);
+      const opponent = str(g.opponent);
+      const team_score = num(g.team_score);
+      const opp_score = num(g.opp_score);
       const hasScore = team_score != null && opp_score != null;
       let result: SheetRecentGame["result"] = null;
       if (hasScore) {
         result = team_score > opp_score ? "W" : team_score < opp_score ? "L" : "T";
-        if (result === "W") log_wins += 1;
-        else if (result === "L") log_losses += 1;
+        if (result === "W") {
+          log_wins += 1;
+          if (vsDi) di_wins += 1;
+        } else if (result === "L") {
+          log_losses += 1;
+          if (vsDi) di_losses += 1;
+        }
       }
-      if ((status === "final" || hasScore) && !lastFinal) lastFinal = str(g.date);
-      if (recents.length < RECENT_N && (hasScore || status === "final")) {
+      const date = str(g.game_date);
+      if (!lastFinal) lastFinal = date;
+      const gid = num(g.game_id);
+      if (recents.length < RECENT_N) {
         recents.push({
-          game_id: Number(g.id),
-          date: str(g.date),
+          game_id: gid,
+          date,
           opponent,
-          location: neutral ? "neutral" : isHome ? "home" : "away",
+          location: neutral ? "neutral" : venue === "home" ? "home" : "away",
           team_score,
           opp_score,
           result,
-          official: officialByGame.get(Number(g.id)) ?? [],
+          vs_di: vsDi,
+          // Non-D-I games never show a CZarp chip, even if a ledger row existed.
+          official: vsDi && gid != null ? (officialByGame.get(gid) ?? []) : [],
         });
       }
     }
@@ -151,7 +176,6 @@ export async function GET(req: Request) {
       team_id: teamId,
       name,
       games_played: num(p?.games_played),
-      log_games: log_wins + log_losses,
       tentative: p?.tentative === true,
       adj_oe: num(p?.adj_oe),
       adj_de: num(p?.adj_de),
@@ -169,11 +193,12 @@ export async function GET(req: Request) {
       rank: ranking?.rank ?? null,
       prev_rank: ranking?.prev_rank ?? null,
       rating: ranking?.rating ?? null,
-      di_wins: ranking?.di_wins ?? null,
-      di_losses: ranking?.di_losses ?? null,
+      di_wins,
+      di_losses,
       rank_week_of: ranking?.week_of ?? null,
       log_wins,
       log_losses,
+      log_games: mine.length,
       official_wins: num(rec?.official_wins) ?? 0,
       official_losses: num(rec?.official_losses) ?? 0,
       official_pushes: num(rec?.official_pushes) ?? 0,

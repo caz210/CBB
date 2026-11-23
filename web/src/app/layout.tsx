@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import "./globals.css";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SiteFooter } from "@/components/SiteFooter";
@@ -37,6 +38,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
+      <Script id="czarp-bip" strategy="beforeInteractive">{`(function(){window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();window.__bip=e;});})();`}</Script>
       <body className="min-h-screen pb-[calc(3.5rem+env(safe-area-inset-bottom))] antialiased lg:pb-0">
         <SiteHeader />
         <HomeScreenHint />

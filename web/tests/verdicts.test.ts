@@ -133,7 +133,7 @@ const game = (o: Partial<SlateGame> = {}): SlateGame => ({
   market_spread: 6, market_total: 154, market_source: null,
   edge_now_pct_spread: 0.002, edge_vs_open_pct_spread: 0.002, skip_reasons_spread: ["below_open_threshold"],
   edge_now_pct_total: 0.0645, edge_vs_open_pct_total: 0.0348, skip_reasons_total: ["line_moved_against"],
-  skip_reason_total: "Not a play: market moved 3+ pts away from CZarp since open",
+  skip_reason_total: "Not a play: Line moved 3+ pts away from CZarp since open",
   verdict_spread: "low_value", verdict_total: "low_value",
   ...o,
 } as SlateGame);
@@ -148,7 +148,7 @@ test("cardHeadline: held Value headline with its hold as the note", () => {
   assert.equal(h.market, "total");
   assert.equal(h.verdict, "value");
   assert.deepEqual(h.holds, ["line_moved_against"]);
-  assert.equal(notAPlayLine(game(), []), "Not a play: market moved 3+ pts away from CZarp since open");
+  assert.equal(notAPlayLine(game(), []), "Not a play: Line moved 3+ pts away from CZarp since open");
 });
 
 test("cardHeadline: ladder rank beats a bigger raw edge when choosing the headline market", () => {
@@ -238,7 +238,7 @@ test("no-line card: Toss Up with a neutral tip, not 'below the bar'", () => {
 });
 
 test("line-move wording is one string everywhere", () => {
-  assert.equal(HOLD_CODES.line_moved_against, "market moved 3+ pts away from CZarp since open");
+  assert.equal(HOLD_CODES.line_moved_against, "Line moved 3+ pts away from CZarp since open");
   assert.equal(knownSkipCodeLabel("line_moved_against", "3%"), HOLD_CODES.line_moved_against);
   assert.equal(knownSkipCodeLabel("kelly_too_small", "3%"), HOLD_CODES.kelly_too_small);
   for (const d of VERDICT_LADDER) assert.doesNotMatch(d.short, /total moved/);

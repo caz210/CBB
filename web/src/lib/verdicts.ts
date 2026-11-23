@@ -21,7 +21,7 @@ export type VerdictDef = {
 /** Hold rules that keep an edge at or past the bar off the record. Keys are the pipeline's skip codes. */
 export const HOLD_CODES = {
   new_coach_lock: "new-coach pause",
-  line_moved_against: "market moved 3+ pts away from CZarp since open",
+  line_moved_against: "Line moved 3+ pts away from CZarp since open",
   kelly_too_small: "stake under $1",
 } as const;
 export type HoldCode = keyof typeof HOLD_CODES;
