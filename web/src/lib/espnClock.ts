@@ -192,15 +192,23 @@ export type LiveLineUiState = {
   home: number;
   away: number;
   fromFeed: boolean;
+  /** false when only the clock came from the feed (scores are manual). Unset/true otherwise. */
+  scoresFromFeed?: boolean;
 };
 
 /** Apply an ESPN snapshot to the panel. pre keeps the current defaults; in prefills clock and *matched* scores;
  *  post is Final with matched scores (wins over a stale DB in_progress). If scores could not be matched
- *  to our teams, leave the panel alone (manual). Dirty state is left alone. */
+ *  to our teams, in still prefills period + clock and leaves the scores as they are (manual);
+ *  post leaves the panel alone. Dirty state is left alone. */
 export function applyEspnFeed(current: LiveLineUiState, feed: LiveFeedSnapshot, dirty: boolean): LiveLineUiState {
   if (dirty) return current;
   if (feed.phase === "pre") return { ...current, fromFeed: false };
-  if (feed.scores == null) return current;
+  if (feed.scores == null) {
+    // Clock-only: teams could not be bound, so keep whatever scores are in the panel (manual) and
+    // never guess or swap them. A final with no bound scores stays manual too.
+    if (feed.phase !== "in" || !feed.clock) return current;
+    return { ...current, period: feed.clock.period, minutesLeft: feed.clock.minutesLeft, fromFeed: true, scoresFromFeed: false };
+  }
   const home = Math.max(0, Math.round(feed.scores.home));
   const away = Math.max(0, Math.round(feed.scores.away));
   if (feed.phase === "post") {
@@ -273,7 +281,8 @@ export function teamMatchKey(raw: string, loose = false): string {
 }
 
 /** Site-side equivalent names for Live Line ESPN matching. Bidirectional.
- *  These are the 11/22 slate misses plus the ESPN location/abbreviation forms they need.
+ *  These are the 11/22–11/23 slate misses plus the ESPN location/abbreviation forms they need.
+ *  Stored ESPN team ids (teams.external_ids.espn) are checked first; these only cover rows without ids.
  *  Do not add short keys that would also fit another school (Illinois, Albany St., Tennessee, Seattle Pacific). */
 export const LIVE_LINE_TEAM_ALIAS_GROUPS: readonly (readonly string[])[] = [
   ["Illinois Chicago", "UIC"],
@@ -281,6 +290,20 @@ export const LIVE_LINE_TEAM_ALIAS_GROUPS: readonly (readonly string[])[] = [
   ["Cal Baptist", "California Baptist", "CA Baptist"],
   ["Tennessee Martin", "UT Martin"],
   ["Seattle", "Seattle U"],
+  // 11/23: ESPN shows "App State Mountaineers" / "App State" / "APP".
+  ["Appalachian St.", "App State"],
+  // ESPN shows "Grambling Tigers" / "Grambling" (the loose St. fallback won't bridge Grambling St. → Grambling).
+  ["Grambling St.", "Grambling"],
+  // Season sweep 11/1–11/23: other ESPN location names our rows don't share.
+  ["Mississippi", "Ole Miss"],
+  ["N.C. State", "NC State"],
+  ["Connecticut", "UConn"],
+  ["Miami FL", "Miami"],
+  ["Texas A&M Corpus Chris", "Texas A&M-Corpus Christi", "Texas A&M-CC"],
+  ["USC Upstate", "South Carolina Upstate", "SC Upstate"],
+  ["Louisiana Monroe", "UL Monroe"],
+  ["Southeastern Louisiana", "SE Louisiana"],
+  ["Nebraska Omaha", "Omaha"],
 ];
 
 function buildAliasKeyMap(): Map<string, ReadonlySet<string>> {
@@ -425,11 +448,41 @@ function rankAgainstSide(ours: OurTeamSides, side: "home" | "away", comp: EspnCo
   return best;
 }
 
-/** Map ESPN competitors onto *our* home/away. Null unless both sides match uniquely and confidently. */
+const cleanId = (v: string | null | undefined): string | null => parseEspnId(v);
+
+/** Exact match on stored ESPN team ids (teams.external_ids.espn). Returns undefined when ids can't decide
+ *  (missing, or contradicting each other) so the caller falls back to names. */
+function matchByEspnIds(ours: OurTeamSides, competitors: EspnCompetitor[]): { home: number; away: number } | undefined {
+  const h = cleanId(ours.homeEspnId), a = cleanId(ours.awayEspnId);
+  if (h && a && h === a) return undefined;
+  const [c0, c1] = competitors;
+  const ids = [c0.espnId, c1.espnId];
+  const pick = (homeIdx: 0 | 1) => ({ home: competitors[homeIdx].score, away: competitors[homeIdx === 0 ? 1 : 0].score });
+  if (h && a) {
+    if (ids[0] === h && ids[1] === a) return pick(0);
+    if (ids[0] === a && ids[1] === h) return pick(1);
+  }
+  // One side known: that competitor is that side; the other competitor must not carry a different known id.
+  const one = (id: string | null, side: "home" | "away", otherId: string | null) => {
+    if (!id) return undefined;
+    const idx = ids.indexOf(id);
+    if (idx < 0 || ids.lastIndexOf(id) !== idx) return undefined;
+    const other = ids[idx === 0 ? 1 : 0];
+    if (otherId && other && other !== otherId) return undefined;
+    const homeIdx = (side === "home" ? idx : 1 - idx) as 0 | 1;
+    return pick(homeIdx);
+  };
+  return one(h, "home", a) ?? one(a, "away", h);
+}
+
+/** Map ESPN competitors onto *our* home/away. Stored ESPN ids win; otherwise null unless both sides match
+ *  uniquely and confidently by name. */
 export function matchEspnScores(ours: OurTeamSides, competitors: EspnCompetitor[] | null | undefined): { home: number; away: number } | null {
   if (!competitors || competitors.length !== 2) return null;
-  if (!ours.home?.trim() || !ours.away?.trim()) return null;
   if (!Number.isFinite(competitors[0].score) || !Number.isFinite(competitors[1].score)) return null;
+  const byId = matchByEspnIds(ours, competitors);
+  if (byId) return byId;
+  if (!ours.home?.trim() || !ours.away?.trim()) return null;
   const assigned: Array<"home" | "away" | null> = [null, null];
   for (let i = 0; i < 2; i++) {
     const hits = (["home", "away"] as const)
@@ -447,10 +500,9 @@ export function matchEspnScores(ours: OurTeamSides, competitors: EspnCompetitor[
   };
 }
 
-/** Attach our-side scores to a feed. in/post with no unique match returns null so the panel stays manual. */
-export function bindFeedScores(feed: LiveFeedSnapshot, ours: OurTeamSides): LiveFeedSnapshot | null {
+/** Attach our-side scores to a feed. With no unique match the feed keeps its period/clock and scores stay
+ *  null, so the panel still gets the clock but the scores stay manual (never guessed or swapped). */
+export function bindFeedScores(feed: LiveFeedSnapshot, ours: OurTeamSides): LiveFeedSnapshot {
   if (feed.phase === "pre") return { ...feed, scores: null };
-  const scores = matchEspnScores(ours, feed.competitors);
-  if (!scores) return null;
-  return { ...feed, scores };
+  return { ...feed, scores: matchEspnScores(ours, feed.competitors) };
 }

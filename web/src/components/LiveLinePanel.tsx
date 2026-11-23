@@ -48,8 +48,8 @@ async function loadLiveFeed(eventId: string, ours: OurTeamSides): Promise<LiveFe
     const res = await fetch(ESPN_MEN_CBB_SUMMARY(eventId), { cache: "no-store" });
     if (res.ok) {
       const raw = feedFromEspnPayload(await res.json());
-      const parsed = raw ? bindFeedScores(raw, ours) : null;
-      if (parsed) return parsed;
+      // Unbound teams still return the feed (clock only, scores null) — no reason to retry via the proxy.
+      if (raw) return bindFeedScores(raw, ours);
     }
   } catch { /* CORS or network — try the read-only proxy */ }
   try {
@@ -103,6 +103,7 @@ function LivePanel({ g, onClose }: { g: SlateGame; onClose: () => void }) {
   const dirty = useRef(false);
   const poller = useRef<ReturnType<typeof createLiveFeedPoller> | null>(null);
   const [fromFeed, setFromFeed] = useState(false);
+  const [scoresFromFeed, setScoresFromFeed] = useState(true);
   const [mounted, setMounted] = useState(false);
   const uiRef = useRef({ period, minutesLeft: minutes, home, away, fromFeed });
   uiRef.current = { period, minutesLeft: minutes, home, away, fromFeed };
@@ -123,6 +124,7 @@ function LivePanel({ g, onClose }: { g: SlateGame; onClose: () => void }) {
     setHome(next.home);
     setAway(next.away);
     setFromFeed(next.fromFeed);
+    setScoresFromFeed(next.scoresFromFeed !== false);
     uiRef.current = next;
     if (feed.phase === "post") poller.current?.stop();
   }, []);
@@ -246,7 +248,7 @@ function LivePanel({ g, onClose }: { g: SlateGame; onClose: () => void }) {
         ) : (
           <p className="mt-2 font-mono text-[13px] font-semibold text-zinc-200">20 min left</p>
         )}
-        {fromFeed && <p className="mt-0.5 text-[11px] text-zinc-500">from live feed</p>}
+        {fromFeed && <p className="mt-0.5 text-[11px] text-zinc-500">{scoresFromFeed ? "from live feed" : "clock from live feed · enter the score"}</p>}
 
         <div className="mt-3.5 rounded-2xl border border-ink-700 bg-ink-950 p-3">
           <div className="grid grid-cols-3 gap-1.5 text-center">
