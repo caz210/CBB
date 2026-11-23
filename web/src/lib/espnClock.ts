@@ -101,7 +101,7 @@ export function clockFromEspnPayload(payload: unknown): EspnLiveClock | null {
   return clockFromEspnStatus(statusFromEspnPayload(payload));
 }
 
-/** Scores from the same payload, if present (home/away). Nulls omitted. */
+/** ESPN's own home/away scores. Neutral sites can flip these vs our home/away — do not prefill from this. */
 export function scoresFromEspnPayload(payload: unknown): { home: number; away: number } | null {
   const root = asRecord(payload);
   if (!root) return null;
@@ -161,19 +161,29 @@ export type LiveFeedSnapshot = {
   phase: EspnGamePhase;
   clock: EspnLiveClock | null;
   scores: { home: number; away: number } | null;
+  competitors?: EspnCompetitor[] | null;
 };
 
 export function feedFromEspnStatus(
   status: unknown,
   scores: { home: number; away: number } | null,
+  competitors?: EspnCompetitor[] | null,
 ): LiveFeedSnapshot | null {
   const phase = phaseFromEspnStatus(status);
   if (!phase) return null;
-  return { phase, clock: clockFromEspnStatus(status), scores };
+  return { phase, clock: clockFromEspnStatus(status), scores, competitors: competitors ?? null };
 }
 
 export function feedFromEspnPayload(payload: unknown): LiveFeedSnapshot | null {
-  return feedFromEspnStatus(statusFromEspnPayload(payload), scoresFromEspnPayload(payload));
+  const status = statusFromEspnPayload(payload);
+  const phase = phaseFromEspnStatus(status);
+  if (!phase) return null;
+  return {
+    phase,
+    clock: clockFromEspnStatus(status),
+    competitors: competitorsFromEspnPayload(payload),
+    scores: null,
+  };
 }
 
 export type LiveLineUiState = {
@@ -184,28 +194,20 @@ export type LiveLineUiState = {
   fromFeed: boolean;
 };
 
-/** Apply an ESPN snapshot to the panel. pre keeps the current defaults; in prefills clock and ESPN scores;
- *  post is Final with ESPN scores (wins over a stale DB in_progress). Dirty state is left alone. */
+/** Apply an ESPN snapshot to the panel. pre keeps the current defaults; in prefills clock and *matched* scores;
+ *  post is Final with matched scores (wins over a stale DB in_progress). If scores could not be matched
+ *  to our teams, leave the panel alone (manual). Dirty state is left alone. */
 export function applyEspnFeed(current: LiveLineUiState, feed: LiveFeedSnapshot, dirty: boolean): LiveLineUiState {
   if (dirty) return current;
   if (feed.phase === "pre") return { ...current, fromFeed: false };
+  if (feed.scores == null) return current;
+  const home = Math.max(0, Math.round(feed.scores.home));
+  const away = Math.max(0, Math.round(feed.scores.away));
   if (feed.phase === "post") {
-    return {
-      period: "FINAL",
-      minutesLeft: 0,
-      home: feed.scores != null ? Math.max(0, Math.round(feed.scores.home)) : current.home,
-      away: feed.scores != null ? Math.max(0, Math.round(feed.scores.away)) : current.away,
-      fromFeed: true,
-    };
+    return { period: "FINAL", minutesLeft: 0, home, away, fromFeed: true };
   }
   if (!feed.clock) return current;
-  return {
-    period: feed.clock.period,
-    minutesLeft: feed.clock.minutesLeft,
-    home: feed.scores != null ? Math.max(0, Math.round(feed.scores.home)) : current.home,
-    away: feed.scores != null ? Math.max(0, Math.round(feed.scores.away)) : current.away,
-    fromFeed: true,
-  };
+  return { period: feed.clock.period, minutesLeft: feed.clock.minutesLeft, home, away, fromFeed: true };
 }
 
 /** How early to start asking ESPN, relative to tipoff. */
@@ -231,4 +233,176 @@ export function shouldFetchLiveFeed(input: {
   const tip = Date.parse(String(input.tipoff));
   if (!Number.isFinite(tip)) return true;
   return now >= tip - LIVE_FEED_LEAD_MS;
+}
+
+
+export type EspnCompetitor = {
+  score: number;
+  homeAway: "home" | "away" | null;
+  espnId: string | null;
+  labels: string[];
+};
+
+export type OurTeamSides = {
+  home: string;
+  away: string;
+  homeEspnId?: string | null;
+  awayEspnId?: string | null;
+};
+
+function foldTeamText(raw: string): string[] {
+  const s = raw
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/&/g, " and ")
+    .replace(/[''`’]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+  if (!s) return [];
+  return s.split(/\s+/).filter(Boolean).map((tok) => {
+    if (tok === "saint" || tok === "state" || tok === "st") return "st";
+    return tok;
+  });
+}
+
+/** Tight key unifies St./State/Saint; loose key drops those tokens. */
+export function teamMatchKey(raw: string, loose = false): string {
+  const toks = foldTeamText(raw);
+  return (loose ? toks.filter((t) => t !== "st") : toks).join(" ");
+}
+
+function isPrefixTokens(short: string, long: string): boolean {
+  if (!short || !long || short === long) return false;
+  const a = short.split(" ");
+  const b = long.split(" ");
+  if (a.length < 2 || a.length > b.length) return false;
+  return a.every((t, i) => t === b[i]);
+}
+
+function parseEspnId(raw: unknown): string | null {
+  if (raw == null || raw === "") return null;
+  const s = String(raw).trim();
+  return /^\d{1,12}$/.test(s) ? s : null;
+}
+
+function labelsFromCompetitor(c: Record<string, unknown>, team: Record<string, unknown>): string[] {
+  const raw = [
+    team.displayName, team.shortDisplayName, team.abbreviation, team.location,
+    team.name, team.nickname, team.alternateName,
+    c.abbreviation, c.displayName, c.name, c.location,
+  ];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const v of raw) {
+    if (v == null) continue;
+    const s = String(v).trim();
+    if (!s) continue;
+    const k = s.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(s);
+  }
+  return out;
+}
+
+export function competitorsFromEspnCompetition(comp: unknown): EspnCompetitor[] | null {
+  const rec = asRecord(comp);
+  const list = rec && Array.isArray(rec.competitors) ? rec.competitors as unknown[] : [];
+  const out: EspnCompetitor[] = [];
+  for (const raw of list) {
+    const c = asRecord(raw);
+    if (!c) continue;
+    const team = asRecord(c.team) ?? {};
+    const score = c.score == null || c.score === "" ? NaN : Number(c.score);
+    if (!Number.isFinite(score)) continue;
+    const side = String(c.homeAway ?? "").toLowerCase();
+    out.push({
+      score,
+      homeAway: side === "home" || side === "away" ? side : null,
+      espnId: parseEspnId(team.id) ?? parseEspnId(c.id),
+      labels: labelsFromCompetitor(c, team),
+    });
+  }
+  return out.length ? out : null;
+}
+
+function competitionsFromEspnPayload(payload: unknown): unknown[] {
+  const root = asRecord(payload);
+  if (!root) return [];
+  const comps: unknown[] = [];
+  const header = asRecord(root.header);
+  if (header && Array.isArray(header.competitions)) comps.push(...header.competitions);
+  if (Array.isArray(root.events)) {
+    for (const ev of root.events) {
+      const c = asRecord(ev);
+      if (c && Array.isArray(c.competitions)) comps.push(...c.competitions);
+    }
+  }
+  return comps;
+}
+
+export function competitorsFromEspnPayload(payload: unknown): EspnCompetitor[] | null {
+  for (const comp of competitionsFromEspnPayload(payload)) {
+    const list = competitorsFromEspnCompetition(comp);
+    if (list && list.length === 2) return list;
+  }
+  return null;
+}
+
+const RANK_ID = 4;
+const RANK_TIGHT = 3;
+const RANK_PREFIX = 2;
+const RANK_LOOSE = 1;
+
+function rankAgainstSide(ours: OurTeamSides, side: "home" | "away", comp: EspnCompetitor): number {
+  const ourId = side === "home" ? ours.homeEspnId : ours.awayEspnId;
+  const ourName = side === "home" ? ours.home : ours.away;
+  if (ourId && comp.espnId && String(ourId).trim() === comp.espnId) return RANK_ID;
+  const ourTight = teamMatchKey(ourName, false);
+  const ourLoose = teamMatchKey(ourName, true);
+  let best = 0;
+  for (const lab of comp.labels) {
+    const tight = teamMatchKey(lab, false);
+    const loose = teamMatchKey(lab, true);
+    if (ourTight && tight && ourTight === tight) { best = Math.max(best, RANK_TIGHT); continue; }
+    if (ourTight && tight && (isPrefixTokens(ourTight, tight) || isPrefixTokens(tight, ourTight))) {
+      best = Math.max(best, RANK_PREFIX);
+      continue;
+    }
+    if (ourLoose && loose && ourLoose.length >= 4 && ourLoose === loose) {
+      best = Math.max(best, RANK_LOOSE);
+    }
+  }
+  return best;
+}
+
+/** Map ESPN competitors onto *our* home/away. Null unless both sides match uniquely and confidently. */
+export function matchEspnScores(ours: OurTeamSides, competitors: EspnCompetitor[] | null | undefined): { home: number; away: number } | null {
+  if (!competitors || competitors.length !== 2) return null;
+  if (!ours.home?.trim() || !ours.away?.trim()) return null;
+  if (!Number.isFinite(competitors[0].score) || !Number.isFinite(competitors[1].score)) return null;
+  const assigned: Array<"home" | "away" | null> = [null, null];
+  for (let i = 0; i < 2; i++) {
+    const hits = (["home", "away"] as const)
+      .map((side) => ({ side, rank: rankAgainstSide(ours, side, competitors[i]) }))
+      .filter((h) => h.rank > 0)
+      .sort((a, b) => b.rank - a.rank);
+    if (!hits.length) return null;
+    if (hits.length >= 2 && hits[0].rank === hits[1].rank) return null;
+    assigned[i] = hits[0].side;
+  }
+  if (!assigned[0] || !assigned[1] || assigned[0] === assigned[1]) return null;
+  return {
+    home: assigned[0] === "home" ? competitors[0].score : competitors[1].score,
+    away: assigned[0] === "away" ? competitors[0].score : competitors[1].score,
+  };
+}
+
+/** Attach our-side scores to a feed. in/post with no unique match returns null so the panel stays manual. */
+export function bindFeedScores(feed: LiveFeedSnapshot, ours: OurTeamSides): LiveFeedSnapshot | null {
+  if (feed.phase === "pre") return { ...feed, scores: null };
+  const scores = matchEspnScores(ours, feed.competitors);
+  if (!scores) return null;
+  return { ...feed, scores };
 }

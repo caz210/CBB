@@ -17,11 +17,13 @@ import {
 import {
   ESPN_MEN_CBB_SUMMARY,
   applyEspnFeed,
+  bindFeedScores,
   feedFromEspnPayload,
   feedFromEspnStatus,
   isEspnEventId,
   shouldFetchLiveFeed,
   type LiveFeedSnapshot,
+  type OurTeamSides,
 } from "@/lib/espnClock";
 import { createLiveFeedPoller } from "@/lib/liveClock";
 
@@ -36,20 +38,26 @@ const SEGMENTS: { k: PeriodKey; label: string }[] = [
 
 const POLL_MS = 30_000;
 
-async function loadLiveFeed(eventId: string): Promise<LiveFeedSnapshot | null> {
+function ourSides(g: { home: string; away: string; home_espn_id?: string | null; away_espn_id?: string | null }): OurTeamSides {
+  return { home: g.home, away: g.away, homeEspnId: g.home_espn_id, awayEspnId: g.away_espn_id };
+}
+
+async function loadLiveFeed(eventId: string, ours: OurTeamSides): Promise<LiveFeedSnapshot | null> {
   if (!isEspnEventId(eventId)) return null;
   try {
     const res = await fetch(ESPN_MEN_CBB_SUMMARY(eventId), { cache: "no-store" });
     if (res.ok) {
-      const parsed = feedFromEspnPayload(await res.json());
+      const raw = feedFromEspnPayload(await res.json());
+      const parsed = raw ? bindFeedScores(raw, ours) : null;
       if (parsed) return parsed;
     }
   } catch { /* CORS or network — try the read-only proxy */ }
   try {
     const res = await fetch(`/api/live-clock?event=${encodeURIComponent(eventId)}`, { cache: "no-store" });
     if (!res.ok) return null;
-    const j = await res.json() as { status?: unknown; scores?: { home: number; away: number } | null };
-    return feedFromEspnStatus(j.status, j.scores ?? null);
+    const j = await res.json() as { status?: unknown; competitors?: LiveFeedSnapshot["competitors"] };
+    const feed = feedFromEspnStatus(j.status, null, j.competitors ?? null);
+    return feed ? bindFeedScores(feed, ours) : null;
   } catch {
     return null;
   }
@@ -124,14 +132,14 @@ function LivePanel({ g, onClose }: { g: SlateGame; onClose: () => void }) {
     let cancelled = false;
     const p = createLiveFeedPoller(() => {
       if (dirty.current || cancelled) return;
-      void loadLiveFeed(g.external_id!).then((feed) => {
+      void loadLiveFeed(g.external_id!, ourSides(g)).then((feed) => {
         if (!cancelled && !dirty.current && feed) applyFeed(feed);
       });
     }, POLL_MS);
     poller.current = p;
     p.start();
     return () => { cancelled = true; p.stop(); if (poller.current === p) poller.current = null; };
-  }, [g.status, g.external_id, g.tipoff, applyFeed]);
+  }, [g.status, g.external_id, g.tipoff, g.home, g.away, g.home_espn_id, g.away_espn_id, applyFeed]);
 
   useEffect(() => {
     const k = (e: KeyboardEvent) => {

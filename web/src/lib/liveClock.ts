@@ -1,10 +1,10 @@
 /** Read-only ESPN summary fetch used by /api/live-clock. No keys, no writes.
  *  Do not send a custom CZarp User-Agent — ESPN 403s it. */
-import { ESPN_MEN_CBB_SUMMARY, isEspnEventId, scoresFromEspnPayload, statusFromEspnPayload } from "./espnClock";
+import { ESPN_MEN_CBB_SUMMARY, competitorsFromEspnPayload, isEspnEventId, statusFromEspnPayload } from "./espnClock";
 
 export const ESPN_TIMEOUT_MS = 5_000;
 
-export type LiveClockBody = { status: unknown; scores: { home: number; away: number } | null };
+export type LiveClockBody = { status: unknown; competitors: ReturnType<typeof competitorsFromEspnPayload> };
 export type LiveClockResult =
   | { http: 200; body: LiveClockBody }
   | { http: 400 | 502 | 504; body: { error: string } };
@@ -27,7 +27,7 @@ export async function loadLiveClockEvent(
     const res = await fetcher(ESPN_MEN_CBB_SUMMARY(event), espnSummaryRequestInit(ac.signal));
     if (!res.ok) return { http: 502, body: { error: "espn" } };
     const payload: unknown = await res.json();
-    return { http: 200, body: { status: statusFromEspnPayload(payload), scores: scoresFromEspnPayload(payload) } };
+    return { http: 200, body: { status: statusFromEspnPayload(payload), competitors: competitorsFromEspnPayload(payload) } };
   } catch (err) {
     const aborted = ac.signal.aborted || (err instanceof Error && err.name === "AbortError");
     return { http: aborted ? 504 : 502, body: { error: aborted ? "timeout" : "espn" } };

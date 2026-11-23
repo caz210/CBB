@@ -317,6 +317,7 @@ export async function loadSlateFrom(sb: SB, sport: Sport, date: string): Promise
     // Past slates keep the reason that was stored with that day's projection instead.
     if (date >= todayCT()) await attachNewCoaches(sb, games, st.data ?? []);
     await attachTeamTags(sb, games, st.data ?? []);
+    await attachEspnTeamIds(sb, games, (st.data ?? []) as Row[]);
     aliases = await loadSlateAliases(sb, games, (st.data ?? []) as Row[]);
     const ins = await loadInsights(sb, ids);
     for (const x of games) {
@@ -434,6 +435,43 @@ async function attachNewCoaches(sb: SB, games: SlateGame[], gameRows: Row[]) {
 
 /** Replace each team's capped slate tags with every fired public tag from team_profile_latest.tags_all.
  *  The stored top-2 list is kept as homeTop/awayTop for the 320px compact card. Failures are non-fatal. */
+
+/** teams.external_ids.espn for each slate side, when stored. Failures are non-fatal; name matching still works. */
+async function attachEspnTeamIds(sb: SB, games: SlateGame[], gameRows: Row[]) {
+  const idsByGame = new Map<number, { home: number | null; away: number | null }>();
+  const teamIds = new Set<number>();
+  for (const r of gameRows) {
+    const home = num(r.home_team_id);
+    const away = num(r.away_team_id);
+    idsByGame.set(Number(r.id), { home, away });
+    if (home) teamIds.add(home);
+    if (away) teamIds.add(away);
+  }
+  if (!teamIds.size) return;
+  try {
+    const q = await sb.from("teams").select("id,external_ids").in("id", [...teamIds]).limit(500);
+    if (q.error || !q.data) return;
+    const espnByTeam = new Map<number, string>();
+    for (const r of q.data as Row[]) {
+      const ext = r.external_ids;
+      const bag = ext && typeof ext === "object" && !Array.isArray(ext) ? ext as Record<string, unknown> : null;
+      const raw = bag?.espn ?? bag?.ESPN;
+      if (raw == null || raw === "") continue;
+      const id = String(raw).trim();
+      if (!id) continue;
+      espnByTeam.set(Number(r.id), id);
+    }
+    for (const g of games) {
+      const ids = idsByGame.get(g.game_id);
+      if (!ids) continue;
+      g.home_espn_id = ids.home != null ? espnByTeam.get(ids.home) ?? null : null;
+      g.away_espn_id = ids.away != null ? espnByTeam.get(ids.away) ?? null : null;
+    }
+  } catch {
+    /* leave ids unset */
+  }
+}
+
 /** team_aliases for the teams on this slate, keyed by the slate's team name. Never throws; null on failure. */
 async function loadSlateAliases(sb: SB, games: SlateGame[], gameRows: Row[]): Promise<Record<string, string[]> | null> {
   const nameById = new Map<number, Set<string>>();
