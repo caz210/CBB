@@ -59,7 +59,7 @@ for (const mode of ["ok", "error", "throw"] as const) {
     // the status query is the one main has: it never mentions neutral
     const status = calls.find((c) => c.table === "games" && c.cols.includes("status"));
     assert.ok(status && !/neutral/.test(status.cols), "status select unchanged");
-    assert.equal(status!.cols, "id,status,updated_at,final_at,final_at_estimated,home,away,home_team_id,away_team_id,home_score,away_score");
+    assert.equal(status!.cols, "id,status,updated_at,final_at,final_at_estimated,home,away,home_team_id,away_team_id,home_score,away_score,external_id");
   });
 }
 

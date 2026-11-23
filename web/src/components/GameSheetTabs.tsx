@@ -29,6 +29,7 @@ import {
   type SheetTeamExtras,
 } from "@/lib/sheetExtras";
 import { ArchetypeChip } from "./ArchetypeChip";
+import { LiveLineEntry } from "./LiveLinePanel";
 import { InfoTip } from "./InfoTip";
 import { VerdictChip } from "./StatusChips";
 import Link from "next/link";
@@ -417,6 +418,7 @@ export function GameSheetTabs({ g, bets, sportKey, extras, loading }: { g: Slate
       </div>
       <div role="tabpanel" id="sheet-panel-bet" aria-labelledby="sheet-tab-bet" hidden={tab !== "bet"}>
         <QuickBetBlock g={g} bets={bets} />
+        <LiveLineEntry g={g} />
       </div>
       <div role="tabpanel" id="sheet-panel-matchup" aria-labelledby="sheet-tab-matchup" hidden={tab !== "matchup"}>
         <ExtrasState loading={loading} extras={extras}>
