@@ -142,6 +142,9 @@ def main() -> None:
     # (same as maskable) avoids a dark gutter under the iOS corner mask.
     apple = paint_full_bleed(180, safe_ratio=0.80)
     save_png(apple, OUT / "apple-touch-icon.png", opaque=True)
+    # iOS also requests these at the site root (not just /icons/).
+    save_png(apple, ROOT / "public" / "apple-touch-icon.png", opaque=True)
+    save_png(apple, ROOT / "public" / "apple-touch-icon-precomposed.png", opaque=True)
 
     # Replace the default Next/Vercel triangle favicon with the same mark.
     save_favicon(any_512, APP / "favicon.ico")

@@ -3,7 +3,7 @@ import "./globals.css";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SiteFooter } from "@/components/SiteFooter";
 import { BottomNav } from "@/components/BottomNav";
-import { IosHomeHint } from "@/components/IosHomeHint";
+import { HomeScreenHint } from "@/components/HomeScreenHint";
 import { SITE_URL } from "@/lib/site";
 import { PWA_NAME, PWA_THEME_COLOR } from "@/lib/pwa";
 
@@ -39,7 +39,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="en">
       <body className="min-h-screen pb-[calc(3.5rem+env(safe-area-inset-bottom))] antialiased lg:pb-0">
         <SiteHeader />
-        <IosHomeHint />
+        <HomeScreenHint />
         <main>{children}</main>
         <SiteFooter />
         <BottomNav />
