@@ -6,7 +6,7 @@ import {
   SHARE_1H, SHARE_2H, MARGIN_SD, HALF_MIN, OT_MIN,
   remainingShare, timeLeftMin, roundToHalf, phi, erf, liveLine,
   defaultLiveState, defaultLiveScores, normalizeClock, sliderBounds,
-  LIVE_LINE_DISCLAIMER,
+  LIVE_LINE_DISCLAIMER, nextLiveLinePeriod, LIVE_LINE_PERIODS,
 } from "../src/lib/liveLine";
 
 const duke = {
@@ -113,17 +113,48 @@ test("defaults: scheduled is 1H at 20 with 0-0; in_progress is 2H at 20 with sto
   assert.deepEqual(defaultLiveScores("in_progress", {}), { home: 0, away: 0 });
   assert.equal(HALF_MIN, 20);
   assert.equal(OT_MIN, 5);
+  // A scheduled-but-tipped row (LUC vs SJSU) must not use stale DB scores; ESPN fills those in.
+  assert.deepEqual(defaultLiveState("scheduled"), { period: "1H", minutesLeft: 20 });
+  assert.deepEqual(defaultLiveScores("scheduled", { home_score: 59, away_score: 66 }), { home: 0, away: 0 });
+  assert.deepEqual(defaultLiveState("final"), { period: "FINAL", minutesLeft: 0 });
+  assert.deepEqual(defaultLiveScores("final", { home_score: 72, away_score: 68 }), { home: 72, away: 68 });
+  assert.equal(remainingShare("FINAL", 0), 0);
+  const done = liveLine({ czarpTotal: 151, projHome: 76.2, projAway: 72, homeScore: 72, awayScore: 68, period: "FINAL", minutesLeft: 0 });
+  assert.ok(done);
+  assert.equal(done.remShare, 0);
+  assert.equal(done.liveTotal, 140);
+  assert.equal(done.liveSpread, -4);
+  assert.equal(done.homeWinProb, 1);
 });
 
 test("disclaimer is the customer copy; live line source has no book line, Edge %, paper, KenPom, or v1/v2", () => {
   assert.match(LIVE_LINE_DISCLAIMER, /This is an estimate, not an official CZarp play\. It never goes on the official record\./);
   const root = resolve(__dirname, "../src");
   const files = [
-    "lib/liveLine.ts", "lib/espnClock.ts", "components/LiveLinePanel.tsx", "app/api/live-clock/route.ts",
+    "lib/liveLine.ts", "lib/espnClock.ts", "lib/liveClock.ts", "components/LiveLinePanel.tsx", "app/api/live-clock/route.ts",
   ].map((f) => resolve(root, f));
   for (const f of files) {
     let src: string;
     try { src = readFileSync(f, "utf8"); } catch { continue; }
     assert.doesNotMatch(src, /KenPom|v1\/v2|\bpaper\b|book line|Edge %|edge_pct|bookSpread|bookTotal/i, f);
   }
+});
+
+test("period radiogroup: Arrow, Home, and End move between 1H, Halftime, 2H, OT", () => {
+  assert.deepEqual([...LIVE_LINE_PERIODS], ["1H", "HALFTIME", "2H", "OT"]);
+  assert.equal(nextLiveLinePeriod("1H", "ArrowRight"), "HALFTIME");
+  assert.equal(nextLiveLinePeriod("HALFTIME", "ArrowRight"), "2H");
+  assert.equal(nextLiveLinePeriod("2H", "ArrowRight"), "OT");
+  assert.equal(nextLiveLinePeriod("OT", "ArrowRight"), "1H");
+  assert.equal(nextLiveLinePeriod("1H", "ArrowDown"), "HALFTIME");
+  assert.equal(nextLiveLinePeriod("1H", "ArrowLeft"), "OT");
+  assert.equal(nextLiveLinePeriod("OT", "ArrowLeft"), "2H");
+  assert.equal(nextLiveLinePeriod("2H", "ArrowUp"), "HALFTIME");
+  assert.equal(nextLiveLinePeriod("2H", "Home"), "1H");
+  assert.equal(nextLiveLinePeriod("1H", "Home"), "1H");
+  assert.equal(nextLiveLinePeriod("1H", "End"), "OT");
+  assert.equal(nextLiveLinePeriod("OT", "End"), "OT");
+  assert.equal(nextLiveLinePeriod("2H", "Enter"), null);
+  assert.equal(nextLiveLinePeriod("FINAL", "Home"), "1H");
+  assert.equal(nextLiveLinePeriod("FINAL", "End"), "OT");
 });

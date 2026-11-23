@@ -62,6 +62,7 @@ export function periodFromEspnPeriod(period: unknown): "1H" | "2H" | "OT" | null
 
 /** Round minutes to the nearest whole minute and clamp to the slider (20–1, or 5–1 in OT). 0:00 and 0:xx become 1. */
 export function clampRoundedMinutes(period: Exclude<LivePeriod, "TIP">, minutes: number): number {
+  if (period === "FINAL" || period === "HALFTIME") return period === "FINAL" ? 0 : HALF_MIN;
   const max = period === "OT" ? OT_MIN : HALF_MIN;
   const rounded = Math.round(minutes);
   return Math.min(max, Math.max(1, rounded));
@@ -134,3 +135,100 @@ export const ESPN_MEN_CBB_SUMMARY = (eventId: string) =>
   `https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/summary?event=${encodeURIComponent(eventId)}`;
 
 export const isEspnEventId = (id: string) => /^\d{4,12}$/.test(id);
+
+export type EspnGamePhase = "pre" | "in" | "post";
+
+/** ESPN type.state (pre / in / post), with name fallbacks. Postponed/canceled return null. */
+export function phaseFromEspnStatus(status: unknown): EspnGamePhase | null {
+  const s = asRecord(status);
+  if (!s) return null;
+  const t = typeBlob(s);
+  const name = String(t.name ?? "");
+  const blob = text(t.name, t.description, t.detail, t.shortDetail).toLowerCase();
+  if (/STATUS_POSTPONED|STATUS_CANCELED|STATUS_CANCELLED/i.test(name) || /\b(postponed|canceled|cancelled)\b/.test(blob)) {
+    return null;
+  }
+  const state = String(t.state ?? "").toLowerCase();
+  if (state === "pre") return "pre";
+  if (state === "in") return "in";
+  if (state === "post" || t.completed === true || name === "STATUS_FINAL" || /\bfinal\b/.test(blob)) return "post";
+  if (/STATUS_SCHEDULED|STATUS_PRE/i.test(name)) return "pre";
+  if (/STATUS_IN_PROGRESS|STATUS_HALFTIME|STATUS_END_PERIOD/i.test(name)) return "in";
+  return null;
+}
+
+export type LiveFeedSnapshot = {
+  phase: EspnGamePhase;
+  clock: EspnLiveClock | null;
+  scores: { home: number; away: number } | null;
+};
+
+export function feedFromEspnStatus(
+  status: unknown,
+  scores: { home: number; away: number } | null,
+): LiveFeedSnapshot | null {
+  const phase = phaseFromEspnStatus(status);
+  if (!phase) return null;
+  return { phase, clock: clockFromEspnStatus(status), scores };
+}
+
+export function feedFromEspnPayload(payload: unknown): LiveFeedSnapshot | null {
+  return feedFromEspnStatus(statusFromEspnPayload(payload), scoresFromEspnPayload(payload));
+}
+
+export type LiveLineUiState = {
+  period: Exclude<LivePeriod, "TIP">;
+  minutesLeft: number;
+  home: number;
+  away: number;
+  fromFeed: boolean;
+};
+
+/** Apply an ESPN snapshot to the panel. pre keeps the current defaults; in prefills clock and ESPN scores;
+ *  post is Final with ESPN scores (wins over a stale DB in_progress). Dirty state is left alone. */
+export function applyEspnFeed(current: LiveLineUiState, feed: LiveFeedSnapshot, dirty: boolean): LiveLineUiState {
+  if (dirty) return current;
+  if (feed.phase === "pre") return { ...current, fromFeed: false };
+  if (feed.phase === "post") {
+    return {
+      period: "FINAL",
+      minutesLeft: 0,
+      home: feed.scores != null ? Math.max(0, Math.round(feed.scores.home)) : current.home,
+      away: feed.scores != null ? Math.max(0, Math.round(feed.scores.away)) : current.away,
+      fromFeed: true,
+    };
+  }
+  if (!feed.clock) return current;
+  return {
+    period: feed.clock.period,
+    minutesLeft: feed.clock.minutesLeft,
+    home: feed.scores != null ? Math.max(0, Math.round(feed.scores.home)) : current.home,
+    away: feed.scores != null ? Math.max(0, Math.round(feed.scores.away)) : current.away,
+    fromFeed: true,
+  };
+}
+
+/** How early to start asking ESPN, relative to tipoff. */
+export const LIVE_FEED_LEAD_MS = 5 * 60 * 1000;
+
+export function isClosedDbStatus(status: string | null | undefined): boolean {
+  const s = (status ?? "").toLowerCase().trim();
+  return s === "final" || s === "completed" || s === "postponed" || s === "canceled" || s === "cancelled";
+}
+
+/** Fetch ESPN when we have an event id, the DB row is not closed, and we are within 5 minutes of tip (or past it).
+ *  Do not wait for games.status === "in_progress" — that column often stays "scheduled" mid-game. */
+export function shouldFetchLiveFeed(input: {
+  externalId?: string | null;
+  status?: string | null;
+  tipoff?: string | null;
+  now?: number | Date;
+}): boolean {
+  if (!input.externalId || !isEspnEventId(String(input.externalId))) return false;
+  if (isClosedDbStatus(input.status)) return false;
+  const now = input.now instanceof Date ? input.now.getTime() : (input.now ?? Date.now());
+  if (input.tipoff == null || String(input.tipoff).trim() === "") return true;
+  const tip = Date.parse(String(input.tipoff));
+  if (!Number.isFinite(tip)) return true;
+  return now >= tip - LIVE_FEED_LEAD_MS;
+}

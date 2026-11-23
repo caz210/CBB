@@ -13,6 +13,11 @@ import {
   periodFromEspnPeriod,
   scoresFromEspnPayload,
   statusFromEspnPayload,
+  phaseFromEspnStatus,
+  feedFromEspnStatus,
+  applyEspnFeed,
+  shouldFetchLiveFeed,
+  type LiveLineUiState,
 } from "../src/lib/espnClock";
 
 test("parseDisplayClock: 12:34, 0:45.2, 20:00, and garbage", () => {
@@ -139,4 +144,48 @@ test("espn event ids are numeric; mapping lives in games.external_id", () => {
   assert.ok(root);
   const src = readFileSync(resolve(root, "lib/data.ts"), "utf8");
   assert.match(src, /external_id/);
+});
+
+const scheduledDefaults = (): LiveLineUiState => ({ period: "1H", minutesLeft: 20, home: 0, away: 0, fromFeed: false });
+const staleInProgress = (): LiveLineUiState => ({ period: "2H", minutesLeft: 20, home: 10, away: 8, fromFeed: false });
+
+test("ESPN pre keeps the panel defaults; in prefills period, clock, and scores; post is Final", () => {
+  const pre = { period: 1, displayClock: "20:00", type: { name: "STATUS_SCHEDULED", state: "pre", description: "Scheduled" } };
+  assert.equal(phaseFromEspnStatus(pre), "pre");
+  const afterPre = applyEspnFeed(scheduledDefaults(), feedFromEspnStatus(pre, { home: 0, away: 0 })!, false);
+  assert.deepEqual(afterPre, { period: "1H", minutesLeft: 20, home: 0, away: 0, fromFeed: false });
+
+  const live = { period: 2, displayClock: "3:36", type: { name: "STATUS_IN_PROGRESS", state: "in", description: "In Progress" } };
+  assert.equal(phaseFromEspnStatus(live), "in");
+  const afterIn = applyEspnFeed(scheduledDefaults(), feedFromEspnStatus(live, { home: 59, away: 66 })!, false);
+  assert.equal(afterIn.period, "2H");
+  assert.equal(afterIn.minutesLeft, 4); // 3:36 rounds to 4
+  assert.equal(afterIn.home, 59);
+  assert.equal(afterIn.away, 66);
+  assert.equal(afterIn.fromFeed, true);
+
+  const post = { period: 2, displayClock: "0:00", type: { name: "STATUS_FINAL", state: "post", completed: true, description: "Final" } };
+  assert.equal(phaseFromEspnStatus(post), "post");
+  const afterPost = applyEspnFeed(scheduledDefaults(), feedFromEspnStatus(post, { home: 72, away: 68 })!, false);
+  assert.deepEqual(afterPost, { period: "FINAL", minutesLeft: 0, home: 72, away: 68, fromFeed: true });
+});
+
+test("ESPN post wins over a stale DB in_progress default", () => {
+  const post = { period: 2, displayClock: "0:00", type: { name: "STATUS_FINAL", state: "post", completed: true, description: "Final" } };
+  const next = applyEspnFeed(staleInProgress(), feedFromEspnStatus(post, { home: 81, away: 77 })!, false);
+  assert.deepEqual(next, { period: "FINAL", minutesLeft: 0, home: 81, away: 77, fromFeed: true });
+  // dirty edits are left alone
+  assert.deepEqual(applyEspnFeed(staleInProgress(), feedFromEspnStatus(post, { home: 81, away: 77 })!, true), staleInProgress());
+});
+
+test("shouldFetchLiveFeed: scheduled-but-tipped (LUC vs SJSU) fetches; too-early and closed games do not", () => {
+  const luc = { externalId: "401911233", status: "scheduled", tipoff: "2026-11-23T04:59:00.000Z" };
+  assert.equal(shouldFetchLiveFeed({ ...luc, now: Date.parse("2026-11-23T05:30:00.000Z") }), true);
+  assert.equal(shouldFetchLiveFeed({ ...luc, now: Date.parse("2026-11-23T04:54:00.000Z") }), true); // tip - 5 min
+  assert.equal(shouldFetchLiveFeed({ ...luc, now: Date.parse("2026-11-23T04:53:59.000Z") }), false);
+  assert.equal(shouldFetchLiveFeed({ ...luc, status: "in_progress", now: Date.parse("2026-11-23T05:30:00.000Z") }), true);
+  assert.equal(shouldFetchLiveFeed({ ...luc, status: "final", now: Date.parse("2026-11-23T08:00:00.000Z") }), false);
+  assert.equal(shouldFetchLiveFeed({ ...luc, status: "postponed", now: Date.parse("2026-11-23T05:30:00.000Z") }), false);
+  assert.equal(shouldFetchLiveFeed({ ...luc, status: "canceled", now: Date.parse("2026-11-23T05:30:00.000Z") }), false);
+  assert.equal(shouldFetchLiveFeed({ externalId: null, status: "scheduled", tipoff: luc.tipoff, now: Date.parse("2026-11-23T05:30:00.000Z") }), false);
 });
