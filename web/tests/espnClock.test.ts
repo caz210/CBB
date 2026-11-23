@@ -251,7 +251,8 @@ test("ambiguous or unmatched pairs do not prefill", () => {
   assert.equal(matchEspnScores({ home: "San Jose St.", away: "San José State" }, competitors), null);
   // Neither name matches the payload.
   assert.equal(matchEspnScores({ home: "Duke", away: "Wake Forest" }, competitors), null);
-  assert.equal(bindFeedScores(feedFromEspnPayload(lucSjsuPayload)!, { home: "Duke", away: "Wake Forest" }), null);
+  // Unbound teams: the feed is kept (clock/phase) but scores stay null — never guessed.
+  assert.equal(bindFeedScores(feedFromEspnPayload(lucSjsuPayload)!, { home: "Duke", away: "Wake Forest" }).scores, null);
   const post = { period: 2, displayClock: "0:00", type: { name: "STATUS_FINAL", state: "post", completed: true, description: "Final" } };
   assert.deepEqual(applyEspnFeed(scheduledDefaults(), feedFromEspnStatus(post, null)!, false), scheduledDefaults());
 });
@@ -260,7 +261,7 @@ test("partial match (only one side) means no prefill", () => {
   const competitors = competitorsFromEspnPayload(lucSjsuPayload);
   assert.equal(matchEspnScores({ home: "Loyola Chicago", away: "Wake Forest" }, competitors), null);
   assert.equal(matchEspnScores({ home: "Duke", away: "San Jose St." }, competitors), null);
-  assert.equal(bindFeedScores(feedFromEspnPayload(lucSjsuPayload)!, { home: "Loyola Chicago", away: "Wake Forest" }), null);
+  assert.equal(bindFeedScores(feedFromEspnPayload(lucSjsuPayload)!, { home: "Loyola Chicago", away: "Wake Forest" }).scores, null);
 });
 
 test("stored ESPN team ids match even when the names would not", () => {
@@ -284,7 +285,7 @@ function espnTeam(score: number, homeAway: "home" | "away", labels: {
 }
 
 test("site aliases: UIC, UAlbany, California Baptist, UT Martin, Seattle U match our canonical names", () => {
-  assert.ok(LIVE_LINE_TEAM_ALIAS_GROUPS.length === 5);
+  assert.ok(LIVE_LINE_TEAM_ALIAS_GROUPS.length === 16);
   assert.ok(teamAliasKeys("Illinois Chicago").has(teamMatchKey("UIC")));
   assert.ok(teamAliasKeys("UIC").has(teamMatchKey("Illinois Chicago")));
 
@@ -346,4 +347,124 @@ test("aliases do not create collisions with Illinois, Albany St., Tennessee, Cal
   assert.equal(matchEspnScores({ home: "Seattle", away: "UC San Diego" }, [seattlePac, ucsd]), null);
   assert.equal(matchEspnScores({ home: "Seattle Pacific", away: "UC San Diego" }, [seattleU, ucsd]), null);
   assert.deepEqual(matchEspnScores({ home: "Seattle", away: "Seattle Pacific" }, [seattleU, seattlePac]), { home: 90, away: 55 });
+});
+
+// Live 11/23 10:20 AM CT: game 401927397, St. Bonaventure @ Appalachian St. (ESPN summary, trimmed).
+const appStPayload = {
+  header: {
+    competitions: [{
+      status: { period: 1, displayClock: "8:07", type: { id: "2", name: "STATUS_IN_PROGRESS", state: "in", completed: false, description: "In Progress", detail: "8:07 - 1st Half" } },
+      competitors: [
+        { homeAway: "home", score: "14", id: "2026", team: { id: "2026", displayName: "App State Mountaineers", abbreviation: "APP", location: "App State", name: "Mountaineers", shortDisplayName: "App State" } },
+        { homeAway: "away", score: "19", id: "179", team: { id: "179", displayName: "St. Bonaventure Bonnies", abbreviation: "SBU", location: "St. Bonaventure", name: "Bonnies", shortDisplayName: "St Bonaventure" } },
+      ],
+    }],
+  },
+};
+const oursAppSt = { home: "Appalachian St.", away: "St. Bonaventure" };
+
+test("401927397: App State binds to Appalachian St. by name (no stored ids)", () => {
+  assert.ok(teamAliasKeys("Appalachian St.").has(teamMatchKey("App State")));
+  assert.ok(teamAliasKeys("App State").has(teamMatchKey("Appalachian St.")));
+  const feed = bindFeedScores(feedFromEspnPayload(appStPayload)!, oursAppSt);
+  assert.deepEqual(feed.scores, { home: 14, away: 19 });
+  const next = applyEspnFeed(scheduledDefaults(), feed, false);
+  assert.deepEqual(next, { period: "1H", minutesLeft: 8, home: 14, away: 19, fromFeed: true });
+});
+
+test("401927397: stored ESPN ids (2026 / 179) bind exactly, including a neutral-style flip", () => {
+  const competitors = competitorsFromEspnPayload(appStPayload);
+  assert.deepEqual(matchEspnScores({ ...oursAppSt, homeEspnId: "2026", awayEspnId: "179" }, competitors), { home: 14, away: 19 });
+  // Our sides reversed vs ESPN's: ids still map the right score to the right team.
+  assert.deepEqual(matchEspnScores({ home: "St. Bonaventure", away: "Appalachian St.", homeEspnId: "179", awayEspnId: "2026" }, competitors), { home: 19, away: 14 });
+});
+
+test("ESPN ids win over names; one known id is enough; contradicting ids fall back to names", () => {
+  const competitors = competitorsFromEspnPayload(appStPayload);
+  // Names that would never match, ids decide.
+  assert.deepEqual(matchEspnScores({ home: "Team X", away: "Team Y", homeEspnId: "2026", awayEspnId: "179" }, competitors), { home: 14, away: 19 });
+  // Only our away id stored; the other competitor is our home.
+  assert.deepEqual(matchEspnScores({ home: "Team X", away: "Team Y", awayEspnId: "179" }, competitors), { home: 14, away: 19 });
+  assert.deepEqual(matchEspnScores({ home: "Team X", away: "Team Y", homeEspnId: "179" }, competitors), { home: 19, away: 14 });
+  // Our away id matches but our home id names a third team: ids contradict, so names decide.
+  assert.deepEqual(matchEspnScores({ ...oursAppSt, homeEspnId: "9999", awayEspnId: "179" }, competitors), { home: 14, away: 19 });
+  assert.equal(matchEspnScores({ home: "Team X", away: "Team Y", homeEspnId: "9999", awayEspnId: "179" }, competitors), null);
+  // Same id on both of our sides is bad data: ignore ids.
+  assert.equal(matchEspnScores({ home: "Team X", away: "Team Y", homeEspnId: "179", awayEspnId: "179" }, competitors), null);
+  // Stale ids that match neither competitor: names still work.
+  assert.deepEqual(matchEspnScores({ ...oursAppSt, homeEspnId: "1", awayEspnId: "2" }, competitors), { home: 14, away: 19 });
+});
+
+test("clock fallback: unbound teams still prefill period + clock; scores stay manual and are never swapped", () => {
+  const feed = bindFeedScores(feedFromEspnPayload(appStPayload)!, { home: "Team X", away: "Team Y" });
+  assert.equal(feed.scores, null);
+  assert.deepEqual(feed.clock, { period: "1H", minutesLeft: 8 });
+  const manual: LiveLineUiState = { period: "1H", minutesLeft: 20, home: 11, away: 17, fromFeed: false };
+  const next = applyEspnFeed(manual, feed, false);
+  assert.deepEqual(next, { period: "1H", minutesLeft: 8, home: 11, away: 17, fromFeed: true, scoresFromFeed: false });
+  // Dirty panel is left alone.
+  assert.deepEqual(applyEspnFeed(manual, feed, true), manual);
+  // Halftime via the clock fallback.
+  const half = { period: 1, displayClock: "0:00", type: { name: "STATUS_HALFTIME", state: "in", description: "Halftime" } };
+  const h = applyEspnFeed(manual, feedFromEspnStatus(half, null)!, false);
+  assert.equal(h.period, "HALFTIME");
+  assert.equal(h.home, 11);
+  // A final with unbound teams stays manual (no Final with made-up scores).
+  const post = { period: 2, displayClock: "0:00", type: { name: "STATUS_FINAL", state: "post", completed: true, description: "Final" } };
+  assert.deepEqual(applyEspnFeed(manual, feedFromEspnStatus(post, null)!, false), manual);
+  // A later bound feed fills the scores and clears the clock-only flag.
+  const bound = applyEspnFeed(next, bindFeedScores(feedFromEspnPayload(appStPayload)!, oursAppSt), false);
+  assert.deepEqual(bound, { period: "1H", minutesLeft: 8, home: 14, away: 19, fromFeed: true });
+});
+
+test("Grambling St. matches ESPN's Grambling Tigers; it does not collide with other Tigers", () => {
+  const gram = espnTeam(70, "home", { displayName: "Grambling Tigers", abbreviation: "GRAM", location: "Grambling", name: "Tigers", nickname: "Grambling" });
+  const jsu = espnTeam(65, "away", { displayName: "Jackson State Tigers", abbreviation: "JKST", location: "Jackson State", name: "Tigers", nickname: "Jackson St" });
+  assert.deepEqual(matchEspnScores({ home: "Grambling St.", away: "Jackson St." }, [gram, jsu]), { home: 70, away: 65 });
+  const tsu = espnTeam(60, "away", { displayName: "Texas Southern Tigers", abbreviation: "TXSO", location: "Texas Southern", name: "Tigers", nickname: "Texas Southern" });
+  assert.deepEqual(matchEspnScores({ home: "Texas Southern", away: "Grambling St." }, [gram, tsu]), { home: 60, away: 70 });
+});
+
+test("season-sweep aliases match ESPN locations and don't collide with neighbours", () => {
+  const t = (score: number, ha: "home" | "away", displayName: string, location: string, abbreviation: string) =>
+    espnTeam(score, ha, { displayName, location, abbreviation });
+  const oleMiss = t(80, "home", "Ole Miss Rebels", "Ole Miss", "MISS");
+  const msSt = t(70, "away", "Mississippi State Bulldogs", "Mississippi State", "MSST");
+  assert.deepEqual(matchEspnScores({ home: "Mississippi", away: "Mississippi St." }, [oleMiss, msSt]), { home: 80, away: 70 });
+  const clemson = t(66, "away", "Clemson Tigers", "Clemson", "CLEM");
+  assert.deepEqual(matchEspnScores({ home: "Clemson", away: "Mississippi" }, [oleMiss, clemson]), { home: 66, away: 80 });
+
+  const ncsu = t(75, "home", "NC State Wolfpack", "NC State", "NCSU");
+  const unc = t(77, "away", "North Carolina Tar Heels", "North Carolina", "UNC");
+  assert.deepEqual(matchEspnScores({ home: "N.C. State", away: "North Carolina" }, [ncsu, unc]), { home: 75, away: 77 });
+
+  const uconn = t(81, "home", "UConn Huskies", "UConn", "CONN");
+  const mich = t(79, "away", "Michigan Wolverines", "Michigan", "MICH");
+  assert.deepEqual(matchEspnScores({ home: "Connecticut", away: "Michigan" }, [uconn, mich]), { home: 81, away: 79 });
+
+  const miaFl = t(88, "home", "Miami Hurricanes", "Miami", "MIA");
+  const miaOh = t(84, "away", "Miami (OH) RedHawks", "Miami (OH)", "M-OH");
+  assert.deepEqual(matchEspnScores({ home: "Miami FL", away: "Miami OH" }, [miaFl, miaOh]), { home: 88, away: 84 });
+  const wagner = t(50, "away", "Wagner Seahawks", "Wagner", "WAG");
+  assert.equal(matchEspnScores({ home: "Miami OH", away: "Wagner" }, [miaFl, wagner]), null);
+
+  const amcc = t(68, "away", "Texas A&M-Corpus Christi Islanders", "Texas A&M-Corpus Christi", "AMCC");
+  const tamu = t(90, "home", "Texas A&M Aggies", "Texas A&M", "TA&M");
+  assert.deepEqual(matchEspnScores({ home: "Texas A&M", away: "Texas A&M Corpus Chris" }, [tamu, amcc]), { home: 90, away: 68 });
+
+  const upst = t(61, "away", "South Carolina Upstate Spartans", "South Carolina Upstate", "UPST");
+  const sc = t(73, "home", "South Carolina Gamecocks", "South Carolina", "SC");
+  assert.deepEqual(matchEspnScores({ home: "South Carolina", away: "USC Upstate" }, [sc, upst]), { home: 73, away: 61 });
+
+  const ulm = t(59, "away", "UL Monroe Warhawks", "UL Monroe", "ULM");
+  const ul = t(71, "home", "Louisiana Ragin' Cajuns", "Louisiana", "UL");
+  assert.deepEqual(matchEspnScores({ home: "Louisiana", away: "Louisiana Monroe" }, [ul, ulm]), { home: 71, away: 59 });
+
+  const sela = t(64, "away", "SE Louisiana Lions", "SE Louisiana", "SELA");
+  const lsu = t(82, "home", "LSU Tigers", "LSU", "LSU");
+  assert.deepEqual(matchEspnScores({ home: "LSU", away: "Southeastern Louisiana" }, [lsu, sela]), { home: 82, away: 64 });
+
+  const omaha = t(70, "away", "Omaha Mavericks", "Omaha", "OMA");
+  const neb = t(85, "home", "Nebraska Cornhuskers", "Nebraska", "NEB");
+  assert.deepEqual(matchEspnScores({ home: "Nebraska", away: "Nebraska Omaha" }, [neb, omaha]), { home: 85, away: 70 });
 });
