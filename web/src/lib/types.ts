@@ -55,6 +55,8 @@ export type SlateGame = {
   /** Final (or live) score from games.home_score / away_score; null until ESPN reports it. */
   home_score?: number | null;
   away_score?: number | null;
+  /** games.external_id — the ESPN event id. Used only to prefill the Live Line clock. */
+  external_id?: string | null;
   /** extra detail for the game sheet; fields are null when not published */
   insight?: GameInsight;
   /** Raw |fair − price| ÷ Vegas total (not official-pick sort). */

@@ -271,7 +271,7 @@ export async function loadSlateFrom(sb: SB, sport: Sport, date: string): Promise
     // neutralIds() is its own read in the same Promise.all: if it fails, only titles fall back to "@".
     // The status query below is unchanged, so finals, scores and completed never depend on it.
     const [st, gr, pr, ml, neutral] = await Promise.all([
-      sb.from("games").select("id,status,updated_at,final_at,final_at_estimated,home,away,home_team_id,away_team_id,home_score,away_score").in("id", ids),
+      sb.from("games").select("id,status,updated_at,final_at,final_at_estimated,home,away,home_team_id,away_team_id,home_score,away_score,external_id").in("id", ids),
       sb.from("ledger").select("game_id,result").in("game_id", ids).not("result", "is", null),
       sb.from("projections").select("game_id,model_version,spread,total,over_prob,created_at").in("game_id", ids).order("created_at", { ascending: false }),
       sb.from("market_lines").select("game_id,fetched_at").in("game_id", ids).eq("source", "vegas"),
@@ -291,6 +291,7 @@ export async function loadSlateFrom(sb: SB, sport: Sport, date: string): Promise
       if (row.final_at_estimated === true) x.final_at_estimated = true;
       x.home_score = num(row.home_score);
       x.away_score = num(row.away_score);
+      x.external_id = row.external_id != null && str(row.external_id) ? str(row.external_id) : null;
     }
     finished = games.every((x) => x.completed);
     if (finished) {
