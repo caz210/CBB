@@ -22,6 +22,9 @@ import {
   bindFeedScores,
   feedFromEspnPayload,
   teamMatchKey,
+  teamAliasKeys,
+  LIVE_LINE_TEAM_ALIAS_GROUPS,
+  type EspnCompetitor,
   type LiveLineUiState,
 } from "../src/lib/espnClock";
 
@@ -267,4 +270,80 @@ test("stored ESPN team ids match even when the names would not", () => {
     competitors,
   );
   assert.deepEqual(scores, { home: 72, away: 63 });
+});
+
+function espnTeam(score: number, homeAway: "home" | "away", labels: {
+  displayName: string; abbreviation: string; location: string; name?: string; nickname?: string; id?: string;
+}): EspnCompetitor {
+  return {
+    score,
+    homeAway,
+    espnId: labels.id ?? null,
+    labels: [labels.displayName, labels.abbreviation, labels.location, labels.name, labels.nickname].filter((x): x is string => !!x),
+  };
+}
+
+test("site aliases: UIC, UAlbany, California Baptist, UT Martin, Seattle U match our canonical names", () => {
+  assert.ok(LIVE_LINE_TEAM_ALIAS_GROUPS.length === 5);
+  assert.ok(teamAliasKeys("Illinois Chicago").has(teamMatchKey("UIC")));
+  assert.ok(teamAliasKeys("UIC").has(teamMatchKey("Illinois Chicago")));
+
+  const uic = espnTeam(60, "home", { displayName: "UIC Flames", abbreviation: "UIC", location: "UIC", name: "Flames", nickname: "UIC" });
+  const miamiOh = espnTeam(71, "away", { displayName: "Miami (OH) RedHawks", abbreviation: "M-OH", location: "Miami (OH)", nickname: "Miami OH" });
+  assert.deepEqual(matchEspnScores({ home: "Illinois Chicago", away: "Miami OH" }, [uic, miamiOh]), { home: 60, away: 71 });
+  // Bidirectional: if our row already said UIC
+  assert.deepEqual(matchEspnScores({ home: "UIC", away: "Miami OH" }, [uic, miamiOh]), { home: 60, away: 71 });
+
+  const ualbany = espnTeam(75, "home", { displayName: "UAlbany Great Danes", abbreviation: "UALB", location: "UAlbany", name: "Great Danes", nickname: "UAlbany" });
+  const mercyhurst = espnTeam(78, "away", { displayName: "Mercyhurst Lakers", abbreviation: "MERC", location: "Mercyhurst", nickname: "Mercyhurst" });
+  assert.deepEqual(matchEspnScores({ home: "Albany", away: "Mercyhurst" }, [ualbany, mercyhurst]), { home: 75, away: 78 });
+
+  const calBap = espnTeam(79, "home", { displayName: "California Baptist Lancers", abbreviation: "CBU", location: "California Baptist", name: "Lancers", nickname: "CA Baptist" });
+  const portland = espnTeam(71, "away", { displayName: "Portland Pilots", abbreviation: "PORT", location: "Portland", nickname: "Portland" });
+  assert.deepEqual(matchEspnScores({ home: "Cal Baptist", away: "Portland" }, [calBap, portland]), { home: 79, away: 71 });
+
+  const utm = espnTeam(76, "away", { displayName: "UT Martin Skyhawks", abbreviation: "UTM", location: "UT Martin", name: "Skyhawks", nickname: "UT Martin" });
+  const uvu = espnTeam(78, "home", { displayName: "Utah Valley Wolverines", abbreviation: "UVU", location: "Utah Valley", nickname: "Utah Valley" });
+  assert.deepEqual(matchEspnScores({ home: "Utah Valley", away: "Tennessee Martin" }, [uvu, utm]), { home: 78, away: 76 });
+
+  const seattleU = espnTeam(90, "home", { displayName: "Seattle U Redhawks", abbreviation: "SEA", location: "Seattle U", name: "Redhawks", nickname: "Seattle U" });
+  const ucsd = espnTeam(64, "away", { displayName: "UC San Diego Tritons", abbreviation: "UCSD", location: "UC San Diego", nickname: "UC San Diego" });
+  assert.deepEqual(matchEspnScores({ home: "Seattle", away: "UC San Diego" }, [seattleU, ucsd]), { home: 90, away: 64 });
+});
+
+test("aliases do not create collisions with Illinois, Albany St., Tennessee, California, or other Seattle schools", () => {
+  const uic = espnTeam(60, "home", { displayName: "UIC Flames", abbreviation: "UIC", location: "UIC", name: "Flames", nickname: "UIC" });
+  const illinois = espnTeam(80, "home", { displayName: "Illinois Fighting Illini", abbreviation: "ILL", location: "Illinois", name: "Fighting Illini", nickname: "Illinois" });
+  const iowa = espnTeam(70, "away", { displayName: "Iowa Hawkeyes", abbreviation: "IOWA", location: "Iowa", nickname: "Iowa" });
+  // UIC is not Illinois
+  assert.equal(matchEspnScores({ home: "Illinois", away: "Iowa" }, [uic, iowa]), null);
+  // Illinois Chicago vs Illinois stays uniquely assigned
+  assert.deepEqual(matchEspnScores({ home: "Illinois Chicago", away: "Illinois" }, [uic, illinois]), { home: 60, away: 80 });
+
+  const albanySt = espnTeam(81, "home", { displayName: "Albany State Golden Rams", abbreviation: "ALST", location: "Albany State", name: "Golden Rams", nickname: "Albany St." });
+  const mercyhurst = espnTeam(78, "away", { displayName: "Mercyhurst Lakers", abbreviation: "MERC", location: "Mercyhurst", nickname: "Mercyhurst" });
+  const ualbany = espnTeam(75, "home", { displayName: "UAlbany Great Danes", abbreviation: "UALB", location: "UAlbany", name: "Great Danes", nickname: "UAlbany" });
+  // Albany (NY) must not swallow Albany St. (GA)
+  assert.equal(matchEspnScores({ home: "Albany", away: "Mercyhurst" }, [albanySt, mercyhurst]), null);
+  // A real Albany vs Albany St. game still maps uniquely
+  assert.deepEqual(matchEspnScores({ home: "Albany", away: "Albany St." }, [ualbany, albanySt]), { home: 75, away: 81 });
+
+  const utm = espnTeam(76, "away", { displayName: "UT Martin Skyhawks", abbreviation: "UTM", location: "UT Martin", name: "Skyhawks", nickname: "UT Martin" });
+  const kentucky = espnTeam(85, "home", { displayName: "Kentucky Wildcats", abbreviation: "UK", location: "Kentucky", nickname: "Kentucky" });
+  const tennessee = espnTeam(90, "home", { displayName: "Tennessee Volunteers", abbreviation: "TENN", location: "Tennessee", name: "Volunteers", nickname: "Tennessee" });
+  assert.equal(matchEspnScores({ home: "Tennessee", away: "Kentucky" }, [utm, kentucky]), null);
+  assert.deepEqual(matchEspnScores({ home: "Tennessee", away: "Tennessee Martin" }, [tennessee, utm]), { home: 90, away: 76 });
+
+  const calBap = espnTeam(79, "home", { displayName: "California Baptist Lancers", abbreviation: "CBU", location: "California Baptist", name: "Lancers", nickname: "CA Baptist" });
+  const stanford = espnTeam(68, "away", { displayName: "Stanford Cardinal", abbreviation: "STAN", location: "Stanford", nickname: "Stanford" });
+  const california = espnTeam(65, "home", { displayName: "California Golden Bears", abbreviation: "CAL", location: "California", name: "Golden Bears", nickname: "California" });
+  assert.equal(matchEspnScores({ home: "California", away: "Stanford" }, [calBap, stanford]), null);
+  assert.deepEqual(matchEspnScores({ home: "California", away: "Cal Baptist" }, [california, calBap]), { home: 65, away: 79 });
+
+  const seattleU = espnTeam(90, "home", { displayName: "Seattle U Redhawks", abbreviation: "SEA", location: "Seattle U", name: "Redhawks", nickname: "Seattle U" });
+  const seattlePac = espnTeam(55, "home", { displayName: "Seattle Pacific Falcons", abbreviation: "SPU", location: "Seattle Pacific", name: "Falcons", nickname: "Seattle Pacific" });
+  const ucsd = espnTeam(64, "away", { displayName: "UC San Diego Tritons", abbreviation: "UCSD", location: "UC San Diego", nickname: "UC San Diego" });
+  assert.equal(matchEspnScores({ home: "Seattle", away: "UC San Diego" }, [seattlePac, ucsd]), null);
+  assert.equal(matchEspnScores({ home: "Seattle Pacific", away: "UC San Diego" }, [seattleU, ucsd]), null);
+  assert.deepEqual(matchEspnScores({ home: "Seattle", away: "Seattle Pacific" }, [seattleU, seattlePac]), { home: 90, away: 55 });
 });
