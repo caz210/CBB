@@ -104,6 +104,10 @@ test("root layout sets iOS / theme-color metadata and the apple-touch icon", () 
   assert.match(src, /apple-touch-icon\.png/);
   assert.match(src, /<HomeScreenHint/);
   assert.doesNotMatch(src, /IosHomeHint/);
+  assert.match(src, /beforeInteractive/);
+  assert.match(src, /window\.__bip/);
+  assert.match(src, /beforeinstallprompt/);
+  assert.match(src, /preventDefault/);
 });
 
 test("iOS Safari gets the Safari Share copy, and not the Chrome address-bar copy", () => {
@@ -168,6 +172,7 @@ test("a stored dismiss (current or legacy key) hides the hint", () => {
   assert.match(hint, /useEffect/);
   assert.match(hint, /useState<HomeHintKind>\(null\)/);
   assert.match(hint, /beforeinstallprompt/);
+  assert.match(hint, /__bip/);
   assert.match(hint, /appinstalled/);
   assert.match(hint, /localStorage/);
   assert.match(hint, />\s*Install\s*</);

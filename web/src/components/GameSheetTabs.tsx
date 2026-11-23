@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { SlateGame, ValueBet } from "@/lib/types";
 import { fmtEdgeVsBar, fmtGameDate, fmtOne, fmtWinProb, pct } from "@/lib/labels";
 import { teamHref } from "@/lib/teams";
@@ -19,6 +19,7 @@ import {
   locLabel,
   namedScore,
   namedSpread,
+  nextSheetTab,
   officialRecordLine,
   scoreLine,
   type NamedNum,
@@ -312,11 +313,11 @@ function RecentList({ t, max = 5 }: { t: SheetTeamExtras | null; max?: number })
         <p className="text-[12px] text-zinc-500">No recent results in our log.</p>
       ) : (
         <ul className="space-y-1.5">
-          {games.map((g) => {
+          {games.map((g, i) => {
             const sc = scoreLine(g);
             const tone = g.result === "W" ? "text-edge-400" : g.result === "L" ? "text-fade-400" : "text-zinc-400";
             return (
-              <li key={g.game_id} className="rounded-lg bg-ink-850 px-2.5 py-1.5">
+              <li key={g.game_id ?? `${g.date}-${g.opponent}-${i}`} className="rounded-lg bg-ink-850 px-2.5 py-1.5">
                 <div className="flex items-baseline justify-between gap-2">
                   <div className="min-w-0">
                     <div className="text-[10px] text-zinc-500">{fmtGameDate(g.date)}</div>
@@ -377,22 +378,47 @@ function ExtrasState({ loading, extras, children }: { loading: boolean; extras: 
 
 export function GameSheetTabs({ g, bets, sportKey, extras, loading }: { g: SlateGame; bets: ValueBet[]; sportKey: string; extras: SheetExtras | null; loading: boolean }) {
   const [tab, setTab] = useState<SheetTab>(DEFAULT_SHEET_TAB);
+  const selectTab = (next: SheetTab) => {
+    setTab(next);
+    const el = document.getElementById(`sheet-tab-${next}`);
+    if (el instanceof HTMLElement) el.focus();
+  };
+  const onTabListKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const next = nextSheetTab(tab, e.key);
+    if (!next) return;
+    e.preventDefault();
+    selectTab(next);
+  };
+  const tabClass = (active: boolean) =>
+    `min-h-10 rounded-lg text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-court-400 ${active ? "bg-ink-700 text-white" : "text-zinc-500 hover:text-zinc-300"}`;
   return (
     <div>
-      <div className="mb-3 grid grid-cols-3 gap-1 rounded-xl border border-ink-600 p-1">
+      <div
+        role="tablist"
+        aria-label="Game sheet"
+        onKeyDown={onTabListKeyDown}
+        className="mb-3 grid grid-cols-3 gap-1 rounded-xl border border-ink-600 p-1"
+      >
         {SHEET_TABS.map((t) => (
           <button
             key={t.k}
             type="button"
-            onClick={() => setTab(t.k)}
-            className={`min-h-10 rounded-lg text-sm font-semibold ${tab === t.k ? "bg-ink-700 text-white" : "text-zinc-500 hover:text-zinc-300"}`}
+            role="tab"
+            id={`sheet-tab-${t.k}`}
+            aria-selected={tab === t.k}
+            aria-controls={`sheet-panel-${t.k}`}
+            tabIndex={tab === t.k ? 0 : -1}
+            onClick={() => selectTab(t.k)}
+            className={tabClass(tab === t.k)}
           >
             {t.l}
           </button>
         ))}
       </div>
-      {tab === "bet" && <QuickBetBlock g={g} bets={bets} />}
-      {tab === "matchup" && (
+      <div role="tabpanel" id="sheet-panel-bet" aria-labelledby="sheet-tab-bet" hidden={tab !== "bet"}>
+        <QuickBetBlock g={g} bets={bets} />
+      </div>
+      <div role="tabpanel" id="sheet-panel-matchup" aria-labelledby="sheet-tab-matchup" hidden={tab !== "matchup"}>
         <ExtrasState loading={loading} extras={extras}>
           {(e) => (
             <>
@@ -402,12 +428,12 @@ export function GameSheetTabs({ g, bets, sportKey, extras, loading }: { g: Slate
             </>
           )}
         </ExtrasState>
-      )}
-      {tab === "form" && (
+      </div>
+      <div role="tabpanel" id="sheet-panel-form" aria-labelledby="sheet-tab-form" hidden={tab !== "form"}>
         <ExtrasState loading={loading} extras={extras}>
           {(e) => <RecentBlock extras={e} />}
         </ExtrasState>
-      )}
+      </div>
     </div>
   );
 }

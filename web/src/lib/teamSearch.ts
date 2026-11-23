@@ -149,8 +149,9 @@ function scoreForms(forms: string[], qForms: string[], qTokens: string[], anyOrd
       return true;
     });
   })) take(2, true);
-  // plain substring, spaces ignored ("ichigan", "texasst")
-  const squashed = qForms.map((q) => q.replace(/ /g, ""));
+  // plain substring, spaces ignored ("ichigan", "texasst"). A bare "st" already matches
+  // st/state/saint as words and "Stanford"-style prefixes; don't also hit Boston / Austin.
+  const squashed = qForms.map((q) => q.replace(/ /g, "")).filter((q) => q !== "st");
   if (forms.some((f) => squashed.some((q) => f.replace(/ /g, "").includes(q)))) take(3);
   // same words, any order ("carolina north"), ranked last. Real names only: letting aliases match this loosely
   // made "st louis" list LSU ("Louisiana State").

@@ -3,7 +3,7 @@ import { ExampleBadge, ExampleBanner } from "@/components/ExampleBadge";
 import { ArchetypeChip } from "@/components/ArchetypeChip";
 import { visibleTags } from "@/lib/archetypes";
 import { EXAMPLE_SLATE, EXAMPLE_VALUE_BETS } from "@/lib/example-data";
-import { MARKET_LABEL, fmtLine, fmtSpread, fmtScore, fmtTipoff, pct, signedPct, fmtUnits } from "@/lib/labels";
+import { MARKET_LABEL, fmtLedgerPick, fmtSpread, fmtScore, fmtTipoff, pct, signedPct, fmtUnits } from "@/lib/labels";
 import { SPORTS, getSport } from "@/lib/sports";
 import { loadHero, loadResults, type Hero } from "@/lib/data";
 import { totalFair } from "@/lib/posted";
@@ -219,7 +219,7 @@ function LiveHero({ hero }: { hero: Hero }) {
       {hero.game && (hero.neutral
         ? <TitleLine text={retitle(hero.game, true)} neutral className="text-sm text-zinc-400" />
         : <div className="text-sm text-zinc-400">{hero.game}</div>)}
-      <div className="mt-1 text-xl font-bold">{r.pick}{r.line != null ? ` ${fmtLine(r.line)}` : ""}</div>
+      <div className="mt-1 text-xl font-bold">{fmtLedgerPick(r.pick, r.line)}</div>
       <div className="mt-4 grid grid-cols-3 gap-2 text-center">
         <Mini label="Result" value={r.result ? RESULT_LABEL[r.result] : "Pending"} />
         <Mini label="Stake" value={r.stake_units == null ? "—" : `${r.stake_units.toFixed(2)}u`} />

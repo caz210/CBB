@@ -14,6 +14,7 @@ import {
   logIncomplete,
   namedScore,
   namedSpread,
+  nextSheetTab,
   officialPicksFromLedger,
   parseOfficialResult,
   teamValue,
@@ -55,7 +56,7 @@ const recent = (n: number, w: number, l: number): SheetRecentGame[] => {
     const win = i < w;
     out.push({
       game_id: 1000 + i, date: "2026-11-15", opponent: "Opp", location: "home",
-      team_score: win ? 70 : 60, opp_score: win ? 60 : 70, result: win ? "W" : "L", official: [],
+      team_score: win ? 70 : 60, opp_score: win ? 60 : 70, result: win ? "W" : "L", vs_di: true, official: [],
     });
   }
   // pad losses if w+l > n? just use n games already
@@ -135,6 +136,66 @@ test("the game sheet tabs default to Bet", () => {
   assert.equal(DEFAULT_SHEET_TAB, "bet");
   assert.equal(SHEET_TABS[0].l, "Bet");
   assert.ok(TAPE_ROWS.some((r) => r.key === "rest"));
+});
+
+
+test("rest still shows when the log is ahead of games_played (snapshot lag)", () => {
+  const ahead = team({ games_played: 5, log_games: 6, rest_days: 1 });
+  assert.equal(logIncomplete(ahead), false);
+  assert.equal(teamValue(ahead, "rest"), 1);
+  assert.equal(formatTeamValue(ahead, restRow), "1 day");
+  // Only a short log is missing data.
+  assert.equal(logIncomplete(team({ games_played: 6, log_games: 5 })), true);
+});
+
+test("Form header stays sensible when the log is a game ahead of games_played", () => {
+  const ahead = team({
+    games_played: 5, log_games: 6, log_wins: 2, log_losses: 4,
+    recent: recent(5, 2, 3),
+  });
+  assert.equal(formCountLabel(ahead, 5), "Last 5: 2–3");
+  assert.equal(/of 5 games logged/.test(formCountLabel(ahead, 5)), false);
+});
+
+test("Matchup D-I record uses D-I finals, not all-log W-L or a lagging snapshot", () => {
+  const recordRow = COMPARE_ROWS.find((r) => r.key === "record")!;
+  // Cal Baptist-style: 1-5 in D-I finals vs a weekly snapshot that still says 1-4.
+  const t = team({
+    log_games: 6, log_wins: 1, log_losses: 5,
+    di_wins: 1, di_losses: 5,
+  });
+  assert.equal(formatTeamValue(t, recordRow), "1–5");
+  // A non-D-I win is in the log but must not change the D-I record.
+  const withNonDi = team({
+    log_games: 7, log_wins: 2, log_losses: 5,
+    di_wins: 1, di_losses: 5,
+  });
+  assert.equal(formatTeamValue(withNonDi, recordRow), "1–5");
+  assert.equal(formatTeamValue(team({ di_wins: 0, di_losses: 0, log_wins: 2, log_losses: 0 }), recordRow), "—");
+  assert.match(recordRow.hint ?? "", /D-I finals in our log/);
+});
+
+test("sheet tabs move with arrows, Home, and End", () => {
+  assert.equal(nextSheetTab("bet", "ArrowRight"), "matchup");
+  assert.equal(nextSheetTab("matchup", "ArrowRight"), "form");
+  assert.equal(nextSheetTab("form", "ArrowRight"), "bet");
+  assert.equal(nextSheetTab("bet", "ArrowLeft"), "form");
+  assert.equal(nextSheetTab("form", "Home"), "bet");
+  assert.equal(nextSheetTab("bet", "End"), "form");
+  assert.equal(nextSheetTab("matchup", "ArrowDown"), "form");
+  assert.equal(nextSheetTab("matchup", "ArrowUp"), "bet");
+  assert.equal(nextSheetTab("bet", "Enter"), null);
+  const root = [resolve("."), resolve("..")].find((d) => { try { return statSync(join(d, "src/components/GameSheetTabs.tsx")).isFile(); } catch { return false; } })!;
+  const src = readFileSync(join(root, "src/components/GameSheetTabs.tsx"), "utf8");
+  assert.match(src, /role="tablist"/);
+  assert.match(src, /role="tab"/);
+  assert.match(src, /role="tabpanel"/);
+  assert.match(src, /aria-selected/);
+  assert.match(src, /aria-controls/);
+  const route = readFileSync(join(root, "src/app/api/sheet-extras/route.ts"), "utf8");
+  assert.match(route, /team_game_log/);
+  assert.doesNotMatch(route, /from\("games"\)/);
+  assert.doesNotMatch(route, /\.limit\(80\)/);
 });
 
 test("Bet projection and FV/Price keep the number apart from a long name so it cannot be hidden", () => {
