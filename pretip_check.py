@@ -301,13 +301,34 @@ def main(argv=None) -> int:
         bet = f"{r.side} {float(r.line):+g}" if r.market == "spread" else f"{r.side} {float(r.line):g}"
         print(f"- {str(r.tip_ct)[11:]} CT {r.away} @ {r.home}: {bet} — {'; '.join(why)}")
     if not a.dry_run:
+        notes = {str(todo.loc[i, "pick_id"]): f"{now.isoformat(timespec='minutes')}: {'; '.join(why)}"
+                 for i, why in flags.items()}
+        try:
+            write_flags(notes, wait=LEDGER_LOCK_WAIT_S)
+        except dr.LedgerBusy as e:
+            log(f"  pretip_flag not written ({e}); the alert above still stands")
+    return 0
+
+
+LEDGER_LOCK_WAIT_S = 120.0
+
+
+def write_flags(notes: dict, wait: float | None = None) -> int:
+    """Write pretip_flag annotations by pick_id under the shared ledger lock, on a FRESH read of the ledger, so a
+    grade written by grade_finals.py (or anything else) since this run's first read is never overwritten.
+    Only rows still open get a flag; nothing but the annotation changes."""
+    with dr.ledger_lock(wait=wait):
+        led = dr.read_ledger()
         before = led.drop(columns=["pretip_flag"]).copy()
         led["pretip_flag"] = led["pretip_flag"].astype(object)
-        for i, why in flags.items():
-            led.loc[i, "pretip_flag"] = f"{now.isoformat(timespec='minutes')}: {'; '.join(why)}"
+        n = 0
+        for i in led.index[(led.status == "open") & led.pick_id.astype(str).isin(notes)]:
+            led.loc[i, "pretip_flag"] = notes[str(led.at[i, "pick_id"])]
+            n += 1
         assert led.drop(columns=["pretip_flag"]).equals(before)     # nothing but the annotation changed
-        dr.write_ledger(led)
-    return 0
+        if n:
+            dr.write_ledger(led)
+        return n
 
 
 if __name__ == "__main__":

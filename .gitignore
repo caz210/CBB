@@ -172,3 +172,7 @@ outputs/projections_*.csv
 outputs/daily/*.dryrun.md
 # runtime big-move context written by daily_run / pretip (never commit)
 data/ledger/big_moves/
+
+# ledger lock / temp file (daily_run.ledger_lock, write_ledger)
+data/ledger/*.lock
+data/ledger/ledger.csv.tmp
