@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { fmtLine, fmtOne, fmtScore } from "../src/lib/labels";
+import { fmtLedgerPick, fmtLine, fmtOne, fmtScore } from "../src/lib/labels";
 import { fmtScore as matchupFmtScore } from "../src/lib/matchup";
 import { totalFair } from "../src/lib/posted";
 import type { SlateGame, ValueBet } from "../src/lib/types";
@@ -102,4 +102,15 @@ test("the old one-decimal score rounding broke the sum or margin on 16 of 38 gam
     return Math.abs(a + h - t) > 0.05 || Math.abs(h - a + Number(fmtLine(g.proj_spread!))) > 0.05;
   });
   assert.equal(broken.length, 16);
+});
+
+test("fmtLedgerPick uses PK on a 0 spread and does not duplicate a line already in the pick", () => {
+  assert.equal(fmtLedgerPick("Over 135.5", 135.5), "Over 135.5");
+  assert.equal(fmtLedgerPick("Under 158.5", 158.5), "Under 158.5");
+  assert.equal(fmtLedgerPick("North Carolina Central +26.5", 26.5), "North Carolina Central +26.5");
+  assert.equal(fmtLedgerPick("Home Team", 0), "Home Team PK");
+  assert.equal(fmtLedgerPick("Home Team +0.0", 0), "Home Team PK");
+  assert.equal(fmtLedgerPick("Home Team", 2.5), "Home Team +2.5");
+  assert.equal(fmtLedgerPick("Over", 141.5), "Over 141.5");
+  assert.equal(fmtLedgerPick("A pick", null), "A pick");
 });

@@ -98,6 +98,20 @@ export const fmtSpread = (n: number | null | undefined) => {
   if (typeof n !== "number" || !Number.isFinite(n)) return "—";
   return fmtLine(n) === "0.0" ? "PK" : fmtLine(n);
 };
+
+/** Graded-hero pick label: totals stay unsigned, spreads use PK at 0, and we do not
+ *  append a number the pick string already carries ("Over 135.5", "Team +26.5"). */
+export function fmtLedgerPick(pick: string, line: number | null | undefined): string {
+  if (line == null || !Number.isFinite(line)) return pick;
+  const isTotal = /^(over|under)\b/i.test(pick.trim());
+  const shown = isTotal ? fmtOne(line) : fmtSpread(line);
+  const already = [shown, fmtLine(line), fmtOne(line)];
+  if (already.some((s) => s && pick.includes(s))) {
+    if (!isTotal && shown === "PK") return pick.replace(/(?:\+)?0\.0\b/, "PK");
+    return pick;
+  }
+  return `${pick} ${shown}`;
+}
 /** Projected team score at its stored precision, never re-rounded to one decimal. The pipeline stores
  *  (total ± margin) / 2 at two decimals with total and margin at 0.1, so a score ends in .x0 or .x5:
  *  two decimals only when the second digit isn't zero (74.05, 67.95), else one (74.0, 74.5). Never more

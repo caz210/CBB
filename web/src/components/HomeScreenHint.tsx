@@ -14,6 +14,17 @@ type InstallPrompt = {
   userChoice?: Promise<{ outcome: "accepted" | "dismissed" }>;
 };
 
+function asInstallPrompt(value: unknown): InstallPrompt | null {
+  if (!value || typeof value !== "object") return null;
+  const ev = value as Partial<InstallPrompt>;
+  return typeof ev.prompt === "function" ? ev as InstallPrompt : null;
+}
+
+/** Event stashed by the beforeInteractive listener in the root layout, if it fired before mount. */
+function readStashedPrompt(): InstallPrompt | null {
+  return asInstallPrompt((window as Window & { __bip?: unknown }).__bip);
+}
+
 function readDismissed(): boolean {
   try {
     return homeHintDismissed(window.localStorage.getItem(HOME_HINT_KEY), window.localStorage.getItem(HOME_HINT_KEY_LEGACY));
@@ -48,13 +59,16 @@ export function HomeScreenHint() {
         hasInstallPrompt: promptRef.current != null,
       }));
     };
+    const stashed = readStashedPrompt();
+    if (stashed) promptRef.current = stashed;
     refresh();
 
     const onPrompt = (event: Event) => {
       event.preventDefault();
-      const ev = event as Event & Partial<InstallPrompt>;
-      if (typeof ev.prompt !== "function") return;
-      promptRef.current = ev as InstallPrompt;
+      const ev = asInstallPrompt(event);
+      if (!ev) return;
+      promptRef.current = ev;
+      try { (window as Window & { __bip?: unknown }).__bip = ev; } catch { /* ignore */ }
       refresh();
     };
     const onInstalled = () => {

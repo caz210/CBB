@@ -173,6 +173,15 @@ test("short 'st' queries stay on St/Saint: 'st louis' does not find LSU", () => 
   assert.ok(!find("state louis").includes("LSU"));
   assert.deepEqual(find("louisiana state"), ["LSU"]);
   assert.ok(find("st").includes("St. John's"));
+  // Bare "st" must not substring-match Boston; Stanford still matches as a prefix.
+  const stExtra = searchTeams(buildIndex([
+    ...mk(),
+    { id: 900, name: "Boston College", slug: "boston-college", next: null },
+    { id: 901, name: "Stanford", slug: "stanford", next: null },
+  ]), "st").map((x) => x.name);
+  assert.ok(stExtra.includes("St. John's"));
+  assert.ok(stExtra.includes("Stanford"));
+  assert.ok(!stExtra.includes("Boston College"));
   assert.equal(find("cal st fullerton")[0], "Cal St. Fullerton");
   assert.equal(find("cal state fullerton")[0], "Cal St. Fullerton");
 });
