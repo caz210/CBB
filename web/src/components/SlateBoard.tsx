@@ -21,7 +21,7 @@ import { gameTitle, sideLabel, spreadNotationNote } from "@/lib/gameTitle";
 import { cardHeadline, marketRatings, notAPlayAlso, type MarketRating } from "@/lib/verdict";
 import { fmtLinesAsOf } from "@/lib/linesAsOf";
 import { cardHeaderRow, cardNoteLine } from "@/lib/cardHeader";
-import { HeaderRow, LineMoveNote } from "./HeaderRow";
+import { HeaderRow } from "./HeaderRow";
 import { evPer100, fmtEv100 } from "@/lib/stats";
 import { postedVsNow, totalFair } from "@/lib/posted";
 import { GameSheetTabs, useSheetExtras } from "./GameSheetTabs";
@@ -518,8 +518,6 @@ function ValueSheet({ sel, onClose }: { sel: Sel; onClose: () => void }) {
           </span>
         </div>
         <div className="mt-1 text-sm text-zinc-400">{MARKET_LABEL[b.market]}</div>
-        {marketRatings(g, [b])[b.market === "total" ? "total" : "spread"].lineMoveNote && <LineMoveNote className="mt-1" />}
-
         <div className="mt-4 text-center">
           <div className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
             <TermLabel term="edge">Edge</TermLabel>

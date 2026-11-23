@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { NO_EDGE_TEXT, cardHeaderRow, cardNoteLine, edgeTone, fmtPickLine, nowLine, sideAtPrice } from "../src/lib/cardHeader";
-import { LINE_MOVE_NOTE } from "../src/lib/verdicts";
+import { officialPostedNowLine } from "../src/lib/posted";
 import type { SlateGame, ValueBet } from "../src/lib/types";
 
 const game = (o: Partial<SlateGame> = {}): SlateGame => ({
@@ -97,6 +97,8 @@ test("CZarp Play: posted pick and price; 'Now' only when the current line differ
   assert.equal(r.verdict, "official");
   assert.equal(r.pick, "Over 136.5");
   assert.equal(r.now, null);
+  assert.deepEqual(r.postedNowParts, ["Posted at 136.5", "now 136.5"]);
+  assert.equal(officialPostedNowLine(posted(), troy()), "Posted at 136.5 · now 136.5");
   assert.equal(r.edgeLabel, "2.2%");
   // Army @ New Haven 11-10: posted Over 131.5, line now 132.5.
   const army = game({ game_id: 1, home: "New Haven", away: "Army", market_total: 132.5, czarp_total: 135, edge_now_pct_total: 0.0189, verdict_total: "official" });
@@ -104,6 +106,7 @@ test("CZarp Play: posted pick and price; 'Now' only when the current line differ
   const ra = cardHeaderRow(army, [b]);
   assert.equal(ra.pick, "Over 131.5");
   assert.equal(ra.now, "Now 132.5");
+  assert.deepEqual(ra.postedNowParts, ["Posted at 131.5", "now 132.5"]);
   assert.equal(ra.edgeLabel, "1.8%"); // the current edge (floored below the bar), not the 3.1% at post
   // Spread pick on the away side: "Now" is that side's line.
   const sb = posted({ market: "spread", side: "McNeese +3.5", posted_line: 3.5, line_at_post: 3.5 });
@@ -114,20 +117,21 @@ test("CZarp Play: posted pick and price; 'Now' only when the current line differ
   assert.equal(cardHeaderRow(troy(), [posted({ side: "Over" })]).pick, "Over 136.5");
 });
 
-test("% color by tier; a CZarp Play that lost value is neutral", () => {
+test("% color by tier; a CZarp Play stays green even when the current edge is below the bar", () => {
   assert.equal(edgeTone("official", false), "green");
-  assert.equal(edgeTone("official", true), "neutral");
+  assert.equal(edgeTone("official", true), "green");
   assert.equal(edgeTone("late_value", false), "green");
   assert.equal(edgeTone("value", false), "neutral");
   assert.equal(edgeTone("lean", false), "neutral");
   assert.equal(edgeTone("toss_up", false), "dim");
   assert.equal(edgeTone("official", false, false), "dim");
-  // Troy vs Nicholls: posted 2.2%, edge now 2.2% < 3% → line-move note, neutral.
+  // Troy vs Nicholls: posted 2.2%, edge now 2.2% < 3% — chip and % stay CZarp Play / green.
   const r = cardHeaderRow(troy(), [posted()]);
   assert.equal(r.lineMoveNote, true);
-  assert.equal(r.tone, "neutral");
-  assert.equal(LINE_MOVE_NOTE, "No longer a value play due to line movement.");
-  // Same pick with the edge back at the bar: green.
+  assert.equal(r.tone, "green");
+  assert.equal(r.verdict, "official");
+  assert.doesNotMatch(r.postedNowParts.join(" · "), /no longer a value play/i);
+  // Same pick with the edge back at the bar: still green.
   assert.equal(cardHeaderRow({ ...troy(), edge_now_pct_total: 0.03 }, [posted()]).tone, "green");
   assert.equal(cardHeaderRow(game(), []).tone, "neutral"); // Lean
   assert.equal(cardHeaderRow(game({ edge_now_pct_spread: 0.006 }), []).tone, "dim"); // Toss Up
@@ -170,4 +174,40 @@ test("the slate card no longer renders the below-bar note or the posted-FV mono 
   assert.doesNotMatch(card, /postedFairVsProjections\(/);
   assert.doesNotMatch(card, /fair vs price/);
   assert.match(card, /cardNoteLine\(g, bets\)/);
+});
+
+test("officialPostedNowLine is PK-aware and null-safe, and never a downgrade sentence", () => {
+  const g = game({ market_spread: 0, market_total: 145.5 });
+  const spread = posted({ market: "spread", side: "Texas St. PK", posted_line: 0, line_at_post: 0, edge_vs_open_pct: 0.041 });
+  assert.equal(officialPostedNowLine(spread, g), "Posted at PK · now PK · 4.1% vs open");
+  const moved = posted({ market: "spread", side: "McNeese +3.5", posted_line: 3.5, line_at_post: 3.5 });
+  assert.equal(officialPostedNowLine(moved, game({ market_spread: -2.5 })), "Posted at +3.5 · now +2.5");
+  // Nothing to format.
+  assert.equal(officialPostedNowLine(posted({ line_at_post: null, posted_line: null, edge_vs_open_pct: null }), game({ market_total: null })), null);
+  // Troy: vs-open is stored; the current line can match the posted one.
+  const troyOpen = posted({ edge_vs_open_pct: 0.0372 });
+  assert.equal(officialPostedNowLine(troyOpen, troy()), "Posted at 136.5 · now 136.5 · 3.7% vs open");
+  const row = cardHeaderRow(troy(), [troyOpen]);
+  assert.deepEqual(row.postedNowParts, ["Posted at 136.5", "now 136.5", "3.7% vs open"]);
+  assert.doesNotMatch(row.postedNowParts.join(" "), /No longer a value play/i);
+});
+
+test("customer-facing source never says official plays are no longer a value play", () => {
+  const root = [resolve(__dirname, "../src"), resolve(__dirname, "../../src")].find((d) => { try { readFileSync(resolve(d, "lib/verdicts.ts")); return true; } catch { return false; } })!;
+  const files = [
+    "lib/verdicts.ts", "lib/verdict.ts", "lib/cardHeader.ts", "lib/statusTags.ts", "lib/posted.ts",
+    "components/HeaderRow.tsx", "components/SlateBoard.tsx", "components/GameSheetTabs.tsx",
+    "app/[sport]/team/[slug]/page.tsx",
+  ];
+  for (const rel of files) {
+    const src = readFileSync(resolve(root, rel), "utf8");
+    assert.doesNotMatch(src, /No longer a value play/i, rel);
+    assert.doesNotMatch(src, /LINE_MOVE_NOTE/, rel);
+  }
+  const header = readFileSync(resolve(root, "components/HeaderRow.tsx"), "utf8");
+  assert.match(header, /postedNowParts/);
+  assert.doesNotMatch(header, /function LineMoveNote/);
+  const slate = readFileSync(resolve(root, "components/SlateBoard.tsx"), "utf8");
+  assert.doesNotMatch(slate, /LineMoveNote/);
+  assert.match(slate, /postedVsNow/);
 });

@@ -2,7 +2,7 @@
 // Toss Up → Lean → Value → Late Value → CZarp Play. Run: npm test
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { HOLD_CODES, LATE_VALUE_NOTE, LINE_MOVE_NOTE, NO_LINE_TIP, TIER_BOUNDS, VERDICT_LADDER, VERDICT_RANK, clearsBar, holdCodes, ladderLevel, showsLineMoveNote, verdictLabel, type LadderInput, type VerdictLevel } from "../src/lib/verdicts";
+import { HOLD_CODES, LATE_VALUE_NOTE, NO_LINE_TIP, TIER_BOUNDS, VERDICT_LADDER, VERDICT_RANK, clearsBar, holdCodes, ladderLevel, showsLineMoveNote, verdictLabel, type LadderInput, type VerdictLevel } from "../src/lib/verdicts";
 import { cardHeaderRow } from "../src/lib/cardHeader";
 import { cardHeadline, marketRatings, marketVerdict, notAPlayLine, notAPlayLines } from "../src/lib/verdict";
 import { EXPLAINERS } from "../src/lib/explainers";
@@ -101,7 +101,6 @@ test("clearsBar is inclusive at full precision", () => {
 });
 
 test("line-move note: CZarp Play whose edge now is below the bar", () => {
-  assert.equal(LINE_MOVE_NOTE, "No longer a value play due to line movement.");
   assert.equal(showsLineMoveNote("total", true, 0.0099), true);
   assert.equal(showsLineMoveNote("total", true, 0.029999), true);
   assert.equal(showsLineMoveNote("total", true, 0.03), false);
@@ -257,6 +256,7 @@ test("one decimal style for every edge: posted, current, vs open, headline", () 
     "Posted 142.0 · 1.7% (line 144.5) → Now 144.5 · 3.7% vs open",
   );
   assert.equal(fmtPostedVsNow({ vsOpen: 0.0299, market: "total" }), "· 2.9% vs open");
+  assert.equal(fmtPostedVsNow({ line: 0, now: 1.5, market: "spread" }), "(line PK) → Now +1.5");
   for (const s of [h.edgeLabel!]) assert.doesNotMatch(s, /(?<![\d.])\d+%/);
 });
 

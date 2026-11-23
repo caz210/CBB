@@ -190,7 +190,7 @@ export function fmtPostedVsNow(opts: {
   vsOpen?: number | null;
   market: Market;
 }): string | null {
-  const fmt = (n: number) => (opts.market === "total" ? fmtOne(n) : fmtLine(n));
+  const fmt = (n: number) => (opts.market === "total" ? fmtOne(n) : fmtSpread(n));
   const parts: string[] = [];
   if (isFiniteNum(opts.fair)) parts.push(`Posted ${fmt(opts.fair)}`);
   if (isFiniteNum(opts.edge)) {
