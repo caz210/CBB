@@ -9,6 +9,7 @@ from czarp import supabase_writer as sw
 class FakeClient:
     def __init__(self):
         self.calls = {}
+        self._team_ids = {}
 
     def get(self, table, **params):
         return [{"id": 1}] if table == "sports" else []
@@ -16,7 +17,12 @@ class FakeClient:
     def upsert(self, table, rows, on_conflict=None, returning=True, ignore_duplicates=False):
         self.calls.setdefault(table, []).extend(rows)
         if table == "teams":
-            return [{"name": r["name"], "id": i} for i, r in enumerate(rows)]
+            out = []
+            for r in rows:
+                if r["name"] not in self._team_ids:
+                    self._team_ids[r["name"]] = len(self._team_ids) + 1
+                out.append({"name": r["name"], "id": self._team_ids[r["name"]]})
+            return out
         if table == "games":
             return [{"external_id": r["external_id"], "id": 100 + i} for i, r in enumerate(rows)]
         return []
@@ -47,6 +53,9 @@ def test_sync_tipoff_central_and_projection_rounding():
     assert games["5"]["tipoff"] == "2026-11-04T00:00:00+00:00"
     # ledger scores are not mirrored (they may be slot-flipped); sync_finals owns finals
     assert "home_score" not in games["4"] and "away_score" not in games["4"]
+    # but team_ids must be set so the game attaches to both team logs
+    assert games["4"]["home_team_id"] == c._team_ids["Wright St."]
+    assert games["4"]["away_team_id"] == c._team_ids["Air Force"]
     v2 = next(p for p in c.calls["projections"] if p["model_version"] == "czarp-v2")
     v1 = next(p for p in c.calls["projections"] if p["model_version"] == sw.V1_VERSION)
     assert v2["spread"] == -7.2 and v2["total"] == 143.7 and v2["proj_home"] == 76.1 and v2["proj_away"] == 68.9

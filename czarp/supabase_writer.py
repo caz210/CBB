@@ -352,12 +352,25 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
     # of those values would undo a name-aligned backfill (game 1550 / WIU-Albany).
     # sync_finals owns final scores. Omit the keys so an UPDATE leaves existing
     # games.home_score / games.away_score alone. Do not edit ledger.csv here.
+    # Always set team_ids: a ledger-first insert that omitted them (Wright St.
+    # vs Air Force, 2026-11-02) never appeared on either team's game log.
     seen = {r["external_id"] for r in grows}
-    for _, r in ledger.drop_duplicates("event_id").iterrows():
+    led = ledger.drop_duplicates("event_id") if len(ledger) else ledger
+    ledger_names = sorted({
+        n for _, r in led.iterrows() for n in (str(r.home), str(r.away))
+        if n and n not in tid and n != "nan"
+    })
+    if ledger_names:
+        led_season = season or _season(str(led.iloc[0].game_date))
+        extra = c.upsert("teams", [{**base, "season": led_season, "name": n} for n in ledger_names],
+                         on_conflict="league,name")
+        tid.update({t["name"]: t["id"] for t in extra})
+    for _, r in led.iterrows():
         if str(r.event_id) in seen:
             continue
         done = pd.notna(r.get("home_score"))
         grows.append({**base, "season": _season(r.game_date), "date": r.game_date, "home": r.home, "away": r.away,
+                      "home_team_id": tid.get(str(r.home)), "away_team_id": tid.get(str(r.away)),
                       "neutral": str(r.neutral) == "True", "external_id": str(r.event_id),
                       "external_ids": {"espn": str(r.event_id)}, "status": "final" if done else "scheduled",
                       "tipoff": _tip_ct_iso(r.get("tip_ct")), "updated_at": ts})
