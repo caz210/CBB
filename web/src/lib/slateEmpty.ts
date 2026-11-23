@@ -1,8 +1,10 @@
 /** Copy and date rules for an empty slate. Dates are YYYY-MM-DD in America/Chicago. */
+import { OFFICIAL_POST_MINUTES_CT, OFFICIAL_POST_TIME } from "./officialPost";
+
 
 export const SLATE_PAST_EMPTY_BODY = "We don't have a stored slate for this date.";
 /** Today before the slate posts, and future dates. */
-export const SLATE_UNPOSTED_EMPTY_BODY = "This slate posts by 7:15 AM CT on game day.";
+export const SLATE_UNPOSTED_EMPTY_BODY = `This slate posts by ${OFFICIAL_POST_TIME} on game day.`;
 export const SLATE_FUTURE_EMPTY_BODY = SLATE_UNPOSTED_EMPTY_BODY;
 export const SLATE_TODAY_EMPTY_BODY = SLATE_UNPOSTED_EMPTY_BODY;
 export const SLATE_MATCHUP_CTA_LABEL = "Get an early line → Matchup maker";
@@ -10,9 +12,9 @@ export const SLATE_MATCHUP_CTA_LABEL = "Get an early line → Matchup maker";
 export const SLATE_NO_GAMES_TODAY_BODY = "No games are scheduled today.";
 export const SLATE_NO_GAMES_CTA_LABEL = "Run a matchup → Matchup maker";
 
-/** The morning run loads today's games and slate together around 7:15 AM CT, so before then an empty games
+/** The morning run loads today's games and slate together by about OFFICIAL_POST_TIME, so before then an empty games
  *  table only means "not loaded yet". */
-export const SLATE_POST_MINUTES_CT = 7 * 60 + 15;
+export const SLATE_POST_MINUTES_CT = OFFICIAL_POST_MINUTES_CT;
 
 /** Minutes past midnight in America/Chicago. */
 export function minutesCT(now = new Date()): number {
@@ -23,7 +25,7 @@ export function minutesCT(now = new Date()): number {
 
 /**
  * What the empty today page knows about the schedule: false = confirmed no games (games table empty AND it's past
- * the 7:15 AM CT post time), otherwise the raw flag (true / unknown). Before 7:15 the games table hasn't loaded
+ * the official post time), otherwise the raw flag (true / unknown). Before the official post time the games table hasn't loaded
  * yet, so an empty read proves nothing.
  */
 export function confirmedSchedule(hasScheduledGames: boolean | null | undefined, now = new Date()): boolean | null {
@@ -42,7 +44,7 @@ export function slateDateRelation(date: string, today: string): SlateDateRelatio
 
 /**
  * hasScheduledGames: false only when the games table confirms nothing is on today's schedule.
- * Unknown (null/undefined) keeps the "posts by 7:15" line, since the slate may just be late.
+ * Unknown (null/undefined) keeps the "posts by" line, since the slate may just be late.
  */
 export function slateEmptyBody(relation: SlateDateRelation, hasScheduledGames?: boolean | null): string {
   if (relation === "past") return SLATE_PAST_EMPTY_BODY;

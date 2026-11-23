@@ -1,10 +1,15 @@
 import { VERDICT_LADDER } from "@/lib/verdicts";
 import type { Metadata } from "next";
 import { H, LegalPage } from "@/components/LegalPage";
+import { pageMetadata } from "@/lib/seo";
 import { SHOW_METHODOLOGY_PLACEHOLDERS, visibleMethodologySections } from "@/lib/methodology";
 import { GLOSSARY_ANCHOR, glossaryEntriesIn, type GlossaryGroup } from "@/lib/glossary";
 
-export const metadata: Metadata = { title: "Methodology" };
+export const metadata: Metadata = pageMetadata({
+  title: "Methodology",
+  description: "How CZarp grades a game: Edge % versus the market price, the play bar official picks must clear, and a time-stamped public record that cannot be edited. For entertainment, not betting advice.",
+  path: "/methodology",
+});
 
 function Placeholder({ children }: { children: React.ReactNode }) {
   return (
@@ -39,7 +44,7 @@ export default function MethodologyPage() {
       eyebrow="How it works"
       title="Methodology"
     >
-      <p>How CZarp labels each game, and what every chip on the site means. Fuller notes on how CZarp builds projections and grades the public book are on the way.</p>
+      <p>Edge % compares our fair number to the market price. Official picks have to clear the play bar at the morning run: 4% edge on sides, 3% on totals, a stake of at least 0.1u, and on totals, no 3-point-or-more move against us since the open. A new-coach pause can also keep a pick off the record. Every official pick is time-stamped and can&apos;t be edited.</p>
       {sections.map((s) => (
         <div key={s.title}>
           <H>{s.title}</H>

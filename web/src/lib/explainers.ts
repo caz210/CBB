@@ -1,4 +1,5 @@
-/** Short tap-to-learn copy. No promises of winning — buy at value, small samples prove nothing. */
+/** Short tap-to-learn copy. No promises of winning — an edge is not a guarantee, and small samples prove nothing. */
+import { OFFICIAL_POST_TIME } from "./officialPost";
 import { NO_LINE_TIP, verdictDef } from "./verdicts";
 
 /** Verdict ladder tips come from the shared ladder definitions (lib/verdicts.ts). */
@@ -12,7 +13,7 @@ export const EXPLAINERS = {
   noLine: NO_LINE_TIP,
   edge: {
     title: "Edge",
-    body: "The gap between our number and the Vegas price, as a share of the expected total score. Example: we like a team by 4.5 more points than Vegas, and the total is 154.5 → edge ≈ 2.9%. Bigger edge means a better price — not a guaranteed win. One bet, or a few dozen, proves nothing.",
+    body: "The gap between our number and the market price, as a share of the expected total score. Example: we like a team by 4.5 more points than the market, and the total is 154.5 → edge ≈ 2.9%. Bigger edge means a better price — not a guaranteed win. One bet, or a few dozen, proves nothing.",
   },
   fairValue: {
     title: "Fair value",
@@ -20,7 +21,7 @@ export const EXPLAINERS = {
   },
   price: {
     title: "Price",
-    body: "The market line (Vegas consensus). Same idea as a stock's ask: what you can buy right now.",
+    body: "The market line (consensus price) — what you can take right now.",
   },
   variance: {
     title: "Variance",
@@ -38,7 +39,7 @@ export const EXPLAINERS = {
   czarpPlay: ladderTip("official"),
   ladderRule: {
     title: "How each market is rated",
-    body: "The spread and the total each get their own rating, judged on the edge vs the current line: Toss Up, Lean, Value, or Late Value as the edge grows (sides 2%, 3%, 4%; totals 1.5%, 2.25%, 3%). CZarp Plays are set once, at the 7:15 AM CT run, and are never added later.",
+    body: `The spread and the total each get their own rating, judged on the edge vs the current line: Toss Up, Lean, Value, or Late Value as the edge grows (sides 2%, 3%, 4%; totals 1.5%, 2.25%, 3%). CZarp Plays are set once, at the ${OFFICIAL_POST_TIME} run, and are never added later.`,
   },
   tvRating: {
     title: "TV Rating",

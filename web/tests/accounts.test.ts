@@ -161,10 +161,12 @@ test("when the flag is on, login, signup, models and pricing links come back", (
 
 test("hidden account CTAs point at the slate, with no account or waitlist language", () => {
   assert.deepEqual(
-    homeCtas().map((l) => l.label),
-    ["See today's slate"],
+    homeCtas().map((l) => ({ href: l.href, label: l.label })),
+    [
+      { href: SLATE_HREF, label: "Today's slate" },
+      { href: "/cbb/results", label: "See the record" },
+    ],
   );
-  assert.ok(homeCtas().every((l) => l.href === SLATE_HREF));
   assert.equal(homePromoCtas().length, 0);
   assert.ok(pricingCtas().every((l) => l.href === SLATE_HREF && l.label === "Free during beta"));
   assert.deepEqual(

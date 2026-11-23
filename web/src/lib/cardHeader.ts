@@ -96,7 +96,7 @@ export function cardHeaderRow(g: SlateGame, bets: ValueBet[]): CardHeaderRow {
 }
 
 /** The card's note line under the projection: only a hold reason (new-coach pause, market move, stake under
- *  $1) on a held Value. Below-bar markets get no note; the chip and the edge say that. The line-move
+ *  0.1u) on a held Value. Below-bar markets get no note; the chip and the edge say that. The line-move
  *  note sits under the header row instead. Used by the card and the game sheet. */
 export function cardNoteLine(g: SlateGame, bets: ValueBet[]): string | null {
   const h = cardHeadline(g, bets);

@@ -3,6 +3,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { HOLD_CODES, LATE_VALUE_NOTE, LINE_MOVE_NOTE, NO_LINE_TIP, TIER_BOUNDS, VERDICT_LADDER, VERDICT_RANK, clearsBar, holdCodes, ladderLevel, showsLineMoveNote, verdictLabel, type LadderInput, type VerdictLevel } from "../src/lib/verdicts";
+import { OFFICIAL_POST_TIME } from "../src/lib/officialPost";
+import { MIN_STAKE_UNITS } from "../src/lib/labels";
 import { cardHeaderRow } from "../src/lib/cardHeader";
 import { cardHeadline, marketRatings, marketVerdict, notAPlayLine, notAPlayLines } from "../src/lib/verdict";
 import { EXPLAINERS } from "../src/lib/explainers";
@@ -112,8 +114,8 @@ test("line-move note: CZarp Play whose edge now is below the bar", () => {
 });
 
 test("ladder copy: Late Value says it's off the record; no paper, model-version or KenPom wording", () => {
-  assert.equal(LATE_VALUE_NOTE, "Value on the current line. Not part of the official record; official plays are set at 7:15 AM CT.");
-  assert.match(VERDICT_LADDER[3].short, /Not part of the official record; official plays are set at 7:15 AM CT\.$/);
+  assert.equal(LATE_VALUE_NOTE, `Value on the current line. Not part of the official record; official plays are set at ${OFFICIAL_POST_TIME}.`);
+  assert.ok(VERDICT_LADDER[3].short.endsWith(`official plays are set at ${OFFICIAL_POST_TIME}.`));
   for (const d of VERDICT_LADDER) {
     assert.doesNotMatch(`${d.label} ${d.short}`, /paper|\bv[12]\b|kenpom|\bfavor\b/i, d.level);
     assert.doesNotMatch(`${d.label} ${d.short}`, /Official Play/, d.level);
@@ -133,7 +135,7 @@ const game = (o: Partial<SlateGame> = {}): SlateGame => ({
   market_spread: 6, market_total: 154, market_source: null,
   edge_now_pct_spread: 0.002, edge_vs_open_pct_spread: 0.002, skip_reasons_spread: ["below_open_threshold"],
   edge_now_pct_total: 0.0645, edge_vs_open_pct_total: 0.0348, skip_reasons_total: ["line_moved_against"],
-  skip_reason_total: "Not a play: Line moved 3+ pts away from CZarp since open",
+  skip_reason_total: "Not a play: Total moved 3+ pts away from CZarp since open",
   verdict_spread: "low_value", verdict_total: "low_value",
   ...o,
 } as SlateGame);
@@ -148,7 +150,7 @@ test("cardHeadline: held Value headline with its hold as the note", () => {
   assert.equal(h.market, "total");
   assert.equal(h.verdict, "value");
   assert.deepEqual(h.holds, ["line_moved_against"]);
-  assert.equal(notAPlayLine(game(), []), "Not a play: Line moved 3+ pts away from CZarp since open");
+  assert.equal(notAPlayLine(game(), []), "Not a play: Total moved 3+ pts away from CZarp since open");
 });
 
 test("cardHeadline: ladder rank beats a bigger raw edge when choosing the headline market", () => {
@@ -205,7 +207,7 @@ test("Drexel @ Maine 11-14 card: Value on the current line (2.68% total; stake h
   assert.equal(h.verdict, "value");
   assert.deepEqual(h.holds, []);
   assert.equal(h.edgeLabel, "2.6%");
-  assert.equal(notAPlayLine(g, []), "Not a play: stake under $1");
+  assert.equal(notAPlayLine(g, []), `Not a play: stake under ${MIN_STAKE_UNITS}u`);
 });
 
 test("near-bar edges never display as meeting the bar", () => {
@@ -238,7 +240,7 @@ test("no-line card: Toss Up with a neutral tip, not 'below the bar'", () => {
 });
 
 test("line-move wording is one string everywhere", () => {
-  assert.equal(HOLD_CODES.line_moved_against, "Line moved 3+ pts away from CZarp since open");
+  assert.equal(HOLD_CODES.line_moved_against, "Total moved 3+ pts away from CZarp since open");
   assert.equal(knownSkipCodeLabel("line_moved_against", "3%"), HOLD_CODES.line_moved_against);
   assert.equal(knownSkipCodeLabel("kelly_too_small", "3%"), HOLD_CODES.kelly_too_small);
   for (const d of VERDICT_LADDER) assert.doesNotMatch(d.short, /total moved/);

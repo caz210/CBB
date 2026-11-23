@@ -2,6 +2,7 @@ import { NeutralChip, TitleLine } from "@/components/NeutralChip";
 import { retitle } from "@/lib/gameTitle";
 import type { ReactNode } from "react";
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getSport } from "@/lib/sports";
@@ -24,10 +25,12 @@ const SHOWN_ROWS = 200;
 export async function generateMetadata({ params }: { params: Promise<{ sport: string }> }): Promise<Metadata> {
   const { sport: key } = await params;
   const sport = getSport(key);
-  return {
-    title: sport ? `${sport.label} record` : "Record",
-    description: "The public, time-stamped record: every official pick, graded, with units, ROI and CLV.",
-  };
+  const path = sport ? `/${sport.key}/results` : "/cbb/results";
+  return pageMetadata({
+    title: "CBB Public Record — Units, ROI & Every Graded Pick",
+    description: "The public CBB record: every official pick time-stamped and graded in units, with stake-sized ROI, a flat 1u line, and closing-line value. For entertainment, not betting advice.",
+    path,
+  });
 }
 
 export default async function ResultsPage({
@@ -58,11 +61,11 @@ export default async function ResultsPage({
     <div className="mx-auto max-w-7xl px-4 py-5 md:px-6 md:py-10">
       <PageHeader
         badge={res.state === "live" ? "live" : "none"}
-        eyebrow={`${sport.long} · Portfolio`}
-        title="The book, treated like a portfolio"
+        eyebrow={`${sport.long} · Record`}
+        title="The public record"
         sub={res.state === "live" && res.data.summary.graded > 0
-          ? `Buy at value. Every pick is time-stamped and graded in public. Early sample: n=${res.data.summary.graded} graded ${tier === "track" ? "tracked" : "official"} picks — not proof yet.`
-          : "Buy at value. Every pick is time-stamped and graded in public."}
+          ? `Every official pick is time-stamped and graded in public. Early sample: ${res.data.summary.graded} graded picks — evidence, not proof.`
+          : "Every official pick is time-stamped and graded in public."}
         right={
           <nav className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 text-sm md:mx-0 md:px-0" aria-label="Date range">
             {(Object.keys(RANGES) as RangeKey[]).map((r) => (
@@ -76,7 +79,7 @@ export default async function ResultsPage({
       />
 
       {SHOW_TRACKED_TIER && (
-        <div role="tablist" aria-label="Portfolio" className="mt-4 grid grid-cols-2 gap-1 rounded-xl border border-ink-700 bg-ink-900 p-1 md:mt-6 md:inline-grid md:w-auto">
+        <div role="tablist" aria-label="Record" className="mt-4 grid grid-cols-2 gap-1 rounded-xl border border-ink-700 bg-ink-900 p-1 md:mt-6 md:inline-grid md:w-auto">
           {(["official", "track"] as PickTier[]).map((t) => (
             <Link key={t} role="tab" aria-selected={t === tier} href={resultsHref(sport.key, range, t)}
               className={`flex min-h-10 items-center justify-center rounded-lg px-5 text-sm font-semibold ${t === tier ? "bg-court-500/15 text-court-400" : "text-zinc-400 hover:bg-ink-800"}`}>
@@ -87,7 +90,7 @@ export default async function ResultsPage({
       )}
       <p className={`text-xs text-zinc-500 ${SHOW_TRACKED_TIER ? "mt-2" : "mt-4 md:mt-6"}`}>
         {tier === "official"
-          ? "Official portfolio: the picks CZarp actually stakes (¼-Kelly units)."
+          ? "Official record: the picks CZarp actually stakes (¼-Kelly units)."
           : "Tracked picks: flat 1u, tracked for testing, not part of the official record."}
       </p>
 
@@ -102,7 +105,7 @@ export default async function ResultsPage({
         </div>
       ) : res.state === "error" ? (
         <div className="mt-4 md:mt-6">
-          <EmptyState tone="warn" title="Couldn't load portfolio"
+          <EmptyState tone="warn" title="Couldn't load the record"
             body="The data service didn't respond. Please refresh in a minute."
             actions={[{ href: rangeHref(range), label: "Try again" }]} />
         </div>
@@ -177,7 +180,7 @@ function Live({ data, range }: { data: Extract<Awaited<ReturnType<typeof loadRes
           />
         </div>
         <p className="mt-3 text-xs leading-relaxed text-zinc-500">
-          A +EV book still loses nights. Drawdowns and streaks are part of buying value. With n={s.graded} graded picks this is an early sample, so read it as evidence, not proof.
+          A plus-EV process still has losing nights. Drawdowns and streaks are normal. With {s.graded} graded picks this is an early sample, so read it as evidence, not proof.
         </p>
       </section>
 
@@ -202,14 +205,31 @@ function Live({ data, range }: { data: Extract<Awaited<ReturnType<typeof loadRes
           ) : (
             <div className="divide-y divide-ink-700/60">
               {data.byMarket.map((r) => {
-                const roi = r.roi;
+                const units = data.byMarketUnits[r.market];
+                const roi = units?.roi ?? null;
                 const decided = r.wins + r.losses;
                 return (
                   <div key={r.market} className="flex items-center justify-between py-3 text-sm">
                     <div>
                       <div className="font-semibold">{MARKET_LABEL[r.market] ?? r.market}</div>
-                      <div className="font-mono text-xs text-zinc-500">{r.wins}-{r.losses}-{r.pushes} · {r.pending} pending · {fmtUnits((data.byMarketUnits[r.market]?.kelly) ?? 0, 1)} ¼-K</div>
-                      <div className="font-mono text-[11px] text-zinc-600">Flat 1u: {fmtUnits((data.byMarketUnits[r.market]?.flat) ?? r.units, 1)}{r.avg_clv != null ? ` · CLV ${fmtClv(r.avg_clv)} · beat close ${r.beat_close}` : ""}</div>
+                      <div className="font-mono text-xs text-zinc-500">
+                        <span className="whitespace-nowrap">{r.wins}-{r.losses}-{r.pushes}</span>
+                        {" · "}
+                        <span className="whitespace-nowrap">{r.pending} pending</span>
+                        {" · "}
+                        <span className="whitespace-nowrap">{fmtUnits(units?.kelly ?? 0, 1)} ¼-K</span>
+                      </div>
+                      <div className="font-mono text-[11px] text-zinc-600">
+                        <span className="whitespace-nowrap">Flat 1u: {fmtUnits(units?.flat ?? r.units, 1)}</span>
+                        {r.avg_clv != null ? (
+                          <>
+                            {" · "}
+                            <span className="whitespace-nowrap">CLV {fmtClv(r.avg_clv)}</span>
+                            {" · "}
+                            <span className="whitespace-nowrap">beat close {r.beat_close}</span>
+                          </>
+                        ) : null}
+                      </div>
                     </div>
                     <div className="text-right font-mono">
                       <div>{decided ? pct(r.wins / decided, 1) : "—"}</div>

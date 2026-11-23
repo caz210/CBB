@@ -1,11 +1,16 @@
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/PageHeader";
 import { ModelsWorkspace } from "@/components/ModelsWorkspace";
 import { ExampleBanner } from "@/components/ExampleBadge";
 import { SHOW_ACCOUNTS, SLATE_HREF } from "@/lib/accounts";
 
-export const metadata: Metadata = { title: "My Models" };
+export const metadata: Metadata = pageMetadata({
+  title: "My Models",
+  description: "Build and save your own CBB model and compare it to CZarp, night after night.",
+  path: "/models",
+});
 
 export default function ModelsPage() {
   if (!SHOW_ACCOUNTS) redirect(SLATE_HREF);

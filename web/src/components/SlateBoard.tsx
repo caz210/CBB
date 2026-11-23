@@ -257,7 +257,7 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
 
       <div className="mt-4 md:hidden"><ArchetypeLegend /></div>
       <p className="mt-3 text-xs leading-relaxed text-zinc-500">
-        {spreadNotationNote(games.some((x) => x.neutral))} Price = Vegas consensus. Fair value = our model. Stakes are ¼-Kelly in units (1u = 1% of bankroll, capped at 2.5u). {LOCKED_NOTE}
+        {spreadNotationNote(games.some((x) => x.neutral))} Price = market consensus. Fair value = our model. Stakes are ¼-Kelly in units (1u = 1% of bankroll, capped at 2.5u). {LOCKED_NOTE}
       </p>
 
       <ValueSheet sel={sel} onClose={() => setSel(null)} />
@@ -528,7 +528,7 @@ function ValueSheet({ sel, onClose }: { sel: Sel; onClose: () => void }) {
           {postedVsNow(b, g) && (
             <p className="mt-1 font-mono text-xs text-zinc-400">{postedVsNow(b, g)}</p>
           )}
-          <p className="mt-1 text-[11px] text-zinc-500">Buy at value. One game proves nothing; every pick is time-stamped and graded in public.</p>
+          <p className="mt-1 text-[11px] text-zinc-500">An edge does not mean you will win tonight. Every official pick is time-stamped and graded in public.</p>
         </div>
 
         <div className="mt-5 grid grid-cols-2 gap-2">

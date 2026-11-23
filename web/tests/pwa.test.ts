@@ -114,8 +114,11 @@ test("root layout sets iOS / theme-color metadata and the apple-touch icon", () 
   assert.match(src, /openGraph:/);
   assert.match(src, /twitter:/);
   assert.match(src, /summary_large_image/);
-  assert.match(src, /\/og\.png/);
-  assert.match(src, /alt:\s*"CZarp Analytics"/);
+  assert.match(src, /OG_IMAGE|\/og\.png/);
+  assert.match(src, /OG_IMAGE/);
+  const seo = read("src/lib/seo.ts");
+  assert.match(seo, /alt:\s*"CZarp Analytics"/);
+  assert.match(seo, /\/og\.png/);
 });
 
 test("iOS Safari gets the Safari Share copy, and not the Chrome address-bar copy", () => {

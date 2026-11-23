@@ -2,6 +2,7 @@ import { NeutralChip } from "@/components/NeutralChip";
 import { gameTitle, spreadRef } from "@/lib/gameTitle";
 import Link from "next/link";
 import type { Metadata } from "next";
+import { pageMetadata } from "@/lib/seo";
 import { notFound } from "next/navigation";
 import { getSport } from "@/lib/sports";
 import { loadTeam } from "@/lib/data";
@@ -40,7 +41,12 @@ export async function generateMetadata({ params }: { params: Promise<{ sport: st
   const { sport: key, slug } = await params;
   const sport = getSport(key);
   const name = decodeSlug(slug).replace(/\b\w/g, (c) => c.toUpperCase());
-  return { title: sport ? `${name} · ${sport.label}` : name };
+  const path = sport ? `/${sport.key}/team/${slug}` : `/cbb/team/${slug}`;
+  return pageMetadata({
+    title: sport ? `${name} · ${sport.label}` : name,
+    description: `CZarp's read on ${name}: style tags, the next game, and this team's official-pick record in units.`,
+    path,
+  });
 }
 
 export default async function TeamPage({ params }: { params: Promise<{ sport: string; slug: string }> }) {
