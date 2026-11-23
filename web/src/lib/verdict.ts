@@ -65,7 +65,7 @@ export type MarketRating = {
   edgeNow: number | null;
   /** No stored edge for this market (no line yet). */
   noLine: boolean;
-  /** CZarp Play whose edge now is below the bar: show LINE_MOVE_NOTE. */
+  /** CZarp Play whose stored edge now is below the bar (chip stays CZarp Play). */
   lineMoveNote: boolean;
 };
 
@@ -100,7 +100,7 @@ export type CardHeadline = {
   officialBet: ValueBet | null;
   edgeNow: number | null;
   edgeVsOpen: number | null;
-  /** CZarp Play whose edge now is below the bar: show LINE_MOVE_NOTE under the headline. */
+  /** CZarp Play whose stored edge now is below the bar (chip stays CZarp Play). */
   lineMoveNote: boolean;
 };
 

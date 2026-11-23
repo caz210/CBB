@@ -2,7 +2,7 @@
  *  Do not reconstruct missing fair/open — hide those pieces instead.
  *  edge_at_post_pct / edge_vs_open_pct are fractions (0.0173 = 1.73%).
  */
-import { fmtOne, fmtPostedVsNow, fmtSpread, type Market } from "./labels";
+import { fmtEdgeVsBar, fmtOne, fmtPostedVsNow, fmtSpread, type Market } from "./labels";
 import type { SlateGame, ValueBet } from "./types";
 
 export function mentionsTeam(side: string, team: string) {
@@ -22,6 +22,29 @@ export function currentLineForBet(g: SlateGame, market: Market, side?: string | 
     return g.market_spread;
   }
   return null;
+}
+
+const finite = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
+
+/** Pieces of the compact official-play line: "Posted at X", "now Y", "Z% vs open".
+ *  Spreads use fmtSpread (PK at 0); totals use fmtOne. Missing pieces are omitted. */
+export function officialPostedNowParts(b: ValueBet, g: SlateGame | null | undefined): string[] {
+  if (!g) return [];
+  const fmt = b.market === "total" ? fmtOne : fmtSpread;
+  const posted = b.line_at_post ?? b.posted_line ?? null;
+  const now = currentLineForBet(g, b.market, b.side);
+  const vsOpen = finite(b.edge_vs_open_pct) ? b.edge_vs_open_pct : (b.market === "total" ? g.edge_vs_open_pct_total : g.edge_vs_open_pct_spread);
+  const parts: string[] = [];
+  if (finite(posted)) parts.push(`Posted at ${fmt(posted)}`);
+  if (finite(now)) parts.push(`now ${fmt(now)}`);
+  if (finite(vsOpen)) parts.push(`${fmtEdgeVsBar(vsOpen, b.market)} vs open`);
+  return parts;
+}
+
+/** "Posted at X · now Y · Z% vs open". Null when every piece is missing. */
+export function officialPostedNowLine(b: ValueBet, g: SlateGame | null | undefined): string | null {
+  const parts = officialPostedNowParts(b, g);
+  return parts.length ? parts.join(" · ") : null;
 }
 
 /** "Posted 142.0 · 1.7% (line 144.5) → Now 144.5 · 3.7% vs open". Hides nulls. */

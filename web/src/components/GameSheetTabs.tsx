@@ -4,8 +4,7 @@ import type { SlateGame, ValueBet } from "@/lib/types";
 import { fmtEdgeVsBar, fmtGameDate, fmtOne, fmtWinProb, pct } from "@/lib/labels";
 import { teamHref } from "@/lib/teams";
 import { cardHeadline, marketRatings, type MarketRating } from "@/lib/verdict";
-import { nowLine } from "@/lib/cardHeader";
-import { betCoverProb, totalFair } from "@/lib/posted";
+import { betCoverProb, officialPostedNowLine, totalFair } from "@/lib/posted";
 import { evPer100, fmtEv100 } from "@/lib/stats";
 import {
   COMPARE_ROWS,
@@ -77,7 +76,7 @@ function MarketBetRow({ label, fair, price, rating, official, now, edge }: {
   now: string | null;
   edge: string | null;
 }) {
-  const tone = rating.lineMoveNote ? "text-zinc-300" : EDGE_TONE[rating.level];
+  const tone = EDGE_TONE[rating.level];
   return (
     <div className="rounded-xl border border-ink-700 bg-ink-850 px-3 py-2.5">
       <div className="flex items-start justify-between gap-2">
@@ -123,7 +122,7 @@ export function QuickBetBlock({ g, bets }: { g: SlateGame; bets: ValueBet[] }) {
         price={namedSpread(spreadTeam, curS)}
         rating={ratings.spread}
         official={officialSpread}
-        now={officialSpread ? nowLine(officialSpread, g) : null}
+        now={officialSpread ? officialPostedNowLine(officialSpread, g) : null}
         edge={edgeS}
       />
       <MarketBetRow
@@ -132,7 +131,7 @@ export function QuickBetBlock({ g, bets }: { g: SlateGame; bets: ValueBet[] }) {
         price={{ name: null, value: curT == null ? "—" : fmtOne(curT) }}
         rating={ratings.total}
         official={officialTotal}
-        now={officialTotal ? nowLine(officialTotal, g) : null}
+        now={officialTotal ? officialPostedNowLine(officialTotal, g) : null}
         edge={edgeT}
       />
       <ProjStrip g={g} bets={bets} />

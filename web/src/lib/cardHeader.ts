@@ -6,7 +6,7 @@
  *    totals:  czarp_total (the official total, the one edge_now_pct_total uses) vs market_total.
  *             Never slate_games.proj_total. */
 import { MARKET_LABEL, fmtEdgeVsBar, fmtLine, fmtOne, fmtSpread, type Market } from "./labels";
-import { currentLineForBet } from "./posted";
+import { currentLineForBet, officialPostedNowParts } from "./posted";
 import type { SlateGame, ValueBet } from "./types";
 import { cardHeadline, notAPlayLine, type CardHeadline } from "./verdict";
 import type { VerdictLevel } from "./verdicts";
@@ -15,11 +15,11 @@ export const NO_EDGE_TEXT = "No edge at this price";
 export const NO_LINE_TEXT = "No line yet";
 
 /** Edge-number color: CZarp Play and Late Value green; Value and Lean neutral; Toss Up dim.
- *  A CZarp Play that lost value (line-move note) is neutral, not green. */
+ *  A CZarp Play stays green — it stays a CZarp Play even if the current edge is below the bar. */
 export type EdgeTone = "green" | "neutral" | "dim";
-export function edgeTone(verdict: VerdictLevel, lineMoveNote: boolean, hasEdge = true): EdgeTone {
+export function edgeTone(verdict: VerdictLevel, _lineMoveNote: boolean, hasEdge = true): EdgeTone {
   if (!hasEdge) return "dim";
-  if (verdict === "official") return lineMoveNote ? "neutral" : "green";
+  if (verdict === "official") return "green";
   if (verdict === "late_value") return "green";
   if (verdict === "value" || verdict === "lean") return "neutral";
   return "dim";
@@ -71,6 +71,8 @@ export type CardHeaderRow = {
   fallback: string | null;
   /** CZarp Play only: "Now 138.5" when the current line differs from the posted one. */
   now: string | null;
+  /** CZarp Play: compact "Posted at X", "now Y", "Z% vs open" pieces for the card. */
+  postedNowParts: string[];
   /** Edge on the current line, one decimal (below the bar floored so it never reads as meeting it). */
   edgeLabel: string | null;
   tone: EdgeTone;
@@ -83,10 +85,10 @@ export function cardHeaderRow(g: SlateGame, bets: ValueBet[]): CardHeaderRow {
   const h = cardHeadline(g, bets);
   const m = h.market;
   const edgeLabel = m && h.edgeNow != null ? fmtEdgeVsBar(h.edgeNow, m) : null;
-  const base = { market: m, marketLabel: m ? MARKET_LABEL[m] : null, edgeLabel, verdict: h.verdict, lineMoveNote: h.lineMoveNote, headline: h };
+  const base = { market: m, marketLabel: m ? MARKET_LABEL[m] : null, edgeLabel, verdict: h.verdict, lineMoveNote: h.lineMoveNote, headline: h, postedNowParts: [] as string[] };
   const tone = edgeTone(h.verdict, h.lineMoveNote, edgeLabel != null);
   if (h.officialBet) {
-    return { ...base, pick: postedPick(h.officialBet), fallback: null, now: nowLine(h.officialBet, g), tone };
+    return { ...base, pick: postedPick(h.officialBet), fallback: null, now: nowLine(h.officialBet, g), postedNowParts: officialPostedNowParts(h.officialBet, g), tone };
   }
   if (!m) return { ...base, pick: null, fallback: NO_LINE_TEXT, now: null, tone };
   const s = sideAtPrice(g, m);

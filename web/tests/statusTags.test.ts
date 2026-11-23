@@ -43,7 +43,7 @@ test("STATUS_TAG_PRIORITY is verdict first, then pause, then value; cap is 2", (
   assert.equal(STATUS_TAG_MAX, 2);
 });
 
-test("both teams paused plus an official total gives CZarp Play and one merged pause chip", () => {
+test("official plays drop the pause tag, including when both teams are paused", () => {
   const g = game({
     lean_total: false,
     coachLocks: [
@@ -53,9 +53,8 @@ test("both teams paused plus an official total gives CZarp Play and one merged p
   });
   const bets = [officialBet({ market: "total", side: "Over 126.5" })];
   const tags = pickStatusTags(g, bets);
-  assert.deepEqual(tags.map(statusTagLabel), ["official", "pause"]);
-  assert.equal(tags[1].kind, "pause");
-  if (tags[1].kind === "pause") assert.equal(tags[1].locks.length, 2);
+  assert.deepEqual(tags.map(statusTagLabel), ["official"]);
+  assert.ok(tags.every((t) => t.kind !== "pause"));
 });
 
 test("a held Value card with a pause gives Value + pause", () => {
@@ -69,9 +68,9 @@ test("Cal Baptist vs LMU (pause + Value) keeps 2 tags: Value first, then pause",
   assert.equal(pickStatusTags(g, []).length, 2);
 });
 
-test("one pause plus a CZarp Play keeps CZarp Play + pause", () => {
+test("one pause plus a CZarp Play keeps CZarp Play only", () => {
   const g = game({ coachLocks: [lock()] });
-  assert.deepEqual(labels(g, [officialBet()]), ["official", "pause"]);
+  assert.deepEqual(labels(g, [officialBet()]), ["official"]);
 });
 
 test("no value badge ever: a CZarp Play with no pause is CZarp Play alone, at any edge", () => {

@@ -73,10 +73,6 @@ export const VERDICT_RANK: Record<VerdictLevel, number> = { toss_up: 0, lean: 1,
 /** Tip for a card with no line yet: no edge to grade, so nothing about the bar. */
 export const NO_LINE_TIP = { title: "Toss Up", body: "No line yet, so there's no edge to grade. Not a play." } as const;
 
-/** Shown under the headline of a CZarp Play whose edge on the current line is now below the bar.
- *  The chip stays CZarp Play. */
-export const LINE_MOVE_NOTE = "No longer a value play due to line movement.";
-
 export function verdictDef(level: VerdictLevel): VerdictDef {
   return VERDICT_LADDER.find((d) => d.level === level)!;
 }
@@ -131,8 +127,8 @@ export function ladderLevel(x: LadderInput): LadderResult {
   return { level: "toss_up", holds: [] };
 }
 
-/** A CZarp Play shows LINE_MOVE_NOTE whenever that market's edge now is below the bar.
- *  No stored edge → no note (we can't say the line moved). */
+/** True when a CZarp Play's stored edge now is below the bar. The chip stays CZarp Play;
+ *  customer copy is the posted/now/vs-open line, never a downgrade sentence. */
 export function showsLineMoveNote(market: Market, official: boolean, edgeNow: number | null | undefined): boolean {
   return official && finite(edgeNow) && !clearsBar(market, edgeNow);
 }

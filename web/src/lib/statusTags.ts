@@ -39,7 +39,8 @@ export function pickStatusTags(g: SlateGame, bets: ValueBet[]): StatusTag[] {
 
   const byKind: Record<StatusTagKind, StatusTag[]> = {
     verdict: [{ kind: "verdict", verdict: h.verdict, holds: h.holds, noLine: h.noLine, market: h.noLine ? null : h.market }],
-    pause: locks.length ? [{ kind: "pause", locks, market: h.market }] : [],
+    // Official plays keep the CZarp Play chip only — no "Both teams paused" (or single-team pause) tag.
+    pause: h.verdict === "official" ? [] : (locks.length ? [{ kind: "pause", locks, market: h.market }] : []),
     value: [],
   };
 

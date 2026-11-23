@@ -116,6 +116,7 @@ test("the team page's next game uses the same one-row headline and note as the c
   assert.match(team, /cardNoteLine\(next, next\.officialBets \?\? \[\]\)/);
   assert.doesNotMatch(team, /subtitle|fair vs price|cardHeadline\(|notAPlayLine\(/);
   // One shared component file; the card and sheet import it too.
-  assert.match(slate(), /import \{ HeaderRow, LineMoveNote \} from "\.\/HeaderRow"/);
+  assert.match(slate(), /import \{ HeaderRow \} from "\.\/HeaderRow"/);
+  assert.doesNotMatch(slate(), /LineMoveNote/);
   assert.doesNotMatch(slate(), /function HeaderRow\(|function HeadlineBody\(|function edgeNumberClass\(/);
 });
