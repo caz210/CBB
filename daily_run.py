@@ -51,7 +51,6 @@ from __future__ import annotations
 import argparse
 import ast
 import contextlib
-import json
 import math
 import os
 import sys
@@ -1226,8 +1225,28 @@ def check_immutable(old: pd.DataFrame, new: pd.DataFrame) -> None:
             raise LedgerImmutableError(f"{r['pick_id']}: frozen pick fields would change")
         if isinstance(r.get("pick_hash"), str) and r["pick_hash"] and n.get("pick_hash") != r["pick_hash"]:
             raise LedgerImmutableError(f"{r['pick_id']}: pick_hash would change")
-        if r.get("status") == "graded" and (n.get("status") != "graded" or _canon("x", n.get("result")) != _canon("x", r.get("result"))):
+        if r.get("status") in ("graded", "void") and (n.get("status") != r.get("status") or _canon("x", n.get("result")) != _canon("x", r.get("result"))):
             raise LedgerImmutableError(f"{r['pick_id']}: graded result would change")
+        for f in SET_ONCE_FIELDS:                 # like the picks_immutable trigger: NULL may be filled, never changed
+            if not _same_once(r.get(f), n.get(f)):
+                raise LedgerImmutableError(f"{r['pick_id']}: {f} is set once and would change "
+                                           f"({_canon('x', r.get(f))!r} -> {_canon('x', n.get(f))!r})")
+
+
+# Grading / closing-line fields: set once (a NULL may be filled later, a value never changes), mirroring picks_guard
+# (result, graded_at, pnl, units_pnl, closing_line, clv) plus the ledger-only scores and close price.
+SET_ONCE_FIELDS = ("result", "graded_ct", "pnl", "pnl_units", "away_score", "home_score",
+                   "close_line", "close_price", "clv_pts")
+
+
+def _same_once(old, new) -> bool:
+    """True when `new` keeps a set-once value: old empty (fill allowed), or equal (numbers to 6 decimals)."""
+    if _canon("x", old) == "":
+        return True
+    try:
+        return round(float(old), 6) == round(float(new), 6)
+    except (TypeError, ValueError):
+        return _canon("x", old) == _canon("x", new)
 
 
 def write_ledger(df: pd.DataFrame) -> None:
@@ -1255,10 +1274,22 @@ def ledger_lock(wait: float | None = None, poll: float = 1.0):
     write_ledger(), so one job never writes back a stale copy over another job's changes (a stale
     'open' row over a fresh grade is refused by check_immutable; a stale pretip_flag would be lost).
     wait=None blocks until the lock is free; otherwise give up after `wait` seconds (0 = try once) and
-    raise LedgerBusy. Linux flock: released when the holder exits, even on a crash."""
+    raise LedgerBusy. Linux flock: released when the holder exits, even on a crash. Re-entrant within a thread.
+    The lock is a local file: every writer must run on the same host and checkout (the box), never in CI.
+    Hold it only for local work — never across a network call — except daily_run, which holds it for its whole run
+    (minutes) and is the only long holder; the others hold it for milliseconds."""
     import fcntl
     import time as _t
+    import threading
     path = ledger_lock_path()
+    me = (path, threading.get_ident())
+    if _LOCKS_HELD.get(me):                 # already held by this thread (nested call): flock would self-deadlock
+        _LOCKS_HELD[me] += 1
+        try:
+            yield
+        finally:
+            _LOCKS_HELD[me] -= 1
+        return
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "a") as fh:
         if wait is None:
@@ -1270,13 +1301,19 @@ def ledger_lock(wait: float | None = None, poll: float = 1.0):
                     fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
                     break
                 except BlockingIOError:
-                    if _t.monotonic() >= deadline:
+                    left = deadline - _t.monotonic()
+                    if left <= 0:
                         raise LedgerBusy(f"ledger is locked by another job ({path})") from None
-                    _t.sleep(poll)
+                    _t.sleep(min(poll, left))
+        _LOCKS_HELD[me] = 1
         try:
             yield
         finally:
+            _LOCKS_HELD.pop(me, None)
             fcntl.flock(fh, fcntl.LOCK_UN)
+
+
+_LOCKS_HELD: dict[tuple, int] = {}
 
 
 def close_fields(r, ln: dict, flipped: bool) -> tuple:
@@ -1304,8 +1341,21 @@ def close_fields(r, ln: dict, flipped: bool) -> tuple:
     return close, cpx, clv
 
 
-def grade(ledger: pd.DataFrame, now: datetime) -> list[int]:
-    """Grade open plays whose games are final; record closing line + CLV."""
+VOID_STATUSES = {"STATUS_POSTPONED", "STATUS_POSTPONE", "STATUS_CANCELED", "STATUS_CANCELLED"}
+
+
+def is_void_game(g: dict) -> bool:
+    """Postponed / canceled per ESPN's explicit status name. A void is permanent (set once in the ledger and in
+    Supabase), so a transient 'post but not completed' state without one of these names never voids a play."""
+    return g.get("state") == "post" and not g.get("completed") and g.get("status_name") in VOID_STATUSES
+
+
+def grade(ledger: pd.DataFrame, now: datetime, scoreboard=None, lines=None) -> list[int]:
+    """Grade open plays whose games are final; record closing line + CLV.
+    `scoreboard(day)` / `lines(event_id)` default to the live ESPN feeds; grade_finals passes prefetched ones so it
+    can hold the ledger lock without any network call."""
+    scoreboard = scoreboard or espn_scoreboard
+    lines = lines or espn_dk_lines
     for c in ("status", "graded_ct", "away_score", "home_score", "close_line", "close_price", "clv_pts", "result", "pnl",
               "pnl_units"):
         if c not in ledger:
@@ -1315,7 +1365,7 @@ def grade(ledger: pd.DataFrame, now: datetime) -> list[int]:
     graded = []
     for d in sorted(open_.game_date.unique()):
         try:
-            sb = {g["event_id"]: g for g in espn_scoreboard(date.fromisoformat(d))}
+            sb = {g["event_id"]: g for g in scoreboard(date.fromisoformat(d))}
         except Exception as e:
             log(f"  grading {d}: ESPN scoreboard failed ({type(e).__name__}) — will retry next run")
             continue
@@ -1330,7 +1380,7 @@ def grade(ledger: pd.DataFrame, now: datetime) -> list[int]:
             g = sb.get(str(r.event_id))
             if g is None:
                 continue
-            if g["state"] == "post" and not g["completed"]:      # postponed / canceled
+            if is_void_game(g):                                    # postponed / canceled
                 ledger.loc[i, ["status", "result", "pnl", "pnl_units", "graded_ct"]] = [
                     "void", "void", 0.0, 0.0, now.isoformat(timespec="seconds")]
                 graded.append(i); continue
@@ -1343,7 +1393,7 @@ def grade(ledger: pd.DataFrame, now: datetime) -> list[int]:
                     f"do not match ledger {r.away} / {r.home} — leaving open")
                 continue
             hs, as_, flipped = aligned
-            ln = espn_dk_lines(str(r.event_id))
+            ln = lines(str(r.event_id))
             line = float(r.line)
             if r.market == "spread":
                 home = r.side == r.home
@@ -2162,16 +2212,22 @@ def main(argv=None) -> int:
         PACE_FIX = a.pace_fix
     if a.pace_fix_w is not None:
         PACE_FIX_MKT_W = a.pace_fix_w
-    # hold the ledger lock from read to write so grade_finals / pretip_check never interleave with this run
-    with contextlib.ExitStack() as held:
-        try:
-            held.enter_context(ledger_lock(wait=DAILY_LOCK_WAIT_S))
-        except LedgerBusy as e:
-            log(f"  ⚠ {e}; waited {DAILY_LOCK_WAIT_S:g}s — running without it (check_immutable still guards the ledger)")
+    if a.chat_only or a.dry_run or a.resync:          # these never write the ledger: no lock needed
         return _daily(a)
+    # A ledger-writing run holds the ledger lock from its read to its write, so grade_finals / pretip_check never
+    # interleave with it. It NEVER runs unlocked: the other holders keep the lock for milliseconds (no network inside),
+    # so waiting DAILY_LOCK_WAIT_S and still not getting it means something is wrong (e.g. a second daily_run).
+    # Then nothing is read, graded, logged or written; the run fails loudly (exit 3) and is safe to re-run.
+    try:
+        with ledger_lock(wait=DAILY_LOCK_WAIT_S, poll=2.0):
+            return _daily(a)
+    except LedgerBusy as e:
+        log(f"  !!! {e}: waited {DAILY_LOCK_WAIT_S:g}s. NOTHING WAS WRITTEN and no picks were logged — "
+            "re-run daily_run.py once the other job finishes.")
+        return 3
 
 
-DAILY_LOCK_WAIT_S = 600.0
+DAILY_LOCK_WAIT_S = 1800.0      # 30 min; grade_finals / pretip hold the lock for milliseconds
 
 
 def _daily(a) -> int:

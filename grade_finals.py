@@ -9,17 +9,19 @@ source of truth) as daily_run.py and pretip_check.py, under the same ledger lock
     python grade_finals.py --no-supabase    # ledger only
     options: --lock-wait SECONDS (default 0: if another job holds the ledger, skip this cycle)  -v
 
-One cycle:
-  1. lock the ledger, seal(read_ledger()), verify_ledger() — a broken hash chain stops the cycle (nothing written)
-  2. daily_run.grade(): open plays whose game is final -> result, scores, P&L, closing line + CLV;
-     postponed / canceled -> void (identical to the 7 AM grading)
-  3. fill_closes(): graded plays from the last CLOSE_FILL_DAYS days still missing a DK closing line get it now
-     (NULL fields only: close_line / close_price / clv_pts are not hashed and check_immutable allows the fill)
-  4. write_ledger() (check_immutable: no pick field, hash or graded result can change) — skipped when nothing changed
-  5. Supabase picks: for recent graded ledger rows, PATCH only the grading columns that are still NULL in the
-     database (result / graded_at / pnl / units_pnl together, guarded by result IS NULL; closing_line and clv one
-     at a time, guarded by col IS NULL) — exactly what the picks_immutable trigger allows. A missed write
-     self-heals next cycle. No other table is written.
+One cycle (no network call is ever made while the ledger lock is held):
+  1. read the ledger without the lock (snapshot; a broken hash chain stops here) and prefetch from ESPN the
+     scoreboards of open game dates and the DK lines of games that are final (capped at FETCH_BUDGET_S)
+  2. take the ledger lock (skip the cycle if busy), FRESH read, seal + verify_ledger, then from the prefetched data:
+     daily_run.grade() on plays still open — result, scores, P&L, closing line + CLV; postponed / canceled (ESPN
+     status name) -> void, identical to the 7 AM grading — and fill_closes() on graded plays from the last
+     CLOSE_FILL_DAYS days still missing a DK close (NULL fields only); write_ledger() (check_immutable: pick fields,
+     hash and every grading field are set once); release the lock. The lock is held for milliseconds.
+  3. Supabase picks, after the lock is released: for recent graded ledger rows, PATCH only the grading columns that
+     are still NULL in the database (result / graded_at / pnl / units_pnl together, guarded by result IS NULL;
+     closing_line and clv one at a time, guarded by col IS NULL) — exactly what the picks_immutable trigger allows.
+     A missed write self-heals next cycle. No other table is written.
+MUST run on the same host and checkout as daily_run.py and pretip_check.py: the ledger lock is a local flock.
 It never reads KenPom, never calls The Odds API or Kalshi, never logs picks and never touches games /
 projections / market_lines. ESPN (free) is the only feed: one scoreboard call per open game date, one odds call per
 game being graded or missing a close. Re-running is a no-op. Exit 0 = done or skipped (lock busy); 1 = error.
@@ -36,6 +38,7 @@ import daily_run as dr
 from czarp.supabase_writer import LEAGUE
 
 CLOSE_FILL_DAYS = 2           # look back this many game days for graded plays still missing a DK close
+FETCH_BUDGET_S = 240.0        # cap on ESPN fetch time per cycle (outside the lock); the rest waits for the next cycle
 SYNC_DAYS = 3                 # mirror grading for plays from the last N game days (self-heals a missed write)
 GRADE_COLS = ("status", "graded_ct", "away_score", "home_score", "close_line", "close_price", "clv_pts",
               "result", "pnl", "pnl_units")
@@ -45,24 +48,24 @@ def _missing(v) -> bool:
     return v is None or (not isinstance(v, str) and pd.isna(v))
 
 
-def fill_closes(ledger: pd.DataFrame, now, days: int = CLOSE_FILL_DAYS, log=dr.log) -> list[int]:
+def fill_closes(ledger: pd.DataFrame, now, days: int = CLOSE_FILL_DAYS, log=dr.log,
+                scoreboard=None, lines=None) -> list[int]:
     """Fill a missing DK close (close_line, close_price, clv_pts) on recently graded, non-void plays.
-    NULL fields only; result / P&L / scores are never touched. Returns the filled row indexes."""
-    if ledger.empty:
+    NULL fields only; result / P&L / scores are never touched. Returns the filled row indexes.
+    `scoreboard` / `lines` default to live ESPN; run() passes prefetched ones (no network under the lock)."""
+    scoreboard = scoreboard or dr.espn_scoreboard
+    lines = lines or dr.espn_dk_lines
+    todo = close_todo(ledger, now, days)
+    if todo.empty:
         return []
     for c in ("close_line", "close_price", "clv_pts"):
         ledger[c] = ledger[c].astype(object)
-    since = (now.date() - timedelta(days=days)).isoformat()
-    todo = ledger[(ledger.status == "graded") & ledger.close_line.apply(_missing)
-                  & (ledger.game_date.astype(str) >= since)]
-    if todo.empty:
-        return []
     from backtest import NameMatcher
     from czarp.sync_finals import align_espn_box
     done = []
     for d in sorted(todo.game_date.astype(str).unique()):
         try:
-            sb = {g["event_id"]: g for g in dr.espn_scoreboard(date.fromisoformat(d))}
+            sb = {g["event_id"]: g for g in scoreboard(date.fromisoformat(d))}
         except Exception as e:
             log(f"  close fill {d}: ESPN scoreboard failed ({type(e).__name__}) — will retry next run")
             continue
@@ -78,7 +81,7 @@ def fill_closes(ledger: pd.DataFrame, now, days: int = CLOSE_FILL_DAYS, log=dr.l
                                      g.get("home_score"), g.get("away_score"), match=matcher)
             if aligned is None:
                 continue
-            close, cpx, clv = dr.close_fields(r, dr.espn_dk_lines(str(r.event_id)), aligned[2])
+            close, cpx, clv = dr.close_fields(r, lines(str(r.event_id)), aligned[2])
             if close is None:
                 continue
             for col, val in (("close_line", close), ("close_price", cpx), ("clv_pts", clv)):
@@ -86,6 +89,66 @@ def fill_closes(ledger: pd.DataFrame, now, days: int = CLOSE_FILL_DAYS, log=dr.l
                     ledger.at[i, col] = val
             done.append(i)
     return done
+
+
+def open_todo(ledger: pd.DataFrame, now) -> pd.DataFrame:
+    """Open plays that have tipped (what daily_run.grade looks at)."""
+    if ledger.empty:
+        return ledger
+    return ledger[(ledger.status == "open") & (pd.to_datetime(ledger.tip_ct) < pd.Timestamp(now.replace(tzinfo=None)))]
+
+
+def close_todo(ledger: pd.DataFrame, now, days: int = CLOSE_FILL_DAYS) -> pd.DataFrame:
+    """Graded (not void) plays from the last `days` game days still missing a DK close."""
+    if ledger.empty:
+        return ledger
+    since = (now.date() - timedelta(days=days)).isoformat()
+    return ledger[(ledger.status == "graded") & ledger.close_line.apply(_missing)
+                  & (ledger.game_date.astype(str) >= since)]
+
+
+class Prefetched:
+    """ESPN data fetched BEFORE the ledger lock is taken, replayed to grade() / fill_closes() under the lock.
+
+    The replayed scoreboard keeps only games whose DK lines were fetched (or that are void / not final), so a
+    game that went final without its lines being fetched is simply left for the next cycle — never graded
+    without a close lookup. Total fetch time is capped at `budget_s`; whatever is left waits for the next cycle."""
+
+    def __init__(self, ledger: pd.DataFrame, now, budget_s: float = FETCH_BUDGET_S, log=dr.log, clock=None):
+        import time
+        clock = clock or time.monotonic
+        deadline = clock() + budget_s
+        self.boards: dict[str, list[dict]] = {}
+        self.lines: dict[str, dict] = {}
+        want = pd.concat([open_todo(ledger, now), close_todo(ledger, now)])
+        for d in sorted(want.game_date.astype(str).unique()) if len(want) else []:
+            if clock() > deadline:
+                log(f"  fetch budget ({budget_s:g}s) used — {d} waits for the next cycle")
+                break
+            try:
+                board = dr.espn_scoreboard(date.fromisoformat(d))
+            except Exception as e:
+                log(f"  {d}: ESPN scoreboard failed ({type(e).__name__}) — will retry next run")
+                continue
+            by_id = {str(g["event_id"]): g for g in board}
+            keep = []
+            for eid in dict.fromkeys(want[want.game_date.astype(str) == d].event_id.astype(str)):
+                g = by_id.get(eid)
+                if g is None:
+                    continue
+                if g.get("completed") and g.get("home_score") is not None:
+                    if clock() > deadline:
+                        log(f"  fetch budget ({budget_s:g}s) used — event {eid} waits for the next cycle")
+                        continue
+                    self.lines[eid] = dr.espn_dk_lines(eid)
+                keep.append(g)
+            self.boards[d] = [g for g in keep if not g.get("completed") or str(g["event_id"]) in self.lines]
+
+    def scoreboard(self, day):
+        return self.boards[day.isoformat()]          # KeyError -> grade() logs "scoreboard failed", retries next run
+
+    def line(self, event_id):
+        return self.lines.get(str(event_id), {})
 
 
 def _clean(v):
@@ -136,42 +199,60 @@ def sync_picks(ledger: pd.DataFrame, now, client=None, days: int = SYNC_DAYS, lo
 
 
 def run(now=None, dry_run: bool = False, supabase: bool = True, lock_wait: float = 0.0, client=None,
-        log=dr.log) -> dict:
+        log=dr.log, budget_s: float | None = None) -> dict:
     """One grading cycle. Returns counts: graded, voided, closes (late closing lines filled), written (ledger
-    rewritten), patched (Supabase PATCHes), skipped (lock busy message) and sync_error."""
+    rewritten), patched (Supabase PATCHes), skipped (lock busy message), sync_error and lock_ms (time the ledger
+    lock was held).
+
+    Order (no network call while the ledger lock is held):
+      1. read the ledger WITHOUT the lock (a snapshot, only to know what to fetch) and fetch ESPN finals + DK lines
+      2. lock; FRESH read; seal + verify; grade() / fill_closes() from the prefetched data; write_ledger; unlock
+         (anything the 7 AM run graded meanwhile is no longer open and is left alone)
+      3. Supabase PATCHes from the ledger just written, after the lock is released"""
     import os
+    import time
+    from backtest import NameMatcher  # noqa: F401  (imported here so the first import is not under the lock)
     now = now or dr.now_ct()
-    out = {"graded": 0, "voided": 0, "closes": 0, "written": False, "patched": 0, "skipped": None, "sync_error": None}
+    out = {"graded": 0, "voided": 0, "closes": 0, "written": False, "patched": 0, "skipped": None,
+           "sync_error": None, "lock_ms": None}
     mirror = supabase and not dry_run and (client is not None or bool(
         os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_SERVICE_KEY")))
+    snap = dr.seal(dr.read_ledger())
+    bad = dr.verify_ledger(snap)
+    if bad:
+        raise dr.LedgerImmutableError(f"ledger integrity check failed: {'; '.join(bad[:5])}")
+    feeds = Prefetched(snap, now, budget_s=FETCH_BUDGET_S if budget_s is None else budget_s, log=log)
     try:
         with dr.ledger_lock(wait=lock_wait):
+            t0 = time.monotonic()
             ledger = dr.seal(dr.read_ledger())
             bad = dr.verify_ledger(ledger)
             if bad:
                 raise dr.LedgerImmutableError(f"ledger integrity check failed: {'; '.join(bad[:5])}")
-            gi = dr.grade(ledger, now)
-            ci = fill_closes(ledger, now, log=log)
-            out["voided"] = sum(ledger.at[i, "result"] == "void" for i in gi)
-            out["graded"] = len(gi) - out["voided"]
-            out["closes"] = len(ci)
-            for i in gi:
-                r = ledger.loc[i]
-                log(f"  graded {r.pick_id} ({r.tier}): {r.side} {r.line} -> {r.result}"
-                    + ("" if r.result == "void" else
-                       (f", CLV {float(r.clv_pts):+g}" if not _missing(r.clv_pts) else ", close pending")))
+            gi = dr.grade(ledger, now, scoreboard=feeds.scoreboard, lines=feeds.line)
+            ci = fill_closes(ledger, now, log=log, scoreboard=feeds.scoreboard, lines=feeds.line)
             if (gi or ci) and not dry_run:
                 dr.write_ledger(ledger)
                 out["written"] = True
-            if mirror:
-                try:
-                    out["patched"] = sync_picks(ledger, now, client=client, log=log)
-                except Exception as e:      # the CSV ledger is graded; the mirror retries next cycle
-                    log(f"  Supabase picks sync failed ({type(e).__name__}: {e}) — ledger graded; retry next cycle")
-                    out["sync_error"] = type(e).__name__
+            out["lock_ms"] = round((time.monotonic() - t0) * 1000, 1)
     except dr.LedgerBusy as e:
         out["skipped"] = str(e)
         log(f"  skipped: {e} — next cycle will grade")
+        return out
+    out["voided"] = sum(ledger.at[i, "result"] == "void" for i in gi)
+    out["graded"] = len(gi) - out["voided"]
+    out["closes"] = len(ci)
+    for i in gi:
+        r = ledger.loc[i]
+        log(f"  graded {r.pick_id} ({r.tier}): {r.side} {r.line} -> {r.result}"
+            + ("" if r.result == "void" else
+               (f", CLV {float(r.clv_pts):+g}" if not _missing(r.clv_pts) else ", close pending")))
+    if mirror:
+        try:
+            out["patched"] = sync_picks(ledger, now, client=client, log=log)
+        except Exception as e:      # the CSV ledger is graded; the mirror retries next cycle
+            log(f"  Supabase picks sync failed ({type(e).__name__}: {e}) — ledger graded; retry next cycle")
+            out["sync_error"] = type(e).__name__
     return out
 
 
