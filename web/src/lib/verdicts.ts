@@ -5,7 +5,7 @@
  *  stored edges to the boundaries below, at full precision (display rounds to one decimal).
  *
  *  Glossary entries (lib/glossary.ts) and tap-to-learn tips (lib/explainers.ts) read VERDICT_LADDER. */
-import { MIN_STAKE_UNITS, PLAY_THRESHOLD, type Market } from "./labels";
+import { fmtEdgeVsBar, fmtOne, fmtPlayPct, fmtSpread, MIN_STAKE_UNITS, PLAY_THRESHOLD, type Market } from "./labels";
 import { OFFICIAL_POST_TIME } from "./officialPost";
 
 /** Internal keys. "official" is the CZarp Play (a posted pick); customers never see the key. */
@@ -74,8 +74,8 @@ export const VERDICT_RANK: Record<VerdictLevel, number> = { toss_up: 0, lean: 1,
 /** Tip for a card with no line yet: no edge to grade, so nothing about the bar. */
 export const NO_LINE_TIP = { title: "Toss Up", body: "No line yet, so there's no edge to grade. Not a play." } as const;
 
-/** Shown under the headline of a CZarp Play whose edge on the current line is now below the bar.
- *  The chip stays CZarp Play. */
+/** Shown under the headline of a CZarp Play when the current line has moved away from CZarp
+ *  since post and the edge now is below the bar. The chip stays CZarp Play. */
 export const LINE_MOVE_NOTE = "No longer a value play due to line movement.";
 
 export function verdictDef(level: VerdictLevel): VerdictDef {
@@ -132,8 +132,50 @@ export function ladderLevel(x: LadderInput): LadderResult {
   return { level: "toss_up", holds: [] };
 }
 
-/** A CZarp Play shows LINE_MOVE_NOTE whenever that market's edge now is below the bar.
- *  No stored edge → no note (we can't say the line moved). */
-export function showsLineMoveNote(market: Market, official: boolean, edgeNow: number | null | undefined): boolean {
+export type LineMoveInput = {
+  official: boolean;
+  market: Market;
+  edgeNow: number | null | undefined;
+  /** Market line at post (same convention as currentLine). */
+  postedLine?: number | null;
+  /** Current market line (same convention as postedLine). */
+  currentLine?: number | null;
+  /** CZarp's number at post (fair_at_post), or the current official number if that's all we have. */
+  fair?: number | null;
+};
+
+const FINITE_N = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
+
+/** True when the line has moved farther from CZarp's number than it was at post (away from CZarp).
+ *  A move toward CZarp, or no move since post, is not against the posted pick. */
+export function lineMovedAwayFromCzarp(posted: number, current: number, fair: number): boolean {
+  if (![posted, current, fair].every(FINITE_N)) return false;
+  if (current === posted) return false;
+  return Math.abs(current - fair) > Math.abs(posted - fair) + 1e-9;
+}
+
+/** A CZarp Play shows LINE_MOVE_NOTE only when the edge now is below the bar AND the current
+ *  line has moved away from CZarp since post. Missing lines → no note (we can't prove a move). */
+export function showsLineMoveNote(x: LineMoveInput): boolean {
+  return x.official && finite(x.edgeNow) && !clearsBar(x.market, x.edgeNow)
+    && FINITE_N(x.postedLine) && FINITE_N(x.currentLine) && FINITE_N(x.fair)
+    && lineMovedAwayFromCzarp(x.postedLine, x.currentLine, x.fair);
+}
+
+/** Neutral context when a CZarp Play is below the bar but the line did not move away since post.
+ *  e.g. "4.0% at open 150.5 · 2.7% now". Requires open line, edge at open, and edge now. */
+export function officialOpenNowContext(
+  market: Market,
+  edgeVsOpen: number | null | undefined,
+  openLine: number | null | undefined,
+  edgeNow: number | null | undefined,
+): string | null {
+  if (!FINITE_N(edgeVsOpen) || !FINITE_N(openLine) || !FINITE_N(edgeNow)) return null;
+  const line = market === "total" ? fmtOne(openLine) : fmtSpread(openLine);
+  return `${fmtPlayPct(edgeVsOpen)} at open ${line} · ${fmtEdgeVsBar(edgeNow, market)} now`;
+}
+
+/** Official play whose stored edge now is below the play bar (used for % color, not the move tag). */
+export function officialBelowBar(market: Market, official: boolean, edgeNow: number | null | undefined): boolean {
   return official && finite(edgeNow) && !clearsBar(market, edgeNow);
 }

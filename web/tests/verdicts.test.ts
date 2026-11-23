@@ -2,7 +2,7 @@
 // Toss Up → Lean → Value → Late Value → CZarp Play. Run: npm test
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { HOLD_CODES, LATE_VALUE_NOTE, LINE_MOVE_NOTE, NO_LINE_TIP, TIER_BOUNDS, VERDICT_LADDER, VERDICT_RANK, clearsBar, holdCodes, ladderLevel, showsLineMoveNote, verdictLabel, type LadderInput, type VerdictLevel } from "../src/lib/verdicts";
+import { HOLD_CODES, LATE_VALUE_NOTE, LINE_MOVE_NOTE, NO_LINE_TIP, TIER_BOUNDS, VERDICT_LADDER, VERDICT_RANK, clearsBar, holdCodes, ladderLevel, lineMovedAwayFromCzarp, officialBelowBar, officialOpenNowContext, showsLineMoveNote, verdictLabel, type LadderInput, type VerdictLevel } from "../src/lib/verdicts";
 import { OFFICIAL_POST_TIME } from "../src/lib/officialPost";
 import { MIN_STAKE_UNITS } from "../src/lib/labels";
 import { cardHeaderRow } from "../src/lib/cardHeader";
@@ -102,15 +102,15 @@ test("clearsBar is inclusive at full precision", () => {
   assert.equal(clearsBar("total", null), false);
 });
 
-test("line-move note: CZarp Play whose edge now is below the bar", () => {
+test("line-move note: only when a CZarp Play is below the bar AND the line moved away from CZarp since post", () => {
   assert.equal(LINE_MOVE_NOTE, "No longer a value play due to line movement.");
-  assert.equal(showsLineMoveNote("total", true, 0.0099), true);
-  assert.equal(showsLineMoveNote("total", true, 0.029999), true);
-  assert.equal(showsLineMoveNote("total", true, 0.03), false);
-  assert.equal(showsLineMoveNote("spread", true, 0.039999), true);
-  assert.equal(showsLineMoveNote("spread", true, 0.04), false);
-  assert.equal(showsLineMoveNote("total", false, 0.01), false);
-  assert.equal(showsLineMoveNote("total", true, null), false);
+  const away = { official: true, market: "total" as const, edgeNow: 0.0269, postedLine: 148.5, currentLine: 151.5, fair: 144.5 };
+  assert.equal(showsLineMoveNote(away), true);
+  assert.equal(showsLineMoveNote({ ...away, edgeNow: 0.03 }), false); // still at the bar
+  assert.equal(showsLineMoveNote({ ...away, official: false }), false);
+  assert.equal(showsLineMoveNote({ ...away, edgeNow: null }), false);
+  assert.equal(showsLineMoveNote({ official: true, market: "spread", edgeNow: 0.02, postedLine: -3.5, currentLine: -6.5, fair: -1 }), true);
+  assert.equal(showsLineMoveNote({ official: true, market: "spread", edgeNow: 0.04, postedLine: -3.5, currentLine: -6.5, fair: -1 }), false);
 });
 
 test("ladder copy: Late Value says it's off the record; no paper, model-version or KenPom wording", () => {
@@ -309,7 +309,7 @@ test("Lamar @ Nebraska Omaha 11-17: Total Value (new-coach pause), Spread Value 
   assert.match(notAPlayLine(g, []) ?? "", /^Not a play: paused until game 4/);
 });
 
-test("Norfolk St. @ Georgia Tech 11-17: posted total stays a CZarp Play and shows the line-move note", () => {
+test("Norfolk St. @ Georgia Tech 11-17: posted total stays a CZarp Play; no line-move tag without a post-time away move", () => {
   const g = game({
     game_id: 1294, game_date: "2026-11-17", home: "Georgia Tech", away: "Norfolk St.", game: "Norfolk St. @ Georgia Tech",
     market_spread: -21.5, market_total: 151.5,
@@ -320,16 +320,20 @@ test("Norfolk St. @ Georgia Tech 11-17: posted total stays a CZarp Play and show
   const b = bet({ game_id: 1294, side: "Under 151.5", line_edge_pct: 0.0099, edge_at_post_pct: 0.0099, edge_vs_open_pct: 0.0476, fair_at_post: 150 });
   const r = marketRatings(g, [b]);
   assert.equal(r.total.level, "official");
-  assert.equal(r.total.lineMoveNote, true);
+  // No line_at_post: we cannot prove a move away from CZarp since post, so no line-move tag.
+  assert.equal(r.total.lineMoveNote, false);
   assert.equal(r.spread.level, "toss_up");
   assert.equal(r.spread.lineMoveNote, false);
   const h = cardHeadline(g, [b]);
   assert.equal(h.verdict, "official");
-  assert.equal(h.lineMoveNote, true);
+  assert.equal(h.lineMoveNote, false);
+  assert.equal(h.belowBar, true);
   const t = pickStatusTags(g, [b])[0];
   assert.ok(t.kind === "verdict" && t.verdict === "official" && t.market === "total");
-  // Same pick with an edge now at the bar: no note.
+  assert.equal(pickStatusTags(g, [b]).length <= 2, true);
+  // Same pick with an edge now at the bar: still no note.
   assert.equal(cardHeadline(game({ ...g, edge_now_pct_total: 0.03 }), [b]).lineMoveNote, false);
+  assert.equal(cardHeadline(game({ ...g, edge_now_pct_total: 0.03 }), [b]).belowBar, false);
 });
 
 test("CZarp Play outranks Late Value for the header slot, whatever the edges", () => {

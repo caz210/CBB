@@ -5,6 +5,7 @@ import { fmtEdgeVsBar, fmtGameDate, fmtOne, fmtWinProb, pct } from "@/lib/labels
 import { teamHref } from "@/lib/teams";
 import { cardHeadline, marketRatings, type MarketRating } from "@/lib/verdict";
 import { nowLine } from "@/lib/cardHeader";
+import { LineMoveNote, OpenNowNote } from "@/components/HeaderRow";
 import { betCoverProb, totalFair } from "@/lib/posted";
 import { evPer100, fmtEv100 } from "@/lib/stats";
 import {
@@ -79,7 +80,7 @@ function MarketBetRow({ label, fair, price, rating, official, now, edge }: {
   now: string | null;
   edge: string | null;
 }) {
-  const tone = rating.lineMoveNote ? "text-zinc-300" : EDGE_TONE[rating.level];
+  const tone = rating.belowBar ? "text-zinc-300" : EDGE_TONE[rating.level];
   return (
     <div className="rounded-xl border border-ink-700 bg-ink-850 px-3 py-2.5">
       <div className="flex items-start justify-between gap-2">
@@ -98,6 +99,8 @@ function MarketBetRow({ label, fair, price, rating, official, now, edge }: {
               {now && <span className="ml-1.5 font-mono text-[11px] font-normal text-zinc-500">{now}</span>}
             </div>
           )}
+          {rating.lineMoveNote && <LineMoveNote className="mt-1" />}
+          {!rating.lineMoveNote && rating.openNowContext && <OpenNowNote text={rating.openNowContext} className="mt-1" />}
         </div>
         <div className={`shrink-0 font-mono text-2xl font-black leading-none ${tone}`}>{edge ?? "—"}</div>
       </div>
