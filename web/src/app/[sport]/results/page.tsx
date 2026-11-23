@@ -212,8 +212,24 @@ function Live({ data, range }: { data: Extract<Awaited<ReturnType<typeof loadRes
                   <div key={r.market} className="flex items-center justify-between py-3 text-sm">
                     <div>
                       <div className="font-semibold">{MARKET_LABEL[r.market] ?? r.market}</div>
-                      <div className="font-mono text-xs text-zinc-500">{r.wins}-{r.losses}-{r.pushes} · {r.pending} pending · {fmtUnits(units?.kelly ?? 0, 1)} ¼-K</div>
-                      <div className="font-mono text-[11px] text-zinc-600">Flat 1u: {fmtUnits(units?.flat ?? r.units, 1)}{r.avg_clv != null ? ` · CLV ${fmtClv(r.avg_clv)} · beat close ${r.beat_close}` : ""}</div>
+                      <div className="font-mono text-xs text-zinc-500">
+                        <span className="whitespace-nowrap">{r.wins}-{r.losses}-{r.pushes}</span>
+                        {" · "}
+                        <span className="whitespace-nowrap">{r.pending} pending</span>
+                        {" · "}
+                        <span className="whitespace-nowrap">{fmtUnits(units?.kelly ?? 0, 1)} ¼-K</span>
+                      </div>
+                      <div className="font-mono text-[11px] text-zinc-600">
+                        <span className="whitespace-nowrap">Flat 1u: {fmtUnits(units?.flat ?? r.units, 1)}</span>
+                        {r.avg_clv != null ? (
+                          <>
+                            {" · "}
+                            <span className="whitespace-nowrap">CLV {fmtClv(r.avg_clv)}</span>
+                            {" · "}
+                            <span className="whitespace-nowrap">beat close {r.beat_close}</span>
+                          </>
+                        ) : null}
+                      </div>
                     </div>
                     <div className="text-right font-mono">
                       <div>{decided ? pct(r.wins / decided, 1) : "—"}</div>

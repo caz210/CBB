@@ -200,3 +200,11 @@ test("terms and privacy drop the template banner and share one contact-email con
   assert.match(read("src/components/LegalPage.tsx"), /CONTACT_MAILTO/);
   assert.match(read("src/app/privacy/page.tsx"), /Contact us at/);
 });
+
+test("by-market secondary lines wrap between nowrap value chunks, not mid-token", () => {
+  const src = read("src/app/[sport]/results/page.tsx");
+  assert.match(src, /className="whitespace-nowrap">\{fmtUnits\(units\?\.kelly \?\? 0, 1\)\} ¼-K</);
+  assert.match(src, /className="whitespace-nowrap">Flat 1u: \{fmtUnits\(units\?\.flat \?\? r\.units, 1\)\}</);
+  assert.match(src, /className="whitespace-nowrap">CLV \{fmtClv\(r\.avg_clv\)\}</);
+  assert.match(src, /className="whitespace-nowrap">beat close \{r\.beat_close\}</);
+});
