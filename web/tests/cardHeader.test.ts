@@ -137,21 +137,21 @@ test("% color by tier; a CZarp Play that lost value is neutral", () => {
   assert.equal(atBar.tone, "green");
   assert.equal(atBar.openNowContext, null);
   assert.equal(atBar.lineMoveNote, false);
-  assert.equal(cardHeaderRow(game(), []).tone, "neutral"); // Lean
+  assert.equal(cardHeaderRow(game(), []).tone, "neutral"); // Small edge
   assert.equal(cardHeaderRow(game({ edge_now_pct_spread: 0.006 }), []).tone, "dim"); // Toss Up
 });
 
 test("one market in the header: the stronger by rank, ties to the bigger edge", () => {
-  // Spread Lean 2.5% vs total Late Value 3.1%: total.
+  // Spread Small edge 2.5% vs total Late Value 3.1%: total.
   assert.equal(cardHeaderRow(game({ edge_now_pct_total: 0.031, skip_reasons_total: [] }), []).market, "total");
-  // Both Lean: bigger edge (spread 2.5% vs total 1.6%).
+  // Both Small edge: bigger edge (spread 2.5% vs total 1.6%).
   assert.equal(cardHeaderRow(game({ edge_now_pct_total: 0.016 }), []).market, "spread");
   // CZarp Play beats a Late Value spread.
   assert.equal(cardHeaderRow({ ...troy(), edge_now_pct_spread: 0.09, skip_reasons_spread: [] }, [posted()]).market, "total");
 });
 
 test("the 'Not a play: edge now below' line is gone; only hold reasons remain", () => {
-  assert.equal(cardNoteLine(game(), []), null); // Lean
+  assert.equal(cardNoteLine(game(), []), null); // Small edge
   assert.equal(cardNoteLine(game({ edge_now_pct_spread: 0.006 }), []), null); // Toss Up
   assert.equal(cardNoteLine(game({ edge_now_pct_spread: 0.035 }), []), null); // Value below the bar
   assert.equal(cardNoteLine(game({ edge_now_pct_total: 0.031, skip_reasons_total: [] }), []), null); // Late Value
@@ -178,4 +178,37 @@ test("the slate card no longer renders the below-bar note or the posted-FV mono 
   assert.doesNotMatch(card, /postedFairVsProjections\(/);
   assert.doesNotMatch(card, /fair vs price/);
   assert.match(card, /cardNoteLine\(g, bets\)/);
+});
+
+
+test("a CZarp Lean without an official play owns the header: pick · CZarp line, edge, 1u tracked", () => {
+  const lean = {
+    sport: "cbb" as const, game_date: "2026-11-24", game_id: 1770, tipoff: null,
+    home: "Virginia", away: "Pittsburgh", pick_id: "p", pick: "Pittsburgh -2.5",
+    line: -2.5, odds: -110, edge_pct: 0.029, edge_vs_open_pct: 0.029,
+    czarp_line: -6.8, open_line: -2.5, new_coach: false, result: null, units: null, clv: null,
+    created_at: null, pick_hash: null,
+  };
+  const r = cardHeaderRow(game({ leans: [lean] }), []);
+  assert.equal(r.pick, "Pittsburgh -2.5 · CZarp -6.8");
+  assert.equal(r.edgeLabel, "2.9%");
+  assert.equal(r.tone, "neutral");
+  assert.equal(r.stakeNote, "1u tracked");
+  assert.equal(r.marketLabel, null);
+  assert.equal(r.lineMoveNote, false);
+});
+
+test("an official play keeps the header even when the game also has a CZarp Lean", () => {
+  const lean = {
+    sport: "cbb" as const, game_date: "2026-11-22", game_id: 1768, tipoff: null,
+    home: "Nicholls", away: "Troy", pick_id: "p", pick: "Troy -3.5",
+    line: -3.5, odds: -110, edge_pct: 0.028, edge_vs_open_pct: 0.028,
+    czarp_line: -6, open_line: -3.5, new_coach: false, result: null, units: null, clv: null,
+    created_at: null, pick_hash: null,
+  };
+  const off = posted();
+  const row = cardHeaderRow(troy(), [off]);
+  const both = cardHeaderRow({ ...troy(), leans: [lean] }, [off]);
+  assert.equal(both.pick, row.pick);
+  assert.equal(both.stakeNote, null);
 });

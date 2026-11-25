@@ -18,6 +18,8 @@ const RENDERED_IDS = [
   "neutral",
   "tv-rating",
   "upset-alert",
+  "czarp-lean",
+  "line-moved-away",
   "new-coach-pause",
   "tentative",
   ...PUBLIC_TAG_NAMES,
@@ -46,10 +48,10 @@ test("glossary style tags are exactly the 16 public TAG_DEFS names", () => {
 
 test("glossary covers live game chips; ladder words appear only in the verdict group", () => {
   assert.deepEqual(glossaryEntriesIn("chip").map((e) => e.title), [
-    "Neutral", "TV Rating", "Upset alert", "New-coach pause", "Tentative",
+    "Neutral", "TV Rating", "Upset alert", "CZarp Lean", "Line moved away, possible news", "New-coach pause", "Tentative",
   ]);
   assert.equal(glossaryEntriesIn("style").length, 16);
-  assert.equal(GLOSSARY_ENTRIES.length, 5 + 5 + 16);
+  assert.equal(GLOSSARY_ENTRIES.length, 5 + 7 + 16);
   assert.equal(glossaryEntry("TV Rating")?.id, "tv-rating");
   assert.equal(GLOSSARY_HREF, `/methodology#${GLOSSARY_ANCHOR}`);
   for (const e of GLOSSARY_ENTRIES) {
@@ -61,7 +63,7 @@ test("verdict group is built from VERDICT_LADDER, weakest to strongest, with no 
   const v = glossaryEntriesIn("verdict");
   assert.deepEqual(v.map((e) => e.title), VERDICT_LADDER.map((d) => d.label));
   assert.deepEqual(v.map((e) => e.body), VERDICT_LADDER.map((d) => d.short));
-  assert.deepEqual(v.map((e) => e.id), ["toss-up", "lean", "value", "late-value", "czarp-play"]);
+  assert.deepEqual(v.map((e) => e.id), ["toss-up", "small-edge", "value", "late-value", "czarp-play"]);
   assert.equal(glossaryEntry("CZarp Play")?.body, EXPLAINERS.czarpPlay.body);
   assert.equal(glossaryEntry("Late Value")?.body, EXPLAINERS.lateValue.body);
   assert.equal(EXPLAINERS.czarpPlay.title, "CZarp Play");

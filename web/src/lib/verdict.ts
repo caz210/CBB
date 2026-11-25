@@ -1,6 +1,6 @@
 /** Card verdicts (one per market), headline numbers, and "not a play" copy.
  *  Reads stored slate_games columns (edge_now_*, verdict_*, skip_reasons_*). Never computes an
- *  edge in the UI. The ladder rule (Toss Up / Lean / Value / Late Value / CZarp Play) lives in
+ *  edge in the UI. The ladder rule (Toss Up / Small edge / Value / Late Value / CZarp Play) lives in
  *  lib/verdicts.ts and is judged on the current line only. If the edge columns are missing/null,
  *  the vs-now line is hidden and the market reads Toss Up unless it has a posted official pick.
  */
@@ -311,7 +311,7 @@ const BAR_CODES = new Set(["below_open_threshold", "below_current_threshold"]);
  *  - Late Value: LATE_VALUE_NOTE, shown as-is (any other
  *    stored reason, e.g. "game already started", still shows).
  *  - Value past the bar: the hold rule(s) as the note (new-coach pause leads).
- *  - Below the bar (Toss Up, Lean, Value): no bar reason (the chip and the edge say it); only other
+ *  - Below the bar (Toss Up, Small edge, Value): no bar reason (the chip and the edge say it); only other
  *    stored reasons (e.g. stake under 0.1u, game already started), or the stored text with
  *    opening-line wording removed. */
 function skipForMarket(g: SlateGame, officialBets: ValueBet[], market: Market): SkipDetail {

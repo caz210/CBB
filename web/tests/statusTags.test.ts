@@ -38,8 +38,8 @@ const officialBet = (o: Partial<ValueBet> = {}): ValueBet => ({
 
 const labels = (g: SlateGame, bets: ValueBet[] = []) => pickStatusTags(g, bets).map(statusTagLabel);
 
-test("STATUS_TAG_PRIORITY is verdict first, then pause, then value; cap is 2", () => {
-  assert.deepEqual(STATUS_TAG_PRIORITY, ["verdict", "pause", "value"]);
+test("STATUS_TAG_PRIORITY is verdict first, then line-moved, reserved injury, pause, value; cap is 2", () => {
+  assert.deepEqual(STATUS_TAG_PRIORITY, ["verdict", "line_moved", "injury", "pause", "value"]);
   assert.equal(STATUS_TAG_MAX, 2);
 });
 
@@ -99,7 +99,7 @@ test("old VALUE / EDGE / HOT / Low value labels never come out of the picker", (
   ];
   for (const [o, bets] of cases) {
     for (const l of labels(game(o), bets)) {
-      assert.ok(["official", "late_value", "value", "lean", "toss_up", "pause"].includes(l), l);
+      assert.ok(["official", "late_value", "value", "lean", "toss_up", "pause", "czarp_lean", "line_moved"].includes(l), l);
     }
   }
 });
@@ -145,4 +145,34 @@ test("header verdict names the stronger market (CZarp Play outranks all); no-lin
   assert.ok(o.kind === "verdict" && o.verdict === "official" && o.market === "spread");
   const n = pickStatusTags(game({ edge_now_pct_spread: null, edge_now_pct_total: null, coachLocks: [] }), [])[0];
   assert.ok(n.kind === "verdict" && n.noLine && n.market === null);
+});
+
+
+const leanPick = () => ({
+  sport: "cbb" as const, game_date: "2026-11-21", game_id: 1687, tipoff: null,
+  home: "Loyola Marymount", away: "Cal Baptist", pick_id: "l", pick: "Cal Baptist +13.5",
+  line: 13.5, odds: -110, edge_pct: 0.029, edge_vs_open_pct: 0.029,
+  czarp_line: 10, open_line: 13.5, new_coach: false, result: null, units: null, clv: null,
+  created_at: null, pick_hash: null,
+});
+
+test("a CZarp Lean without an official play takes the first slot, not the ladder Small edge", () => {
+  assert.deepEqual(labels(game({ leans: [leanPick()], edge_now_pct_total: 0.01 })), ["czarp_lean"]);
+});
+
+test("line moved away outranks a new-coach pause for the second slot", () => {
+  const g = game({
+    leans: [leanPick()],
+    line_moved_away: true,
+    line_moved_away_pts: 3,
+    coachLocks: [lock()],
+  });
+  assert.deepEqual(labels(g), ["czarp_lean", "line_moved"]);
+  const tags = pickStatusTags(g, []);
+  assert.ok(tags[1].kind === "line_moved" && tags[1].pts === 3);
+});
+
+test("official play keeps the first slot when a lean is also on the game", () => {
+  const g = game({ leans: [leanPick()], line_moved_away: true, line_moved_away_pts: 2, coachLocks: [lock()] });
+  assert.deepEqual(labels(g, [officialBet()]), ["official", "line_moved"]);
 });

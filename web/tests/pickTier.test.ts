@@ -6,7 +6,7 @@ test("SHOW_TRACKED_TIER is the single flag that hides the tracked portfolio book
   assert.equal(SHOW_TRACKED_TIER, false);
 });
 
-test("when the flag is off, every non-official ?tier= falls back to official", () => {
+test("when the flag is off, unknown and tracked ?tier= fall back to official; lean stays lean", () => {
   assert.equal(resolvePortfolioTier(undefined), "official");
   assert.equal(resolvePortfolioTier(null), "official");
   assert.equal(resolvePortfolioTier(""), "official");
@@ -15,6 +15,7 @@ test("when the flag is off, every non-official ?tier= falls back to official", (
   assert.equal(resolvePortfolioTier("TRACK"), "official");
   assert.equal(resolvePortfolioTier("paper"), "official");
   assert.equal(resolvePortfolioTier("tracked"), "official");
+  assert.equal(resolvePortfolioTier("lean"), "lean");
 });
 
 test("when the flag is on, only exact ?tier=track selects the tracked book", () => {
@@ -23,12 +24,14 @@ test("when the flag is on, only exact ?tier=track selects the tracked book", () 
   assert.equal(resolvePortfolioTier(undefined, true), "official");
   assert.equal(resolvePortfolioTier("TRACK", true), "official");
   assert.equal(resolvePortfolioTier("paper", true), "official");
+  assert.equal(resolvePortfolioTier("lean", true), "lean");
 });
 
 test("dirty ?tier= params are stripped so the URL never shows tracked data while the flag is off", () => {
   assert.equal(shouldStripPortfolioTierParam("track"), true);
   assert.equal(shouldStripPortfolioTierParam("paper"), true);
   assert.equal(shouldStripPortfolioTierParam("official"), false);
+  assert.equal(shouldStripPortfolioTierParam("lean"), false);
   assert.equal(shouldStripPortfolioTierParam(undefined), false);
   assert.equal(shouldStripPortfolioTierParam(""), false);
   // with the flag on, a real track URL is kept
@@ -42,10 +45,13 @@ test("resultsHref never writes ?tier=track while the flag is off, and keeps rang
   assert.equal(resultsHref("cbb", "season", "track"), "/cbb/results");
   assert.equal(resultsHref("cbb", "30d", "track"), "/cbb/results?range=30d");
   assert.equal(resultsHref("cbb", "7d", "paper"), "/cbb/results?range=7d");
+  assert.equal(resultsHref("cbb", "season", "lean"), "/cbb/results?tier=lean");
+  assert.equal(resultsHref("cbb", "30d", "lean"), "/cbb/results?tier=lean&range=30d");
   // flag on: track is a real query again
   assert.equal(resultsHref("cbb", "season", "track", true), "/cbb/results?tier=track");
   assert.equal(resultsHref("cbb", "30d", "track", true), "/cbb/results?tier=track&range=30d");
   assert.equal(resultsHref("cbb", "season", "official", true), "/cbb/results");
+  assert.equal(resultsHref("cbb", "season", "lean", true), "/cbb/results?tier=lean");
 });
 
 test("the tier redirect keeps every query param except tier", () => {

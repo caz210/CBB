@@ -87,9 +87,15 @@ export type SlateGame = {
   edge_vs_open_pct_total?: number | null;
   verdict_spread?: "official" | "low_value" | null;
   verdict_total?: "official" | "low_value" | null;
-  /** Stored booleans from the pipeline. The ladder (lib/verdicts.ts) reads the stored edges instead. */
+  /** Stored booleans from the pipeline (edge only on the current line). Not a customer label; never shown as the CZarp Lean tier. */
   lean_spread?: boolean | null;
   lean_total?: boolean | null;
+  /** slate_games.line_moved_away: display flag, never a play. Null until the migration is applied. */
+  line_moved_away?: boolean | null;
+  /** Picked-side move in points; > 0 = away from CZarp. */
+  line_moved_away_pts?: number | null;
+  /** CZarp Lean picks on this game (tier=lean). Empty when the lean_picks view is missing. */
+  leans?: LeanPick[];
   /** slate_games.market_fetched_at, once the pipeline adds it (czarp-v2). */
   market_fetched_at?: string | null;
   /** slate_games.edges_as_of (coalesce of projections.edges_as_of / created_at), once the pipeline adds it. */
@@ -143,6 +149,49 @@ export type ValueBet = {
   edge_at_post_pct?: number | null;
   edge_vs_open_pct?: number | null;
   posted_at?: string | null;
+};
+
+
+// ---- view: lean_picks / lean_record -----------------------------------------
+export type LeanPick = {
+  sport: SportKey;
+  game_date: string;
+  game_id: number;
+  tipoff: string | null;
+  home: string;
+  away: string;
+  pick_id: string | null;
+  /** e.g. "Pittsburgh -2.5" */
+  pick: string;
+  line: number | null;
+  odds: number | null;
+  /** Fraction (0.029 = 2.9%). */
+  edge_pct: number | null;
+  edge_vs_open_pct: number | null;
+  /** CZarp's number for the picked side. */
+  czarp_line: number | null;
+  open_line: number | null;
+  new_coach: boolean;
+  result: "W" | "L" | "P" | "V" | null;
+  /** Flat 1u result; null = pending. */
+  units: number | null;
+  clv: number | null;
+  created_at: string | null;
+  pick_hash: string | null;
+};
+
+export type LeanRecord = {
+  league: string;
+  season: number;
+  wins: number;
+  losses: number;
+  pushes: number;
+  pending: number;
+  units: number;
+  roi: number | null;
+  avg_clv: number | null;
+  new_coach_picks: number;
+  new_coach_units: number;
 };
 
 // ---- view: ledger ----------------------------------------------------------

@@ -11,9 +11,13 @@ export type Market = keyof typeof MARKET_LABEL;
 export type MarketSource = keyof typeof SOURCE_LABEL;
 export type Tier = keyof typeof TIER_LABEL;
 /** picks.tier: 'official' = staked plays, 'track' = paper-only 1u tracking, never bet. */
-export const PICK_TIER_LABEL = { official: "Official", track: "Tracked" } as const;
+export const PICK_TIER_LABEL = { official: "Official", track: "Tracked", lean: "CZarp Leans" } as const;
 export type PickTier = keyof typeof PICK_TIER_LABEL;
-export const isPickTier = (v: unknown): v is PickTier => v === "official" || v === "track";
+export const isPickTier = (v: unknown): v is PickTier => v === "official" || v === "track" || v === "lean";
+/** Map a stored tier. Unknown values are null — never official. */
+export function parsePickTier(v: unknown): PickTier | null {
+  return isPickTier(v) ? v : null;
+}
 
 /** Tip-off (timestamptz) shown in Central time, e.g. "6:00 PM CT". */
 export function fmtTipoff(iso: string) {

@@ -21,7 +21,7 @@ export const METHODOLOGY_SECTIONS: MethodologySection[] = [
   {
     title: "Fair value, price, and edge",
     placeholder: true,
-    body: "Edge is the gap between our number and the market price, as a share of the expected total score: |fair − price| ÷ market total, for both sides and totals. Play bar: sides 4%, totals 3%. Each game gets two ratings, one for the spread and one for the total, judged on the edge vs the current line: Toss Up (under 2% sides / 1.5% totals), Lean (2–3% / 1.5–2.25%), Value (3–4% / 2.25–3%, or past the bar with a hold rule), Late Value (past the bar with no hold, after the morning run; not part of the official record), and CZarp Play (posted at the morning run).",
+    body: "Edge is the gap between our number and the market price, as a share of the expected total score: |fair − price| ÷ market total, for both sides and totals. Play bar: sides 4%, totals 3%. Each game gets two ratings, one for the spread and one for the total, judged on the edge vs the current line: Toss Up (under 2% sides / 1.5% totals), Small edge (2–3% / 1.5–2.25%), Value (3–4% / 2.25–3%, or past the bar with a hold rule), Late Value (past the bar with no hold, after the morning run; not part of the official record), and CZarp Play (posted at the morning run).",
   },
   {
     title: "Official vs tracked",

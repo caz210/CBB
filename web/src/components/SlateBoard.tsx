@@ -9,7 +9,7 @@ import { teamHref } from "@/lib/teams";
 import Link from "next/link";
 import { ArchetypeChip, ArchetypeLegend } from "./ArchetypeChip";
 import { InfoTip, TermLabel } from "./InfoTip";
-import { StatusChips, VerdictChip } from "./StatusChips";
+import { CzarpLeanChip, StatusChips, VerdictChip } from "./StatusChips";
 import { NeutralChip, TitleLine } from "./NeutralChip";
 import { SlateSearch } from "./SlateSearch";
 import { TvRatingChip } from "./TvRatingChip";
@@ -103,6 +103,7 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
     if (hasQuery && !slateGameMatches(g, query, aliases)) return false;
     return true;
   });
+  const leanShown = shown.flatMap((g) => (g.leans ?? []).map((lean) => ({ lean, game: g })));
   // Hide completed must not hide tracked rows (same as main). A team query still filters them.
   const trackedShown = tracked.filter((b) => {
     const g = games.find((x) => x.game_id === b.game_id);
@@ -210,6 +211,33 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
                 </li>
               );
             })}
+          </ul>
+        </section>
+      )}
+
+      {leanShown.length > 0 && (
+        <section className="mb-4 rounded-2xl border border-zinc-500/30 bg-ink-900/60 p-3 md:p-4" aria-label="CZarp Leans">
+          <h2 className="mb-2 text-sm font-semibold text-zinc-300">CZarp Leans · {leanShown.length}</h2>
+          <p className="mb-2 text-[11px] text-zinc-500">1u tracked, not part of the official record.</p>
+          <ul className="divide-y divide-ink-700/50">
+            {leanShown.map(({ lean: l, game: g }) => (
+              <li key={`${l.game_id}-${l.pick_hash ?? l.pick}`}>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setGameSel(g)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setGameSel(g); } }}
+                  className="flex min-h-12 w-full cursor-pointer items-center gap-3 py-2 text-left text-sm"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-semibold text-white">{l.pick}</span>
+                    <TitleLine text={gameTitle(g.away, g.home, g.neutral).text} neutral={g.neutral === true} className="text-[11px] text-zinc-500" />
+                  </span>
+                  <span className="font-mono text-lg font-black text-zinc-200">{l.edge_pct == null ? "—" : pct(l.edge_pct, 1)}</span>
+                  <span className="font-mono text-xs text-zinc-500">1u tracked</span>
+                </div>
+              </li>
+            ))}
           </ul>
         </section>
       )}
@@ -408,6 +436,7 @@ function GameCard({ g, sportKey, bets, watched, tvHot, onWatch, onOpen, onGame }
           label="Spread"
           rating={ratings.spread}
           refTeam={g.home}
+          lean={(g.leans?.length ?? 0) > 0}
           fair={g.proj_spread == null ? "—" : fmtSpread(g.proj_spread)}
           price={g.market_spread == null ? "—" : fmtSpread(g.market_spread)}
         />
@@ -465,7 +494,8 @@ function finalScore(g: SlateGame): { home: number; away: number } | null {
 }
 
 /** Per-market ladder chip (no market name: the cell or row already says it). Stops taps reaching the card. */
-function RatingChip({ r, wrap = false, className = "" }: { r: MarketRating; wrap?: boolean; className?: string }) {
+function RatingChip({ r, wrap = false, className = "", lean = false }: { r: MarketRating; wrap?: boolean; className?: string; lean?: boolean }) {
+  if (lean) return <CzarpLeanChip wrap={wrap} className={className} />;
   return <VerdictChip level={r.level} noLine={r.noLine} wrap={wrap} className={className} />;
 }
 
@@ -474,7 +504,7 @@ function RatingChip({ r, wrap = false, className = "" }: { r: MarketRating; wrap
  *  Spread numbers always name the team the home-line number refers to ("FV Texas St. -6.1",
  *  "Price Texas St. -2.5"), home games included; never a bare number. The name may wrap; the number never
  *  splits from its sign. */
-function MarketStat({ label, fair, price, refTeam, rating }: { label: string; fair: string; price: string; refTeam?: string; rating?: MarketRating }) {
+function MarketStat({ label, fair, price, refTeam, rating, lean = false }: { label: string; fair: string; price: string; refTeam?: string; rating?: MarketRating; lean?: boolean }) {
   const row = (tag: string, value: string) => (
     <div className="font-mono text-xs leading-snug text-zinc-300">
       <span className="font-sans text-[10px] text-zinc-500">{tag} </span>
@@ -487,7 +517,7 @@ function MarketStat({ label, fair, price, refTeam, rating }: { label: string; fa
     <div className="min-w-0 bg-ink-900 px-2 py-2.5">
       <div className="mb-1 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1">
         <span className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</span>
-        {rating && <RatingChip r={rating} />}
+        {rating && <RatingChip r={rating} lean={lean} />}
       </div>
       {row("FV", fair)}
       {row("Price", price)}
