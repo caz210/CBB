@@ -186,10 +186,10 @@ def apply_pace_fix(games, today: str, data_dir: str = "data") -> int:
     return n
 
 
-ODDS_API_MAX_CALLS_PER_DAY = 6   # hard cap per America/Chicago day, across ALL jobs and processes
+ODDS_API_MAX_CALLS_PER_DAY = 5   # hard cap per America/Chicago day, across ALL jobs and processes
 # Per-job share: no job can use another job's slot. 'refresh' is refresh_lines.py (intraday line refresh:
-# up to 4 runs a day, at most 1 call each, only for games ESPN has no line for).
-ODDS_API_JOB_SLOTS = {"daily": 1, "pretip": 1, "refresh": 4}
+# up to 3 paid calls a day, at most 1 each, only for games ESPN has no line for). Christian's cap is 5/day.
+ODDS_API_JOB_SLOTS = {"daily": 1, "pretip": 1, "refresh": 3}
 ODDS_API_RESERVE = 100
 ODDS_API_MIN_MISSING = 0.0      # use the Odds API whenever ANY D-I game lacks an ESPN/DK line (0 = any);
                                 # the per-day call cap and the credit reserve still apply

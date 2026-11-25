@@ -62,16 +62,17 @@ python -m pytest -q tests
     python daily_run.py [--date YYYY-MM-DD] [--no-refresh] [--no-odds-api] [--no-kalshi] [--dry-run] [--config FILE]
 
 One command: refresh KenPom (ratings/prior/HCA) + FanMatch → ESPN slate + DraftKings open/current
-lines (free) → Odds API fallback whenever any D-I game lacks an ESPN/DK line (≤6 calls/day across all jobs: 1 for the 7 AM run, 1 reserved for pretip_check, which also fills missing market_lines, and 4 for the intraday `refresh_lines.py`;
+lines (free) → Odds API fallback whenever any D-I game lacks an ESPN/DK line (≤5 calls/day across all jobs: 1 for the 7 AM run, 1 reserved for pretip_check, which also fills missing market_lines, and 3 for the intraday `refresh_lines.py`;
 100-credit reserve, usage in `data/ledger/odds_api_usage.json` under the checkout — counted under the real CT date, never `--date`;
 fails closed if that file is missing/corrupt; create it once with `python3 -m czarp.odds_usage --init`, check it with `--check`.
 The 7 AM run and `pretip_check.py` MUST run on the same machine from the same checkout: the cap is a local file + flock and is not
 shared across machines/runners. Exception: `refresh_lines.py` runs in GitHub Actions and does NOT use that file for its cap: its
-paid calls are claimed in Supabase (`odds_api_refresh_claims`, primary key (CT day, n) with CHECK n between 1 and 4), so a missing,
-stale or unsaved Actions cache can never hide earlier calls, and --force or a duplicate firing cannot exceed 4. Each refresh run
-first reads the API's own x-requests-used / x-requests-remaining from the free `/v4/sports` endpoint (key in a header); if that read
-fails, credits are under the reserve, or the API shows 6+ paid calls since today's first refresh run, it makes no paid call (ESPN
-only). Box daily (1) + pretip (1) + Supabase-capped refresh (4) = at most 6 a day)
+paid calls are claimed in Supabase (`odds_api_refresh_claims`, primary key (CT day, n)); the job only inserts n=1..3
+(the live refresh cap; the historical CHECK still allows n=1..4). A missing, stale or unsaved Actions cache can never hide
+earlier calls, and --force or a duplicate firing cannot exceed 3. Each refresh run first reads the API's own
+x-requests-used / x-requests-remaining from the free `/v4/sports` endpoint (key in a header); if that read fails, credits
+are under the reserve, or the API shows 5+ paid calls since today's first refresh run, it makes no paid call (ESPN only).
+Box daily (1) + pretip (1) + refresh (3) = at most 5 a day)
 
 **Intraday line refresh (`refresh_lines.py`, GitHub Actions on main: "Intraday line refresh").** Normal days run at 10 AM, 1 PM,
 4 PM and 7 PM CT; light days (fewer than `LIGHT_DAY_MAX_GAMES` = 20 D-I games on today's slate) at 12 PM and 5 PM CT. The workflow
