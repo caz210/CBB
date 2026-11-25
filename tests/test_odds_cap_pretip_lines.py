@@ -52,7 +52,7 @@ def _missing():
 
 def test_cap_two_per_day_daily_cannot_take_pretip_slot_third_refused(odds):
     calls, usage, _ = odds
-    assert dr.ODDS_API_MAX_CALLS_PER_DAY == 6 and dr.ODDS_API_JOB_SLOTS == {"daily": 1, "pretip": 1, "refresh": 4}
+    assert dr.ODDS_API_MAX_CALLS_PER_DAY == 5 and dr.ODDS_API_JOB_SLOTS == {"daily": 1, "pretip": 1, "refresh": 3}
     dr.odds_api_fallback(_missing(), TODAY, allow=True)                     # 7 AM run: its 1 slot
     dr.odds_api_fallback(_missing(), TODAY, allow=True)                     # 7 AM re-run: refused (pre-tip slot kept)
     assert len(calls) == 1

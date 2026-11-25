@@ -205,23 +205,23 @@ def usage(monkeypatch, tmp_path):
     return u
 
 
-def test_budget_slots_refresh_four_plus_daily_and_pretip(usage):
-    assert dr.ODDS_API_JOB_SLOTS == {"daily": 1, "pretip": 1, "refresh": 4}
-    assert dr.ODDS_API_MAX_CALLS_PER_DAY == 6 == sum(dr.ODDS_API_JOB_SLOTS.values())
-    assert [dr.odds_api_claim("refresh")[0] for _ in range(5)] == [True] * 4 + [False]
-    assert dr.odds_api_claim("refresh") == (False, "refresh slot used (4/4; the other slot is reserved)")
+def test_budget_slots_refresh_three_plus_daily_and_pretip(usage):
+    assert dr.ODDS_API_JOB_SLOTS == {"daily": 1, "pretip": 1, "refresh": 3}
+    assert dr.ODDS_API_MAX_CALLS_PER_DAY == 5 == sum(dr.ODDS_API_JOB_SLOTS.values())
+    assert [dr.odds_api_claim("refresh")[0] for _ in range(4)] == [True] * 3 + [False]
+    assert dr.odds_api_claim("refresh") == (False, "refresh slot used (3/3; the other slot is reserved)")
     assert dr.odds_api_claim("daily")[0] and dr.odds_api_claim("pretip")[0]      # their slots are untouched
-    assert dr.odds_api_claim("daily")[1].startswith("daily budget used (6/6")
+    assert dr.odds_api_claim("daily")[1].startswith("daily budget used (5/5")
     u = json.loads(usage.read_text())
-    assert u["calls"][TODAY] == 6 and u["calls_by_job"][TODAY] == {"refresh": 4, "daily": 1, "pretip": 1}
+    assert u["calls"][TODAY] == 5 and u["calls_by_job"][TODAY] == {"refresh": 3, "daily": 1, "pretip": 1}
 
 
 def test_refresh_cannot_spend_daily_or_pretip_slots(usage):
-    for _ in range(4):
+    for _ in range(3):
         dr.odds_api_claim("refresh")
     assert not dr.odds_api_claim("refresh")[0]
     u = json.loads(usage.read_text())
-    assert u["calls_by_job"][TODAY] == {"refresh": 4}
+    assert u["calls_by_job"][TODAY] == {"refresh": 3}
 
 
 def test_unknown_job_gets_no_slot(usage):
