@@ -34,6 +34,7 @@ import { cardHeaderRow, cardNoteLine } from "@/lib/cardHeader";
 import { HeaderRow } from "@/components/HeaderRow";
 import { fmtLinesAsOf } from "@/lib/linesAsOf";
 import { totalFair } from "@/lib/posted";
+import { gameSheetHref } from "@/lib/officialPick";
 
 export const dynamic = "force-dynamic";
 
@@ -144,12 +145,15 @@ function TeamBody({ sportKey, data }: { sportKey: string; data: NonNullable<Extr
                 <Link className="hover:text-court-400" href={teamHref(sportKey, next.home)}>{next.home}</Link>
                 {next.neutral && <NeutralChip className="ml-2" />}
               </div>
-              {/* Same one-row headline as the slate card and game sheet (components/HeaderRow, lib/cardHeader). */}
+              {/* Headline matches the slate card / game sheet. The header row links to the game sheet
+                  (status chips stay outside the link so their info tips are not buttons-inside-a-link). */}
               <div className="mt-2 rounded-xl border border-ink-700 bg-ink-850 px-3 py-2.5">
                 <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
                   <StatusChips g={next} bets={next.officialBets ?? []} />
                 </div>
-                <HeaderRow row={cardHeaderRow(next, next.officialBets ?? [])} />
+                <Link href={gameSheetHref(sportKey, next.game_date, next.game_id)} className="block hover:text-court-400">
+                  <HeaderRow row={cardHeaderRow(next, next.officialBets ?? [])} />
+                </Link>
               </div>
               {/* Two ladder ratings, one per market, judged on the current line (lib/verdicts.ts). */}
               <div className="mt-1 space-y-1 font-mono text-xs text-zinc-400">
