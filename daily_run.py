@@ -43,6 +43,11 @@ Rules (from the walk-forward backtest, Jan 2025 – Apr 2026, see outputs/walkfo
   TRACK  — SHADOW tier, paper only, flat 1u, never staked: sides >= 4% vs open with >= 2% still left vs current
            that are not official (all other rules identical). Logged, graded and reported as a separate record so the
            4%/4% and 4%/2% side rules can be compared on a public, timestamped, hash-sealed ledger.
+  LEAN   — SHADOW tier 'lean' (CZarp Leans), flat 1u, stake 0, NEVER official or on the bankroll: sides with
+           2.5% <= edge vs the posted line < 4%, same side as at the open, line not moved away from CZarp since the
+           open; NEW COACH-paused sides that would otherwise be official or lean are logged here with new_coach=True.
+  LINE MOVED AWAY — display flag only (projections.line_moved_away / _pts): CZarp's side gap vs the current line
+           >= 4 pts while the spread moved >= 1.5 pts away from CZarp since the open (possible news/injury).
   Stake  — quarter Kelly at the actual price using a conservative hit-rate estimate per rule
            (not the model's own probability), capped at 2.5% of the current paper bankroll.
 """
@@ -137,7 +142,20 @@ TRACK_SIDE_CUR_THR = 0.02
 # The NEW COACH lock applies to the track tier too by default (so the tiers differ ONLY in the vs-current bar).
 # True = track also logs coach-locked sides (e.g. LSU -23.5 on 2026-11-03), at the cost of a clean A/B comparison.
 TRACK_IGNORE_COACH_LOCK = False
-TIERS = ("official", "track")
+# CZarp LEAN tier (approved by Christian 2026-11-24; analysis: czarp-notes/sides-analysis-2026-11-24.md). Sides with
+# LEAN_SIDE_MIN (2.5%) <= edge vs the 7 AM line < the official bar (4%), on the same side as at the open, whose DK line
+# has NOT moved away from CZarp since the open (move_against <= 0). Paper only, flat 1u, stake 0: graded like track,
+# NEVER part of the official record or the bankroll. A NEW COACH-paused side that would otherwise be official or lean
+# is logged as lean with new_coach=True. Backtest 2024-26: 128-120 (-1.5%) — shown as CZarp's view, not as a play.
+LEAN_ENABLED = True
+LEAN_SIDE_MIN = 0.025
+TIERS = ("official", "track", "lean")
+SHADOW_TIERS = ("track", "lean")      # flat 1u, stake 0, never official, never on the bankroll
+# LINE MOVED AWAY flag (display only, never a play): CZarp's side gap vs the current line is >= LINE_AWAY_GAP_PTS
+# points but the DK spread moved >= LINE_AWAY_MOVE_PTS points AWAY from CZarp since the open (possible news/injury).
+# Nov 2-24 2026: such sides went 4-10 ATS.
+LINE_AWAY_GAP_PTS = 4.0
+LINE_AWAY_MOVE_PTS = 1.5
 # Totals PACE FIX (analysis/totals_pace_fix.py -> outputs/walkforward/totals_pace_fix.txt). OFF by default:
 # walk-forward by season it did not clearly beat the current totals. Games DO play slower than projected in
 # November / when a team has < 8 games / at neutral sites (fit: -0.35 / -0.30 / -0.44 poss), but the v1 TOTAL
@@ -208,6 +226,7 @@ LEDGER_COLS = [
     # track record / proof columns (appended so older ledgers still load)
     "tier", "source", "logged_ct", "pnl_units", "pick_hash",
     "total_at_post",
+    "new_coach",        # lean tier: a NEW COACH-paused side (also sealed in `rule` as '+new coach')
 ]
 # Fields frozen once a pick is logged (the pick itself). Grading, closing line, CLV and the pre-tip annotation are
 # filled in later; nothing else may ever change. pick_hash = sha256(previous pick_hash + these fields) -> a hash chain.
@@ -965,35 +984,78 @@ def candidates(games, now) -> list[dict]:
         c["track_ok"] = bool(
             c["market"] == "spread" and not c["rule_ok"] and not others and c["same_side"]
             and eo is not None and ec is not None and eo >= thr and ec >= TRACK_SIDE_CUR_THR)
-        c["tier"] = "official" if c["rule_ok"] else ("track" if c["track_ok"] else None)
+        # CZarp LEAN tier (sides): see LEAN_SIDE_MIN. Blocking = anything other than the edge bars / a new-coach pause.
+        coach_r = [r for r in why if is_coach_hold_reason(r)]
+        blocking = [r for r in why if r not in cur_reasons and r not in coach_r]
+        c["new_coach"] = bool(coach_r)
+        lean_band = ec is not None and LEAN_SIDE_MIN <= ec < thr
+        paused_official = bool(coach_r) and not blocking and not cur_reasons
+        c["lean_ok"] = bool(
+            LEAN_ENABLED and c["market"] == "spread" and not c["rule_ok"] and not c["track_ok"] and not blocking
+            and c["same_side"] and eo is not None and ec is not None and ma is not None and ma <= 0
+            and (lean_band or paused_official))
+        c["tier"] = ("official" if c["rule_ok"] else "track" if c["track_ok"] else "lean" if c["lean_ok"] else None)
     return out
 
 
+def _truthy(v) -> bool:
+    """CSV-safe boolean (True / 'True' / 1); NaN/None/'' are False."""
+    if isinstance(v, str):
+        return v.strip().lower() in ("true", "1", "yes")
+    try:
+        return bool(v) and not pd.isna(v)
+    except (TypeError, ValueError):
+        return bool(v)
+
+
+def line_moved_away(g) -> tuple[bool | None, float | None]:
+    """(flag, points moved away) for a game's SIDE: CZarp's gap vs the current DK spread is >= LINE_AWAY_GAP_PTS and
+    the spread moved >= LINE_AWAY_MOVE_PTS AWAY from CZarp's side since the open. (None, None) without the inputs.
+    Display only: never a play, never changes a rule."""
+    hm, L, Lo = g.get("v2_home_margin"), g.get("current_home_spread"), g.get("open_home_spread")
+    if hm is None or L is None or Lo is None:
+        return None, None
+    gap = hm + L                       # model home margin − market home margin; > 0 = CZarp likes the home side
+    if gap == 0:
+        return False, 0.0
+    sgn = 1 if gap > 0 else -1
+    away = round(sgn * L - sgn * Lo, 1)  # picked-side spread now − at open; > 0 = moved away (same as move_against)
+    return bool(abs(gap) >= LINE_AWAY_GAP_PTS and away >= LINE_AWAY_MOVE_PTS), away
+
+
 TRACK_RULE = f"v2 edge%>=4% open, >={TRACK_SIDE_CUR_THR:.0%} current (track)"
+LEAN_RULE = f"v2 edge {LEAN_SIDE_MIN:.1%}-<{RULES['spread'][1]:.0%} now, same side, no move away (lean)"
+
+
+def lean_rule(new_coach: bool) -> str:
+    return LEAN_RULE + (" +new coach" if new_coach else "")
 
 
 def pick_id_for(event_id, market, tier="official") -> str:
-    return f"{event_id}-{market}" + ("-track" if tier == "track" else "")
+    return f"{event_id}-{market}" + (f"-{tier}" if tier in SHADOW_TIERS else "")
 
 
-def flag_plays(games, bankroll, board, now, include_track: bool = True, source: str = "live") -> list[dict]:
-    """Official plays (quarter-Kelly paper stake) + SHADOW 'track' sides (flat 1u, stake 0 on the bankroll)."""
+def flag_plays(games, bankroll, board, now, include_track: bool = True, source: str = "live",
+               include_lean: bool = True) -> list[dict]:
+    """Official plays (quarter-Kelly paper stake) + SHADOW 'track' and 'lean' sides (flat 1u, stake 0)."""
     ts = now.isoformat(timespec="seconds")
     plays = []
     for c in candidates(games, now):
         tier = c.get("tier")
-        if tier is None or (tier == "track" and not include_track):
+        if tier is None or (tier == "track" and not include_track) or (tier == "lean" and not include_lean):
             continue
-        plays.append(dict(market=c["market"], rule=TRACK_RULE if tier == "track" else c["rule"], side=c["side"],
+        rule = TRACK_RULE if tier == "track" else (lean_rule(c.get("new_coach")) if tier == "lean" else c["rule"])
+        plays.append(dict(market=c["market"], rule=rule, side=c["side"],
                           line=c["line"], price=c["price"],
                           open_line=c["open_line"], model_value=c["model_value"], market_value=c["market_value"],
                           edge_pct=c["edge_pct"], edge_pct_vs_open=c["edge_pct_vs_open"], p_est=c["p_est"],
-                          g=c["g"], ts=ts, tier=tier))
+                          g=c["g"], ts=ts, tier=tier,
+                          new_coach=bool(c.get("new_coach")) if tier == "lean" else False))
     rows = []
     for pl in sorted(plays, key=lambda x: -x["edge_pct"]):
         g = pl.pop("g")
-        if pl["tier"] == "track":
-            stake = 0.0                # shadow tier: graded flat 1u, never touches the paper bankroll
+        if pl["tier"] in SHADOW_TIERS:
+            stake = 0.0                # shadow tiers: graded flat 1u, never touch the paper bankroll
         else:
             stake = kelly_stake(pl["p_est"], pl["price"], bankroll)
             if stake < MIN_STAKE:          # price too juiced for the assumed hit rate -> no +EV bet
@@ -1072,6 +1134,7 @@ def attach_market_edges(games, now) -> None:
     for g in games:
         for k in EDGE_FIELDS:
             g.setdefault(k, None)
+        g["line_moved_away"], g["line_moved_away_pts"] = line_moved_away(g)
     for c in candidates(games, now):
         key = "spread" if c["market"] == "spread" else "total"
         c["g"][f"edge_now_pct_{key}"] = c["edge_pct"]
@@ -1672,7 +1735,9 @@ def _verdict_suffix(r) -> str:
     reasons = _chat_reasons(r)
     if r.get("tier") == "track":
         return "Tracked" + (f": {'; '.join(reasons)}" if reasons else "")
-    label = "Low value (Lean)" if is_lean(r) else "Low value"
+    if r.get("tier") == "lean":
+        return "CZarp Lean (1u tracked, not official)" + (" · new coach" if _truthy(r.get("new_coach")) else "")
+    label = "Low value (edge only vs now)" if is_lean(r) else "Low value"
     return label + (f": {'; '.join(reasons)}" if reasons else "")
 
 
@@ -1769,6 +1834,13 @@ def chat_header(today: str, ledger, new_rows=None) -> list[str]:
         L.append(f"{n} tracked side{'s' if n != 1 else ''} (paper only, flat 1u, not staked):")
         for _, r in track_rows.sort_values("tip_ct").iterrows():
             L.append(f"- {_game_name(r)}, {_bet_label(r)}, {_fmt_tip_ct(r.tip_ct)}.")
+    lean_rows = td[td.tier == "lean"] if len(td) and "tier" in td else td.iloc[0:0] if len(td) else td
+    if len(lean_rows):
+        n = len(lean_rows)
+        L.append(f"{n} CZarp Lean{'s' if n != 1 else ''} (flat 1u, not official, not staked):")
+        for _, r in lean_rows.sort_values("tip_ct").iterrows():
+            nc = " (new coach)" if _truthy(r.get("new_coach")) else ""
+            L.append(f"- {_game_name(r)}, {_bet_label(r)}{nc}, {_fmt_tip_ct(r.tip_ct)}.")
     L.append("")
     yday = (date.fromisoformat(today) - timedelta(days=1)).isoformat()
     yr = ledger[ledger.game_date == yday] if len(ledger) else ledger
@@ -1797,6 +1869,12 @@ def chat_header(today: str, ledger, new_rows=None) -> list[str]:
                 u = flat_units(r)
                 t_bits.append(_result_clause(r) + f" ({u:+.2f}u)")
             y += " Tracked " + "; ".join(t_bits) + "."
+        lr = yr[yr.tier == "lean"] if "tier" in yr else yr.iloc[0:0]
+        lg = lr[lr.status == "graded"] if len(lr) else lr
+        if len(lg):
+            rl = tier_record(lg)
+            y += (f" CZarp Leans {rl['w']}-{rl['l']}" + (f"-{rl['p']}" if rl["p"] else "")
+                  + f" ({rl['units']:+.2f}u, not official).")
         recs = tier_record(official(ledger)) if len(ledger) else None
         if recs and recs["n"]:
             roi = "—" if recs["roi"] is None else f"{recs['roi']:+.1%} ROI"
@@ -2006,14 +2084,16 @@ def tier_record_md(ledger: pd.DataFrame) -> list[str]:
     L = ["## Running record by tier",
          "_OFFICIAL = the plays (sides ≥4% vs open AND current; totals ≥3% vs open), quarter-Kelly paper stakes. "
          f"TRACK = shadow sides ≥4% vs open with ≥{TRACK_SIDE_CUR_THR:.0%} still left vs current that are not official; "
-         "paper only, flat 1u, never staked. Units are flat 1u per pick at the price taken; ROI = units ÷ picks graded; "
+         "paper only, flat 1u, never staked. "
+         f"LEAN = CZarp Leans: sides {LEAN_SIDE_MIN:.1%} to under 4% vs the posted line, same side as the open, line not moved "
+         "away (plus NEW COACH-paused sides); flat 1u, never staked, NOT part of the official record. Units are flat 1u per pick at the price taken; ROI = units ÷ picks graded; "
          "CLV = points beaten vs the DK close. Every pick is logged with a timestamp before tip and sealed with a hash chain._",
          "",
          "| Tier | Market | W-L-P | Win% | Units (1u flat) | ROI | Avg CLV | Beat close | Pending |",
          "|---|---|---|---|---|---|---|---|---|"]
     for tier in TIERS:
         for m in ("all", "spread", "total"):
-            if tier == "track" and m == "total":
+            if tier in SHADOW_TIERS and m == "total":
                 continue
             r = recs[tier][m]
             label = {"all": "All", "spread": "Sides", "total": "Totals"}[m]
@@ -2069,6 +2149,22 @@ def write_summary(today: str, now: datetime, games, new_rows, ledger, graded_idx
                      f"{r.side} {float(r.line):+g} | {int(float(r.price)):+d} | {op} | {float(r.model_value):+.1f} | "
                      f"{float(r.edge_pct):.1%} ({float(r.edge_pct_vs_open):.1%}) | {str(r.created_ct)[11:16]} |")
     L.append("")
+    lean_rows = td[td.tier == "lean"] if "tier" in td else td.iloc[0:0]
+    L.append(f"## CZarp Leans ({len(lean_rows)})")
+    L.append(f"_LEAN tier: sides {LEAN_SIDE_MIN:.1%} to under {RULES['spread'][1]:.0%} vs the posted line, same side as at "
+             "the open, line not moved away from CZarp (plus NEW COACH-paused sides that would otherwise qualify). "
+             "Flat 1u, NOT official, NOT staked, never in the official record._")
+    if lean_rows.empty:
+        L.append("No CZarp Leans today.")
+    else:
+        L.append("| Tip (CT) | Game | Pick | Price | Open line | CZarp (pick-side margin) | Edge% vs current (vs open) | New coach |")
+        L.append("|---|---|---|---|---|---|---|---|")
+        for _, r in lean_rows.sort_values("tip_ct").iterrows():
+            op = "" if pd.isna(r.open_line) else f"{float(r.open_line):+g}"
+            L.append(f"| {str(r.tip_ct)[11:]} | {r.away} @ {r.home}{' (N)' if str(r.neutral) == 'True' else ''} | "
+                     f"{r.side} {float(r.line):+g} | {int(float(r.price)):+d} | {op} | {float(r.model_value):+.1f} | "
+                     f"{float(r.edge_pct):.1%} ({float(r.edge_pct_vs_open):.1%}) | {'yes' if _truthy(r.get('new_coach')) else ''} |")
+    L.append("")
     L.extend(top_edges_md(top or []))
     if big is not None:
         L.extend(BM.report_md(big, big_record))
@@ -2083,13 +2179,18 @@ def write_summary(today: str, now: datetime, games, new_rows, ledger, graded_idx
         if len(tr):
             r = tier_record(tr)
             L.append(f"Track (flat 1u, not bet): {r['w']}-{r['l']}" + (f"-{r['p']}" if r["p"] else "") + f", {r['units']:+.2f}u")
+        lr = yr[yr.tier == "lean"] if "tier" in yr else yr.iloc[0:0]
+        if len(lr):
+            r = tier_record(lr)
+            L.append(f"CZarp Leans (flat 1u, not official): {r['w']}-{r['l']}" + (f"-{r['p']}" if r["p"] else "")
+                     + f", {r['units']:+.2f}u")
         L.append("")
         L.append("| Tier | Game | Bet | Result | Score | Close | CLV | P&L |")
         L.append("|---|---|---|---|---|---|---|---|")
         for _, r in yr.iterrows():
             tier = r.get("tier") if isinstance(r.get("tier"), str) else "official"
             sc = "" if pd.isna(r.home_score) else f"{int(r.away_score)}-{int(r.home_score)}"
-            pnl = (f"{float(r.pnl_units):+.2f}u (flat)" if tier == "track" and pd.notna(r.get("pnl_units"))
+            pnl = (f"{float(r.pnl_units):+.2f}u (flat)" if tier in SHADOW_TIERS and pd.notna(r.get("pnl_units"))
                    else ("" if pd.isna(r.pnl) else f"${float(r.pnl):+.2f}"))
             L.append(f"| {tier.upper()} | {r.away} @ {r.home} | {r.side} {r.line} | {r.result if pd.notna(r.result) else 'pending'} | {sc} | "
                      f"{'' if pd.isna(r.close_line) else r.close_line} | {'' if pd.isna(r.clv_pts) else f'{float(r.clv_pts):+g}'} | "
@@ -2339,12 +2440,13 @@ def _daily(a) -> int:
             have_gm = {(str(e), m) for e, m in zip(ledger.event_id, ledger.market)}
             # one pick per game+market (any tier), first price kept
             new_rows = [r for r in new_rows if r["pick_id"] not in have and (str(r["event_id"]), r["market"]) not in have_gm]
-            off_new = [r for r in new_rows if r.get("tier") != "track"]
+            off_new = [r for r in new_rows if r.get("tier", "official") == "official"]
             log(f"  new plays: {len(off_new)} ({sum(r['market'] == 'spread' for r in off_new)} sides, "
                 f"{sum(r['market'] == 'total' for r in off_new)} totals); tracked (not played): "
-                f"{sum(r.get('tier') == 'track' for r in new_rows)} sides")
+                f"{sum(r.get('tier') == 'track' for r in new_rows)} sides; CZarp Leans (1u, not official): "
+                f"{sum(r.get('tier') == 'lean' for r in new_rows)} sides")
             cands = candidates(games, now)
-            played = {r["pick_id"] for r in new_rows if r.get("tier") != "track"} | \
+            played = {r["pick_id"] for r in new_rows if r.get("tier", "official") == "official"} | \
                 set(official(ledger).loc[lambda d: d.game_date == today, "pick_id"].astype(str))
             top = top_edges(cands, played)
             nflag = sum(c["flagged"] for c in cands if c["market"] == "spread")

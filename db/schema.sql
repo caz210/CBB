@@ -151,7 +151,7 @@ alter table picks add column if not exists logged_at timestamptz;
 alter table picks add column if not exists units_pnl numeric(8,4);
 alter table picks add column if not exists pick_hash text;
 do $$ begin
-  alter table picks add constraint picks_tier_chk check (tier in ('official','track'));
+  alter table picks add constraint picks_tier_chk check (tier in ('official','track','lean'));  -- 'lean': 2026-11-24_lean_tier_line_moved_away.sql
 exception when duplicate_object then null; end $$;
 do $$ begin
   alter table picks add constraint picks_source_chk check (source in ('live','backfill'));

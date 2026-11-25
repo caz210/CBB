@@ -69,7 +69,7 @@ def big_moves_soon(today: str, now, within: float, led: pd.DataFrame, log=lambda
         return []
     snap, ctx = _snapshot(today), BM.load_context(today)
     reasons = ctx.get("reasons", {})
-    off = led[(led.tier != "track") & (led.status != "void")] if len(led) else led
+    off = led[(led.tier.fillna("official") == "official") & (led.status != "void")] if len(led) else led
     played = set(off.pick_id.astype(str)) if len(off) else set()
     out = []
     for g in games:
@@ -188,7 +188,7 @@ def fill_missing_lines(today: str, now, led: pd.DataFrame, allow_api: bool, log=
         return {}
     off = set()
     if len(led):
-        o = led[(led.status == "open") & (led.tier != "track") & (led.game_date.astype(str) == today)]
+        o = led[(led.status == "open") & (led.tier.fillna("official") == "official") & (led.game_date.astype(str) == today)]
         off = set(o.event_id.astype(str))
     gaps.sort(key=lambda g: (str(g["external_id"]) not in off, str(g["tipoff"])))
     snap = _snapshot(today)
@@ -247,8 +247,8 @@ def main(argv=None) -> int:
     led = dr.read_ledger()
     naive_now = pd.Timestamp(now.replace(tzinfo=None))
     tips = pd.to_datetime(led.tip_ct, errors="coerce")
-    # official plays only: the TRACK tier is paper-only shadow tracking, never bet, so no pre-tip alerts
-    m = (led.status == "open") & (led.game_date.astype(str) == today) & (tips > naive_now) & (led.tier != "track")
+    # official plays only: the TRACK and LEAN tiers are paper-only shadow tracking, never bet, so no pre-tip alerts
+    m = (led.status == "open") & (led.game_date.astype(str) == today) & (tips > naive_now) & (led.tier.fillna("official") == "official")
     if a.within is not None:
         m &= tips <= naive_now + timedelta(minutes=a.within)
     todo = led[m]
