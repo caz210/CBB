@@ -149,6 +149,11 @@ export type ValueBet = {
   edge_at_post_pct?: number | null;
   edge_vs_open_pct?: number | null;
   posted_at?: string | null;
+  /** Official ledger stake (¼-Kelly units). Prefer this over kelly_quarter_units. */
+  stake_units?: number | null;
+  result?: "W" | "L" | "P" | null;
+  profit_units?: number | null;
+  clv?: number | null;
 };
 
 

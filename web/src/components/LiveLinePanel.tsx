@@ -9,8 +9,11 @@ import {
   LIVE_LINE_PERIODS,
   defaultLiveScores,
   defaultLiveState,
+  displayLiveSpread,
+  fmtProjectedScore,
   liveLine,
   nextLiveLinePeriod,
+  projectedFinalScores,
   sliderBounds,
   type LivePeriod,
 } from "@/lib/liveLine";
@@ -193,7 +196,8 @@ function LivePanel({ g, onClose }: { g: SlateGame; onClose: () => void }) {
   const pHome = result ? Math.round(result.homeWinProb * 100) : 50;
   const pAway = 100 - pHome;
   const winFav = result ? (pHome >= pAway ? { pct: pHome, name: g.home } : { pct: pAway, name: g.away }) : null;
-  const spreadSub = !result ? "" : result.liveSpread < 0 ? g.home : result.liveSpread > 0 ? g.away : "Pick 'em";
+  const spreadView = result ? displayLiveSpread(result.liveSpread, g.home, g.away) : null;
+  const proj = result ? projectedFinalScores(result.liveTotal, result.liveSpread) : null;
 
   const body = (
     <div className="fixed inset-0 z-[60] flex items-end justify-center md:items-center" role="dialog" aria-modal="true" aria-labelledby={titleId}>
@@ -254,8 +258,8 @@ function LivePanel({ g, onClose }: { g: SlateGame; onClose: () => void }) {
           <div className="grid grid-cols-3 gap-1.5 text-center">
             <div>
               <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Live spread</div>
-              <div className="mt-0.5 whitespace-nowrap font-mono text-[22px] font-bold tracking-tight">{result ? fmtSpread(result.liveSpread) : "—"}</div>
-              <div className="mt-0.5 min-h-3.5 text-[11px] leading-snug text-zinc-400">{spreadSub}</div>
+              <div className="mt-0.5 whitespace-nowrap font-mono text-[22px] font-bold tracking-tight">{spreadView ? fmtSpread(spreadView.line) : "—"}</div>
+              <div className="mt-0.5 min-h-3.5 text-[11px] leading-snug text-zinc-400">{spreadView?.team ?? ""}</div>
             </div>
             <div>
               <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Live total</div>
@@ -268,6 +272,16 @@ function LivePanel({ g, onClose }: { g: SlateGame; onClose: () => void }) {
               <div className="mt-0.5 min-h-3.5 text-[11px] leading-snug text-zinc-400">{winFav?.name ?? ""}</div>
             </div>
           </div>
+          {proj && (
+            <div className="mt-2.5 text-center">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Projected final</div>
+              <div className="mt-0.5 flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 text-[13px] leading-snug text-zinc-300">
+                <span className="whitespace-nowrap">{g.away} <strong className="font-mono font-semibold text-zinc-100">{fmtProjectedScore(proj.away)}</strong></span>
+                <span className="text-zinc-600" aria-hidden="true">·</span>
+                <span className="whitespace-nowrap">{g.home} <strong className="font-mono font-semibold text-zinc-100">{fmtProjectedScore(proj.home)}</strong></span>
+              </div>
+            </div>
+          )}
           <div className="mt-2.5 flex h-1.5 overflow-hidden rounded-full bg-ink-700">
             <i className="bg-court-400" style={{ width: `${pAway}%` }} />
             <b className="bg-[#60a5fa]" style={{ width: `${pHome}%` }} />

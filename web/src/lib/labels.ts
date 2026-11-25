@@ -199,7 +199,7 @@ export function fmtPostedVsNow(opts: {
 }): string | null {
   const fmt = (n: number) => (opts.market === "total" ? fmtOne(n) : fmtLine(n));
   const parts: string[] = [];
-  if (isFiniteNum(opts.fair)) parts.push(`Posted ${fmt(opts.fair)}`);
+  if (isFiniteNum(opts.fair)) parts.push(`FV ${fmt(opts.fair)}`);
   if (isFiniteNum(opts.edge)) {
     const e = fmtPlayPct(opts.edge);
     parts.push(parts.length ? `· ${e}` : e);

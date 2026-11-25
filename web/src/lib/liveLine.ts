@@ -214,5 +214,44 @@ export function defaultLiveScores(
   return { home: 0, away: 0 };
 }
 
+/** Betting-convention view of a home-line live spread (away − home).
+ *  The favorite is always a negative number (or 0 / PK), labeled with that team. */
+export function displayLiveSpread(
+  liveSpread: number,
+  home: string,
+  away: string,
+): { line: number; team: string } {
+  if (!finite(liveSpread) || liveSpread === 0) return { line: 0, team: "Pick 'em" };
+  if (liveSpread > 0) return { line: -liveSpread, team: away };
+  return { line: liveSpread, team: home };
+}
+
+/** Projected final scores from the displayed live total and home-line live spread only.
+ *  Favorite = (total + |spread|) / 2, dog = (total − |spread|) / 2, rounded to a half-point.
+ *  When those halves would miss the total, the favorite is rounded and the dog is total − fav
+ *  so the two scores always add up to the live total. A pick'em keeps both scores equal
+ *  (each is total / 2, rounded to a half-point). */
+export function projectedFinalScores(liveTotal: number, liveSpread: number): { home: number; away: number } {
+  if (!finite(liveTotal)) return { home: 0, away: 0 };
+  const spread = finite(liveSpread) ? liveSpread : 0;
+  if (spread === 0) {
+    const each = roundToHalf(liveTotal / 2);
+    return { home: each, away: each };
+  }
+  const abs = Math.abs(spread);
+  const favRaw = (liveTotal + abs) / 2;
+  const dogRaw = (liveTotal - abs) / 2;
+  const fav = roundToHalf(favRaw);
+  let dog = roundToHalf(dogRaw);
+  if (fav + dog !== liveTotal) dog = liveTotal - fav;
+  if (spread > 0) return { away: fav, home: dog };
+  return { home: fav, away: dog };
+}
+
+/** Whole number, or a trailing .5 (68, 69.5). */
+export function fmtProjectedScore(n: number): string {
+  return String(roundToHalf(n));
+}
+
 export const LIVE_LINE_DISCLAIMER =
   "This is an estimate, not an official CZarp play. It never goes on the official record. Home or neutral is already in the pregame numbers. Second halves typically run a little higher than first halves, and that is built in.";

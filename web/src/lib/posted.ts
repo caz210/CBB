@@ -24,7 +24,7 @@ export function currentLineForBet(g: SlateGame, market: Market, side?: string | 
   return null;
 }
 
-/** "Posted 142.0 · 1.7% (line 144.5) → Now 144.5 · 3.7% vs open". Hides nulls. */
+/** "FV 142.0 · 1.7% (line 144.5) → Now 144.5 · 3.7% vs open". Fair is never labeled Posted. Hides nulls. */
 export function postedVsNow(b: ValueBet, g: SlateGame | null | undefined): string | null {
   if (!g) return null;
   return fmtPostedVsNow({
@@ -53,14 +53,14 @@ export function betCoverProb(g: SlateGame, b: ValueBet | null, market: Market | 
   return null;
 }
 
-/** Compact card line: "Posted 142.0 → Now 144.5". Hides any missing piece. */
+/** Compact card line: "FV 142.0 → Now 144.5". Fair is never labeled Posted. Hides any missing piece. */
 export function postedNowCompact(b: ValueBet, g: SlateGame | null | undefined): string | null {
   if (!g) return null;
   const fmt = (n: number) => (b.market === "total" ? fmtOne(n) : fmtSpread(n));
   const fair = b.fair_at_post;
   const now = currentLineForBet(g, b.market, b.side);
   const parts: string[] = [];
-  if (typeof fair === "number" && Number.isFinite(fair)) parts.push(`Posted ${fmt(fair)}`);
+  if (typeof fair === "number" && Number.isFinite(fair)) parts.push(`FV ${fmt(fair)}`);
   if (typeof now === "number" && Number.isFinite(now)) parts.push(`Now ${fmt(now)}`);
   if (!parts.length) return null;
   return parts.join(" → ");

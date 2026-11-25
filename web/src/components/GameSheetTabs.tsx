@@ -3,11 +3,10 @@ import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { SlateGame, ValueBet } from "@/lib/types";
 import { fmtEdgeVsBar, fmtGameDate, fmtOne, fmtWinProb, pct } from "@/lib/labels";
 import { teamHref } from "@/lib/teams";
-import { cardHeadline, marketRatings, type MarketRating } from "@/lib/verdict";
+import { marketRatings, type MarketRating } from "@/lib/verdict";
 import { nowLine } from "@/lib/cardHeader";
 import { LineMoveNote, OpenNowNote } from "@/components/HeaderRow";
-import { betCoverProb, totalFair } from "@/lib/posted";
-import { evPer100, fmtEv100 } from "@/lib/stats";
+import { totalFair } from "@/lib/posted";
 import {
   COMPARE_ROWS,
   DEFAULT_SHEET_TAB,
@@ -142,21 +141,17 @@ export function QuickBetBlock({ g, bets }: { g: SlateGame; bets: ValueBet[] }) {
         now={officialTotal ? nowLine(officialTotal, g) : null}
         edge={edgeT}
       />
-      <ProjStrip g={g} bets={bets} />
+      <ProjStrip g={g} />
     </div>
   );
 }
 
-function ProjStrip({ g, bets }: { g: SlateGame; bets: ValueBet[] }) {
+function ProjStrip({ g }: { g: SlateGame }) {
   const ph = g.insight?.proj_home ?? g.proj_home;
   const pa = g.insight?.proj_away ?? g.proj_away;
   const hw = g.insight?.home_win_prob ?? g.home_win_prob;
   const ov = g.czarp_over_prob ?? null;
   const poss = g.insight?.proj_possessions ?? g.proj_possessions;
-  const edge = cardHeadline(g, bets);
-  const cover = betCoverProb(g, edge.officialBet, edge.market ?? edge.officialBet?.market ?? null);
-  const odds = edge.officialBet?.posted_odds;
-  const ev = evPer100(cover, odds);
   return (
     <div className="grid grid-cols-2 gap-1.5 text-[11px]">
       <div className="rounded-lg bg-ink-850 px-2.5 py-2">
@@ -170,7 +165,6 @@ function ProjStrip({ g, bets }: { g: SlateGame; bets: ValueBet[] }) {
         <div className="text-[10px] uppercase tracking-wider text-zinc-500">{g.neutral ? `${g.home} win` : "Home win"} · Over</div>
         <div className="mt-0.5 font-mono text-sm text-zinc-200">{hw == null ? "—" : fmtWinProb(hw)} · {ov == null ? "—" : pct(ov)}</div>
         {poss != null && <div className="text-[10px] text-zinc-500">Pace {poss.toFixed(1)} poss.</div>}
-        {edge.officialBet && ev != null && <div className="text-[10px] text-zinc-500">EV {fmtEv100(ev)}</div>}
       </div>
     </div>
   );

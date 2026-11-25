@@ -1,4 +1,5 @@
 import { NeutralChip, TitleLine } from "@/components/NeutralChip";
+import { gameSheetHref } from "@/lib/officialPick";
 import { retitle } from "@/lib/gameTitle";
 import type { ReactNode } from "react";
 import type { Metadata } from "next";
@@ -326,17 +327,19 @@ function Live({ data, range }: { data: Extract<Awaited<ReturnType<typeof loadRes
           <>
             <ul className="space-y-2 md:hidden">
               {rows.map((r, i) => (
-                <li key={r.pick_hash ?? i} className="card p-3.5">
-                  <div className="flex items-center gap-3">
-                    <ResultPill r={r.result} />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate font-semibold">{r.pick}</div>
-                      <TitleLine text={retitle(data.gameNames[r.game_id] ?? `Game #${r.game_id}`, data.neutralGames[r.game_id])} neutral={data.neutralGames[r.game_id] === true} className="text-xs text-zinc-500" />
-                      <div className="mt-0.5 font-mono text-[11px] text-zinc-500">{fmtGameDate(r.game_date)} · {r.odds == null ? "—" : fmtOdds(r.odds)} · {stakeLabel(r)}{r.clv != null ? ` · CLV ${fmtClv(r.clv)}` : ""}</div>
+                <li key={r.pick_hash ?? i}>
+                  <Link href={gameSheetHref(r.sport, r.game_date, r.game_id)} className="card block p-3.5 hover:border-ink-500">
+                    <div className="flex items-center gap-3">
+                      <ResultPill r={r.result} />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-semibold">{r.pick}</div>
+                        <TitleLine text={retitle(data.gameNames[r.game_id] ?? `Game #${r.game_id}`, data.neutralGames[r.game_id])} neutral={data.neutralGames[r.game_id] === true} interactive={false} className="text-xs text-zinc-500" />
+                        <div className="mt-0.5 font-mono text-[11px] text-zinc-500">{fmtGameDate(r.game_date)} · {r.odds == null ? "—" : fmtOdds(r.odds)} · {stakeLabel(r)}{r.clv != null ? ` · CLV ${fmtClv(r.clv)}` : ""}</div>
+                      </div>
+                      <PL v={rowUnits(r)} pending={r.result == null} />
                     </div>
-                    <PL v={rowUnits(r)} pending={r.result == null} />
-                  </div>
-                  <Proof r={r} tipoff={data.tipoffs[r.game_id]} />
+                    <Proof r={r} tipoff={data.tipoffs[r.game_id]} />
+                  </Link>
                 </li>
               ))}
             </ul>
@@ -355,11 +358,13 @@ function Live({ data, range }: { data: Extract<Awaited<ReturnType<typeof loadRes
                     <tr key={r.pick_hash ?? i} className="border-t border-ink-700/60 hover:bg-ink-850">
                       <td className="px-5 py-3 text-zinc-400">{fmtGameDate(r.game_date)}</td>
                       <td className="py-3 text-zinc-300">
-                        {data.neutralGames[r.game_id]
-                          ? <span className="flex items-center gap-1.5">{retitle(data.gameNames[r.game_id] ?? `Game #${r.game_id}`, true)}<NeutralChip /></span>
-                          : (data.gameNames[r.game_id] ?? `Game #${r.game_id}`)}
+                        <Link href={gameSheetHref(r.sport, r.game_date, r.game_id)} className="hover:text-court-400">
+                          {data.neutralGames[r.game_id]
+                            ? <span className="flex items-center gap-1.5">{retitle(data.gameNames[r.game_id] ?? `Game #${r.game_id}`, true)}<NeutralChip interactive={false} /></span>
+                            : (data.gameNames[r.game_id] ?? `Game #${r.game_id}`)}
+                        </Link>
                       </td>
-                      <td className="py-3"><div className="font-semibold">{r.pick}</div><Proof r={r} tipoff={data.tipoffs[r.game_id]} inline /></td>
+                      <td className="py-3"><Link href={gameSheetHref(r.sport, r.game_date, r.game_id)} className="hover:text-court-400"><div className="font-semibold">{r.pick}</div></Link><Proof r={r} tipoff={data.tipoffs[r.game_id]} inline /></td>
                       <td className="py-3 text-right font-mono text-zinc-400">{r.odds == null ? "—" : fmtOdds(r.odds)}</td>
                       <td className="py-3 text-right font-mono">{stakeLabel(r)}</td>
                       <td className="py-3 text-right font-mono text-zinc-400">{r.clv == null ? "—" : fmtClv(r.clv)}</td>

@@ -1,14 +1,14 @@
 "use client";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { SlateGame, ValueBet } from "@/lib/types";
-import { LOCKED_NOTE, MARKET_LABEL, finalLabel, fmtOne, fmtSpread, fmtPostedStamp, fmtScore, fmtWinProb, fmtTipoff, pct, signedPct } from "@/lib/labels";
+import { LOCKED_NOTE, MARKET_LABEL, finalLabel, fmtOne, fmtSpread, fmtPostedStamp, fmtScore, fmtWinProb, fmtTipoff, pct } from "@/lib/labels";
 import { useWatchlist } from "@/lib/watchlist";
 import { compactSlateTags, visibleCopy, visibleNotes, visibleTags, type ArchetypeTag } from "@/lib/archetypes";
 import { teamHref } from "@/lib/teams";
 import Link from "next/link";
 import { ArchetypeChip, ArchetypeLegend } from "./ArchetypeChip";
-import { InfoTip, TermLabel } from "./InfoTip";
+import { InfoTip } from "./InfoTip";
 import { CzarpLeanChip, StatusChips, VerdictChip } from "./StatusChips";
 import { NeutralChip, TitleLine } from "./NeutralChip";
 import { SlateSearch } from "./SlateSearch";
@@ -18,22 +18,20 @@ import { ALIAS_INDEX_TIMEOUT_MS, aliasByNameFromIndex, aliasByNameFromRecord, ec
 import { useTeamIndex } from "@/lib/useTeamIndex";
 import { SHOW_TRACKED_TIER } from "@/lib/pickTier";
 import { gameTitle, sideLabel, spreadNotationNote } from "@/lib/gameTitle";
-import { cardHeadline, marketRatings, notAPlayAlso, type MarketRating } from "@/lib/verdict";
+import { marketRatings, notAPlayAlso, type MarketRating } from "@/lib/verdict";
 import { fmtLinesAsOf } from "@/lib/linesAsOf";
 import { cardHeaderRow, cardNoteLine } from "@/lib/cardHeader";
-import { HeaderRow, LineMoveNote, OpenNowNote } from "./HeaderRow";
-import { evPer100, fmtEv100 } from "@/lib/stats";
-import { postedVsNow, totalFair } from "@/lib/posted";
+import { HeaderRow } from "./HeaderRow";
+import { totalFair } from "@/lib/posted";
+import { officialPickViews, stakeUnitsLabel } from "@/lib/officialPick";
 import { GameSheetTabs, useSheetExtras } from "./GameSheetTabs";
-
-type Sel = { game: SlateGame; bet: ValueBet } | null;
+import { OfficialPickSection } from "./OfficialPickSection";
 
 export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = false, sportKey = "cbb", slateAliases }: {
   games: SlateGame[]; bets: ValueBet[]; tracked?: ValueBet[]; sort?: SlateSort; hide?: boolean; sportKey?: string;
   /** team_aliases for this slate's teams, sent with the page; null/undefined if that read failed */
   slateAliases?: Record<string, string[]> | null;
 }) {
-  const [sel, setSel] = useState<Sel>(null);
   const [gameSel, setGameSel] = useState<SlateGame | null>(null);
   const [watchOnly, setWatchOnly] = useState(false);
   const { has, toggle, count: watchCount, ready } = useWatchlist();
@@ -76,6 +74,10 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
     if (g) setGameSel(g);
   }, [gameParam, games]);
   const closeGame = () => { setGameSel(null); if (gameParam) setParam("game", null); };
+  const openGame = (g: SlateGame) => {
+    setGameSel(g);
+    if (gameParam !== String(g.game_id)) setParam("game", String(g.game_id));
+  };
   const byGame = (id: number) => bets.filter((b) => b.game_id === id);
   const raw = (g: SlateGame) => g.rawEdge ?? -Infinity;
   const tipMs = (g: SlateGame) => (g.tipoff ? Date.parse(g.tipoff) : Infinity);
@@ -197,16 +199,16 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
                   <div
                     role="button"
                     tabIndex={0}
-                    onClick={() => g && setSel({ game: g, bet: b })}
-                    onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && g) { e.preventDefault(); setSel({ game: g, bet: b }); } }}
+                    onClick={() => g && openGame(g)}
+                    onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && g) { e.preventDefault(); openGame(g); } }}
                     className="flex min-h-12 w-full cursor-pointer items-center gap-3 py-2 text-left text-sm"
                   >
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-semibold text-white">{b.side} · {MARKET_LABEL[b.market]}</span>
-                      <TitleLine text={g ? gameTitle(g.away, g.home, g.neutral).text : `Game #${b.game_id}`} neutral={g?.neutral === true} className="text-[11px] text-zinc-500" />
+                      <TitleLine text={g ? gameTitle(g.away, g.home, g.neutral).text : `Game #${b.game_id}`} neutral={g?.neutral === true} interactive={false} className="text-[11px] text-zinc-500" />
                     </span>
                     <span className="font-mono text-lg font-black text-edge-400">{pct(b.line_edge_pct, 1)}</span>
-                    <span className="font-mono text-xs text-zinc-500">{b.kelly_quarter_units == null ? "—" : `${b.kelly_quarter_units.toFixed(2)}u`}</span>
+                    <span className="font-mono text-xs text-zinc-500">{stakeUnitsLabel(b.stake_units) ?? "—"}</span>
                   </div>
                 </li>
               );
@@ -225,13 +227,13 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
                 <div
                   role="button"
                   tabIndex={0}
-                  onClick={() => setGameSel(g)}
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setGameSel(g); } }}
+                  onClick={() => openGame(g)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openGame(g); } }}
                   className="flex min-h-12 w-full cursor-pointer items-center gap-3 py-2 text-left text-sm"
                 >
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-semibold text-white">{l.pick}</span>
-                    <TitleLine text={gameTitle(g.away, g.home, g.neutral).text} neutral={g.neutral === true} className="text-[11px] text-zinc-500" />
+                    <TitleLine text={gameTitle(g.away, g.home, g.neutral).text} neutral={g.neutral === true} interactive={false} className="text-[11px] text-zinc-500" />
                   </span>
                   <span className="font-mono text-lg font-black text-zinc-200">{l.edge_pct == null ? "—" : pct(l.edge_pct, 1)}</span>
                   <span className="font-mono text-xs text-zinc-500">1u tracked</span>
@@ -252,8 +254,7 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
             watched={ready && has(g.game_id)}
             tvHot={tvHot.has(g.game_id)}
             onWatch={() => toggle(g.game_id)}
-            onOpen={(bet) => setSel({ game: g, bet })}
-            onGame={() => setGameSel(g)}
+            onGame={() => openGame(g)}
           />
         ))}
       </div>
@@ -288,7 +289,6 @@ export function SlateBoard({ games, bets, tracked = [], sort = "time", hide = fa
         {spreadNotationNote(games.some((x) => x.neutral))} Price = market consensus. Fair value = our model. Stakes are ¼-Kelly in units (1u = 1% of bankroll, capped at 2.5u). {LOCKED_NOTE}
       </p>
 
-      <ValueSheet sel={sel} onClose={() => setSel(null)} />
       <GameSheet g={gameSel} sportKey={sportKey} bets={gameSel ? byGame(gameSel.game_id) : []} tvHot={gameSel ? tvHot.has(gameSel.game_id) : false} onClose={closeGame} />
     </div>
   );
@@ -333,8 +333,8 @@ function Star({ filled, className = "h-4 w-4" }: { filled: boolean; className?: 
   );
 }
 
-function GameCard({ g, sportKey, bets, watched, tvHot, onWatch, onOpen, onGame }: {
-  g: SlateGame; sportKey: string; bets: ValueBet[]; watched: boolean; tvHot: boolean; onWatch: () => void; onOpen: (b: ValueBet) => void; onGame: () => void;
+function GameCard({ g, sportKey, bets, watched, tvHot, onWatch, onGame }: {
+  g: SlateGame; sportKey: string; bets: ValueBet[]; watched: boolean; tvHot: boolean; onWatch: () => void; onGame: () => void;
 }) {
   const awayWin = g.home_win_prob == null ? null : 1 - g.home_win_prob;
   const awayCover = g.home_cover_prob == null ? null : 1 - g.home_cover_prob;
@@ -343,17 +343,13 @@ function GameCard({ g, sportKey, bets, watched, tvHot, onWatch, onOpen, onGame }
     { side: sideLabel("Away", g.neutral), name: g.away, proj: g.proj_away, win: awayWin, cover: awayCover, tags: g.archetypes.away, top: g.archetypes.awayTop, tent: g.archetypes.away_tentative, score: final?.away ?? null, won: final ? final.away > final.home : false },
     { side: sideLabel("Home", g.neutral), name: g.home, proj: g.proj_home, win: g.home_win_prob, cover: g.home_cover_prob, tags: g.archetypes.home, top: g.archetypes.homeTop, tent: g.archetypes.home_tentative, score: final?.home ?? null, won: final ? final.home > final.away : false },
   ];
-  const edge = cardHeadline(g, bets);
   const ratings = marketRatings(g, bets);
   const asOf = fmtLinesAsOf(g.lines_as_of);
-  const official = edge.verdict === "official";
-  const single = official && bets.length === 1 ? bets[0] : null;
   const note = cardNoteLine(g, bets);
   const row = cardHeaderRow(g, bets);
   const timeLabel = g.completed
     ? finalLabel(g.final_at, g.final_at_estimated, g.game_date)
     : (g.tipoff ? fmtTipoff(g.tipoff) : "Tip-off TBD");
-  const openSingle = (e: { stopPropagation: () => void }) => { e.stopPropagation(); onOpen(single!); };
   const fair = totalFair(g, bets);
   const hasTeamProj = g.proj_home != null || g.proj_away != null;
   return (
@@ -364,7 +360,7 @@ function GameCard({ g, sportKey, bets, watched, tvHot, onWatch, onOpen, onGame }
       <header className="flex items-start gap-2 border-b border-ink-700/60 px-4 py-2.5 text-xs">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
           <span className="font-semibold text-zinc-300">{timeLabel}</span>
-          {g.neutral && <NeutralChip />}
+          {g.neutral && <NeutralChip interactive={false} />}
           <TvRatingChip rating={g.tv_rating} highlight={tvHot} />
           <StatusChips g={g} bets={bets} />
         </div>
@@ -380,17 +376,10 @@ function GameCard({ g, sportKey, bets, watched, tvHot, onWatch, onOpen, onGame }
         <span aria-hidden="true" className="mt-2 shrink-0 font-sans text-court-400">›</span>
       </header>
 
-      {/* Header row: one market, the side the edge favors, the edge now. With one official bet, tapping it opens the value sheet. */}
-      {single ? (
-        <button type="button" onClick={openSingle} aria-label={`Open ${single.side} details`}
-          className="block w-full border-b border-ink-700/40 px-4 py-3 text-left hover:bg-ink-850/60">
-          <HeaderRow row={row} />
-        </button>
-      ) : (
-        <div className="border-b border-ink-700/40 px-4 py-3">
-          <HeaderRow row={row} />
-        </div>
-      )}
+      {/* Header row: one market, the side the edge favors, the edge now. Tapping anywhere on the card opens the game sheet. */}
+      <div className="border-b border-ink-700/40 px-4 py-3">
+        <HeaderRow row={row} />
+      </div>
 
       <div className="divide-y divide-ink-700/40 px-4">
         {hasTeamProj && (
@@ -471,12 +460,12 @@ function GameCard({ g, sportKey, bets, watched, tvHot, onWatch, onOpen, onGame }
             return (
               <button
                 key={`${b.market}-${b.side}`}
-                onClick={(e) => { e.stopPropagation(); onOpen(b); }}
+                onClick={(e) => { e.stopPropagation(); onGame(); }}
                 className="flex min-h-12 w-full items-center gap-3 rounded-xl border border-edge-400/30 bg-ink-900 px-3 py-2 text-left transition hover:border-edge-400/60 active:scale-[0.99]"
               >
                 <span className="min-w-0 flex-1 truncate text-sm font-semibold">{b.side}</span>
                 <span className="font-mono text-lg font-black leading-none text-edge-400">{pct(b.line_edge_pct, 1)}</span>
-                <span className="font-mono text-[11px] text-zinc-500">{b.kelly_quarter_units == null ? "—" : `${b.kelly_quarter_units.toFixed(2)}u`}</span>
+                <span className="font-mono text-[11px] text-zinc-500">{stakeUnitsLabel(b.stake_units) ?? "—"}</span>
                 <span className="text-zinc-600">›</span>
               </button>
             );
@@ -525,67 +514,6 @@ function MarketStat({ label, fair, price, refTeam, rating, lean = false }: { lab
   );
 }
 
-function ValueSheet({ sel, onClose }: { sel: Sel; onClose: () => void }) {
-  useEffect(() => {
-    const k = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", k);
-    return () => window.removeEventListener("keydown", k);
-  }, [onClose]);
-  if (!sel) return null;
-  const { game: g, bet: b } = sel;
-  const ev = evPer100(b.model_prob, b.posted_odds);
-  const evOdds = b.posted_odds == null || !Number.isFinite(b.posted_odds) || b.posted_odds === 0 ? null : b.posted_odds;
-  const officialRating = marketRatings(g, [b])[b.market === "total" ? "total" : "spread"];
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center" role="dialog" aria-modal="true">
-      <button aria-label="Close" onClick={onClose} className="absolute inset-0 bg-black/70" />
-      <div className="relative w-full max-w-lg rounded-t-3xl border border-ink-700 bg-ink-900 p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] shadow-2xl md:rounded-3xl">
-        <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-ink-600 md:hidden" />
-        <div className="text-xs text-zinc-500">{gameTitle(g.away, g.home, g.neutral).text}{g.tipoff ? ` · ${fmtTipoff(g.tipoff)}` : ""}{g.neutral && <NeutralChip className="ml-1.5" />}</div>
-        <div className="mt-1 flex items-center justify-between gap-3">
-          <h3 className="text-xl font-bold">{b.side}</h3>
-          <span className="flex flex-wrap items-center justify-end gap-1.5">
-            <VerdictChip level="official" className="px-2 py-1" />
-          </span>
-        </div>
-        <div className="mt-1 text-sm text-zinc-400">{MARKET_LABEL[b.market]}</div>
-        {officialRating.lineMoveNote && <LineMoveNote className="mt-1" />}
-        {!officialRating.lineMoveNote && officialRating.openNowContext && <OpenNowNote text={officialRating.openNowContext} className="mt-1" />}
-
-        <div className="mt-4 text-center">
-          <div className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-            <TermLabel term="edge">Edge</TermLabel>
-          </div>
-          <div className="font-mono text-5xl font-black text-edge-400">{pct(b.line_edge_pct, 1)}</div>
-          {postedVsNow(b, g) && (
-            <p className="mt-1 font-mono text-xs text-zinc-400">{postedVsNow(b, g)}</p>
-          )}
-          <p className="mt-1 text-[11px] text-zinc-500">An edge does not mean you will win tonight. Every official pick is time-stamped and graded in public.</p>
-        </div>
-
-        <div className="mt-5 grid grid-cols-2 gap-2">
-          <Big label="Model prob" v={b.model_prob == null ? "—" : pct(b.model_prob, 1)} />
-          <Big label="Market prob" v={pct(b.market_prob, 1)} sub="implied, incl. vig" />
-          <Big label={<TermLabel term="edge">Edge</TermLabel>} v={pct(b.line_edge_pct, 1)} sub="vs price" accent />
-          <Big label="Prob edge" v={signedPct(b.prob_edge)} sub="secondary" />
-          <Big label="EV / $100" v={ev == null ? "—" : fmtEv100(ev)} sub={evOdds == null ? "at −110" : `at ${evOdds > 0 ? "+" : ""}${evOdds}`} />
-        </div>
-
-        <div className="mt-3 flex items-center justify-between rounded-2xl border border-edge-400/30 bg-edge-400/10 p-4">
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-wider text-edge-400">Suggested stake</div>
-            <div className="text-[11px] text-zinc-400">¼-Kelly · 1u = 1% of bankroll</div>
-          </div>
-          <div className="font-mono text-3xl font-black">{b.kelly_quarter_units == null ? "—" : `${b.kelly_quarter_units.toFixed(2)}u`}</div>
-        </div>
-        {b.logged_at && <p className="mt-3 text-[11px] text-zinc-400">{fmtPostedStamp(b.logged_at)}</p>}
-        <p className="mt-3 text-[11px] text-zinc-500">Logged to the public ledger.</p>
-        <button onClick={onClose} className="mt-4 min-h-12 w-full rounded-xl border border-ink-600 font-semibold hover:bg-ink-800">Done</button>
-      </div>
-    </div>
-  );
-}
-
 function GameSheet({ g, sportKey, bets, tvHot, onClose }: { g: SlateGame | null; sportKey: string; bets: ValueBet[]; tvHot: boolean; onClose: () => void }) {
   useEffect(() => {
     const k = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -596,6 +524,7 @@ function GameSheet({ g, sportKey, bets, tvHot, onClose }: { g: SlateGame | null;
   if (!g) return null;
   const i = g.insight;
   const sheetNote = cardNoteLine(g, bets);
+  const officialViews = officialPickViews(g, bets);
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center" role="dialog" aria-modal="true" aria-label={`${gameTitle(g.away, g.home, g.neutral).text} insights`}>
       <button aria-label="Close" onClick={onClose} className="absolute inset-0 bg-black/70" />
@@ -622,12 +551,18 @@ function GameSheet({ g, sportKey, bets, tvHot, onClose }: { g: SlateGame | null;
         )}
         {i?.neutral && <div className="mt-2 inline-block rounded-md border border-ink-600 px-2 py-0.5 text-[11px] text-zinc-400">Neutral site: no home-court edge applied</div>}
 
-        {/* Same one-row headline as the card (lib/cardHeader), under the same status chips. */}
-        <div className="mt-4 rounded-2xl border border-ink-700 bg-ink-850 px-4 py-3">
+        {/* Official picks get a dedicated banner; otherwise the same one-row headline as the card. */}
+        <div className="mt-4">
           <div className="mb-2 flex flex-wrap items-center gap-1.5">
             <StatusChips g={g} bets={bets} />
           </div>
-          <HeaderRow row={cardHeaderRow(g, bets)} />
+          {officialViews.length > 0 ? (
+            <OfficialPickSection views={officialViews} />
+          ) : (
+            <div className="rounded-2xl border border-ink-700 bg-ink-850 px-4 py-3">
+              <HeaderRow row={cardHeaderRow(g, bets)} />
+            </div>
+          )}
         </div>
         {sheetNote && <NotAPlay className="mt-2" line={sheetNote} />}
         {sheetNote && notAPlayAlso(g, bets).length > 0 && (
@@ -666,16 +601,6 @@ function NotAPlay({ line, className = "", showTip = true }: { line: string | nul
     <div className={`flex items-start gap-1 text-[11px] leading-snug text-zinc-400 ${className}`}>
       <span>{noteChunks(line)}</span>
       {showTip && <InfoTip term="ladderRule" />}
-    </div>
-  );
-}
-
-function Big({ label, v, sub, accent }: { label: ReactNode; v: string; sub?: string; accent?: boolean }) {
-  return (
-    <div className="rounded-xl bg-ink-850 p-3">
-      <div className="text-[10px] uppercase tracking-wider text-zinc-500">{label}</div>
-      <div className={`font-mono text-lg font-bold ${accent ? "text-edge-400" : ""}`}>{v}</div>
-      {sub && <div className="text-[10px] text-zinc-600">{sub}</div>}
     </div>
   );
 }

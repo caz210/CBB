@@ -256,7 +256,7 @@ test("one decimal style for every edge: posted, current, vs open, headline", () 
   assert.equal(h.edgeLabel, "2.0%");
   assert.equal(
     fmtPostedVsNow({ fair: 142, edge: 0.0173, line: 144.5, now: 144.5, vsOpen: 0.0373, market: "total" }),
-    "Posted 142.0 · 1.7% (line 144.5) → Now 144.5 · 3.7% vs open",
+    "FV 142.0 · 1.7% (line 144.5) → Now 144.5 · 3.7% vs open",
   );
   assert.equal(fmtPostedVsNow({ vsOpen: 0.0299, market: "total" }), "· 2.9% vs open");
   for (const s of [h.edgeLabel!]) assert.doesNotMatch(s, /(?<![\d.])\d+%/);
