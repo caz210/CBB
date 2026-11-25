@@ -24,7 +24,7 @@ name: Evening finals sync
 
 on:
   schedule:
-    # Every 30 minutes at :07 and :37, 21:07-23:37 and 00:07-07:37 UTC.
+    # Every 30 minutes at :07 and :37, 14:07-23:37 and 00:07-07:37 UTC.
     - cron: "7,37 0-7,14-23 * * *"
   workflow_dispatch:
     inputs:
