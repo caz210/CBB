@@ -113,11 +113,85 @@ def test_late_cron_still_runs_within_its_slot_and_never_reaches_the_next_firing(
     assert RL.slot_for(ct(20, 4), RL.NORMAL_RUN_HOURS_CT) == 19
 
 
-def test_main_off_hour_exits_before_any_network(monkeypatch, capsys):
-    monkeypatch.setattr(dr, "now_ct", lambda: ct(11, 30))
+def test_main_before_first_slot_exits_before_any_network(monkeypatch, capsys):
+    # 9:30 AM CT is before 10 AM (and before the light-day 12 PM), so no missed slot is possible yet.
+    monkeypatch.setattr(dr, "now_ct", lambda: ct(9, 30))
     monkeypatch.setattr(sw, "Client", lambda *a, **k: pytest.fail("no Supabase off-hours"))
     assert RL.main([]) == 0
     assert "not inside a refresh slot" in capsys.readouterr().out
+
+
+def test_due_and_latest_unclaimed_slot():
+    hours = RL.NORMAL_RUN_HOURS_CT
+    assert RL.due_slots(ct(9, 59), hours) == []
+    assert RL.due_slots(ct(10, 0), hours) == [10]
+    assert RL.due_slots(ct(17, 48), hours) == [10, 13, 16]
+    assert RL.due_slots(ct(20, 19), hours) == [10, 13, 16, 19]
+    assert RL.latest_unclaimed_slot(ct(17, 48), hours, set()) == 16
+    assert RL.latest_unclaimed_slot(ct(17, 48), hours, {10, 13}) == 16
+    assert RL.latest_unclaimed_slot(ct(17, 48), hours, {10, 13, 16}) is None
+    assert RL.latest_unclaimed_slot(ct(11, 30), hours, set()) == 10
+    assert RL.latest_unclaimed_slot(ct(11, 30), hours, {10}) is None
+    # --force keys must not hide a missed scheduled slot
+    assert RL.latest_unclaimed_slot(ct(17, 48), hours, {10, 13, 2219}) == 16
+    # a light day at 10 AM has no due slot yet
+    assert RL.latest_unclaimed_slot(ct(10, 5), RL.LIGHT_RUN_HOURS_CT, set()) is None
+    assert RL.maybe_catch_up(ct(9, 30)) is False
+    assert RL.maybe_catch_up(ct(11, 30)) is True
+
+
+def test_late_off_hour_catches_up_latest_unclaimed_slot():
+    games, projs, lines = _seed()
+    db = FakeDB(games, projs, lines)
+    fresh = lambda e: {"current_home_spread": -2.0, "current_total": 141.0, "book": "DraftKings"}
+    # 5:48 PM, like today's delayed Actions start: 10/1/4 PM all unclaimed -> run the 4 PM slot
+    out = _run(db, games, fresh, now=ct(17, 48))
+    assert out["ran"] is True and "catch-up of 16:00 CT slot" in out["reason"]
+    assert out["lines_written"] == 25
+    slots = {r["slot"] for r in db.tables[RL.RUNS_TABLE]}
+    assert slots == {16}
+    n = len(db.writes)
+    # a later off-hour firing then catches the next-latest missed slot (1 PM), never a 17:00 slot
+    out = _run(db, games, fresh, now=ct(17, 50))
+    assert out["ran"] is True and "catch-up of 13:00 CT slot" in out["reason"]
+    assert {r["slot"] for r in db.tables[RL.RUNS_TABLE]} == {16, 13}
+    assert len(db.writes) > n
+
+
+def test_catch_up_picks_latest_unclaimed_when_earlier_slots_already_ran():
+    games, projs, lines = _seed()
+    db = FakeDB(games, projs, lines, runs=[{"day": TODAY, "slot": 10}, {"day": TODAY, "slot": 13}])
+    out = _run(db, games, lambda e: {"current_home_spread": -2.0, "current_total": 141.0, "book": "DraftKings"},
+               now=ct(17, 48))
+    assert out["ran"] is True and "catch-up of 16:00 CT slot" in out["reason"]
+    assert {r["slot"] for r in db.tables[RL.RUNS_TABLE]} == {10, 13, 16}
+
+
+def test_catch_up_skips_when_all_due_slots_already_ran():
+    games, projs, lines = _seed()
+    db = FakeDB(games, projs, lines, runs=[{"day": TODAY, "slot": 10}, {"day": TODAY, "slot": 13},
+                                          {"day": TODAY, "slot": 16}])
+    out = RL.run(ct(17, 48), db, scoreboard=lambda d: pytest.fail("no ESPN when every due slot ran"), log=QUIET)
+    assert out["ran"] is False and "catch-up" not in out["reason"]
+    assert [op for op, t, *_ in db.writes] == []
+
+
+def test_force_off_hour_still_uses_forced_slot_not_catch_up():
+    games, projs, lines = _seed()
+    db = FakeDB(games, projs, lines)
+    now = ct(17, 48)
+    out = _run(db, games, lambda e: {}, now=now, force=True)
+    assert out["ran"] is True and "catch-up" not in out["reason"]
+    slots = {r["slot"] for r in db.tables[RL.RUNS_TABLE]}
+    assert slots == {RL.FORCED_SLOT_BASE + 17 * 60 + 48}
+
+
+def test_light_day_at_10am_still_gates_on_a_count_alone():
+    games, projs, lines = _seed(n_games=10)
+    db = FakeDB(games, projs, lines)
+    out = RL.run(ct(10), db, scoreboard=lambda d: pytest.fail("no ESPN when gated"), log=QUIET)
+    assert out["ran"] is False and "light day (10 games)" in out["reason"] and db.writes == []
+    assert db.reads == [("count", "games")]
 
 
 # ── Odds API budget ─────────────────────────────────────────────────────────────
