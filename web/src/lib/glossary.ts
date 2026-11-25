@@ -21,7 +21,7 @@ export type GlossaryEntry = {
 export const GLOSSARY_ANCHOR = "glossary";
 export const GLOSSARY_HREF = `/methodology#${GLOSSARY_ANCHOR}`;
 
-const VERDICT_ID: Record<VerdictLevel, string> = { toss_up: "toss-up", lean: "lean", value: "value", late_value: "late-value", official: "czarp-play" };
+const VERDICT_ID: Record<VerdictLevel, string> = { toss_up: "toss-up", lean: "small-edge", value: "value", late_value: "late-value", official: "czarp-play" };
 
 /** Verdict ladder, weakest to strongest, straight from VERDICT_LADDER. */
 const VERDICT_ENTRIES: readonly GlossaryEntry[] = VERDICT_LADDER.map((d) => ({
@@ -51,6 +51,18 @@ export const GLOSSARY_ENTRIES: readonly GlossaryEntry[] = [
     id: "upset-alert",
     title: "Upset alert",
     body: "CZarp flagged a style matchup that could help the underdog. It is a watchability note, not a pick and not a prediction that the favorite will lose.",
+    group: "chip",
+  },
+  {
+    id: "czarp-lean",
+    title: "CZarp Lean",
+    body: "CZarp Leans are sides where our number differs from the market by 2.5% to 4% and the line hasn't moved away from CZarp. Tracked at 1 unit, not part of the official record.",
+    group: "chip",
+  },
+  {
+    id: "line-moved-away",
+    title: "Line moved away, possible news",
+    body: "The spread moved away from CZarp's side since it opened. That often means injury or lineup news. Not a play.",
     group: "chip",
   },
   {

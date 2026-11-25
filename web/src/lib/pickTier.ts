@@ -2,8 +2,8 @@
  *
  *  Tracked picks and their queries stay in the codebase. Flip
  *  SHOW_TRACKED_TIER to true to bring the Official/Tracked toggle back.
- *  While it is false, the portfolio always shows official picks, and
- *  ?tier=track (or any other non-official value) is not left on the URL.
+ *  While it is false, ?tier=track (and any unknown value) is not left on the URL.
+ *  CZarp Leans (?tier=lean) stay visible even when Tracked is hidden.
  */
 import type { RangeKey } from "./data";
 import type { PickTier } from "./labels";
@@ -15,6 +15,7 @@ export function resolvePortfolioTier(
   raw: string | null | undefined,
   showTracked: boolean = SHOW_TRACKED_TIER,
 ): PickTier {
+  if (raw === "lean") return "lean";
   if (showTracked && raw === "track") return "track";
   return "official";
 }
@@ -37,7 +38,8 @@ export function resultsHref(
 ): string {
   const q = new URLSearchParams();
   const t = resolvePortfolioTier(tier, showTracked);
-  if (showTracked && t !== "official") q.set("tier", t);
+  if (t === "lean") q.set("tier", "lean");
+  else if (showTracked && t !== "official") q.set("tier", t);
   if (range !== "season") q.set("range", range);
   const qs = q.toString();
   return `/${sportKey}/results${qs ? `?${qs}` : ""}`;

@@ -39,7 +39,7 @@ export const EXPLAINERS = {
   czarpPlay: ladderTip("official"),
   ladderRule: {
     title: "How each market is rated",
-    body: `The spread and the total each get their own rating, judged on the edge vs the current line: Toss Up, Lean, Value, or Late Value as the edge grows (sides 2%, 3%, 4%; totals 1.5%, 2.25%, 3%). CZarp Plays are set once, at the ${OFFICIAL_POST_TIME} run, and are never added later.`,
+    body: `The spread and the total each get their own rating, judged on the edge vs the current line: Toss Up, Small edge, Value, or Late Value as the edge grows (sides 2%, 3%, 4%; totals 1.5%, 2.25%, 3%). CZarp Plays are set once, at the ${OFFICIAL_POST_TIME} run, and are never added later.`,
   },
   tvRating: {
     title: "TV Rating",
@@ -56,6 +56,14 @@ export const EXPLAINERS = {
   diRecord: {
     title: "D-I record",
     body: "Records count only games between two D-I teams.",
+  },
+  czarpLean: {
+    title: "CZarp Lean",
+    body: "CZarp Leans are sides where our number differs from the market by 2.5% to 4% and the line hasn't moved away from CZarp. Tracked at 1 unit, not part of the official record.",
+  },
+  lineMovedAway: {
+    title: "Line moved away, possible news",
+    body: "The spread moved away from CZarp's side since it opened. That often means injury or lineup news. Not a play.",
   },
 } as const;
 

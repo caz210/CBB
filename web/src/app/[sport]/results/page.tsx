@@ -7,8 +7,9 @@ import { pageMetadata } from "@/lib/seo";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getSport } from "@/lib/sports";
-import { RANGES, loadResults, rowUnits, type RangeKey } from "@/lib/data";
-import type { LedgerRow } from "@/lib/types";
+import { RANGES, loadLeanResults, loadResults, rowUnits, type LeanResultsData, type RangeKey } from "@/lib/data";
+import type { LeanPick, LedgerRow } from "@/lib/types";
+import { CZARP_LEAN_EXPLAINER } from "@/lib/lean";
 import { LOCKED_NOTE, MARKET_LABEL, PICK_TIER_LABEL, RESULT_LABEL, fmtClv, fmtGameDate, fmtOdds, fmtPostedStamp, fmtUnits, pct, shortHash, signedPct, type PickTier } from "@/lib/labels";
 import { SHOW_TRACKED_TIER, resolvePortfolioTier, resultsHref, resultsUrlStrippingTier, shouldStripPortfolioTierParam } from "@/lib/pickTier";
 import { SMALL_SAMPLE_N } from "@/lib/stats";
@@ -55,8 +56,63 @@ export default async function ResultsPage({
   if (shouldStripPortfolioTierParam(requestedTier)) {
     redirect(resultsUrlStrippingTier(sport.key, sp));
   }
-  const res = await loadResults(sport, range, tier);
   const rangeHref = (r: RangeKey) => resultsHref(sport.key, r, tier);
+  const recordTabs: PickTier[] = SHOW_TRACKED_TIER ? ["official", "track", "lean"] : ["official", "lean"];
+
+  if (tier === "lean") {
+    const lean = await loadLeanResults(sport, range);
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-5 md:px-6 md:py-10">
+        <PageHeader
+          badge={lean.state === "live" ? "live" : "none"}
+          eyebrow={`${sport.long} · Record`}
+          title="The public record"
+          sub="CZarp Leans are tracked at 1 unit, separate from the official record."
+          right={
+            <nav className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 text-sm md:mx-0 md:px-0" aria-label="Date range">
+              {(Object.keys(RANGES) as RangeKey[]).map((r) => (
+                <Link key={r} href={rangeHref(r)} aria-current={r === range ? "page" : undefined}
+                  className={`flex min-h-10 shrink-0 items-center rounded-full border px-4 ${r === range ? "border-court-500 bg-court-500/15 text-court-400" : "border-ink-600 text-zinc-400 hover:bg-ink-800"}`}>
+                  {RANGES[r].label}
+                </Link>
+              ))}
+            </nav>
+          }
+        />
+        <RecordTabs sportKey={sport.key} range={range} tier={tier} tabs={recordTabs} />
+        <p className="mt-2 text-xs text-zinc-500">{CZARP_LEAN_EXPLAINER}</p>
+        {lean.state === "unconfigured" ? (
+          <div className="mt-4 md:mt-6">
+            <EmptyState tone="warn" title="Live data isn't connected yet"
+              body="This deployment is missing its Supabase settings, so there's no ledger to show. Once they're added, every graded pick appears here automatically." />
+          </div>
+        ) : lean.state === "live" && lean.data.picks.length === 0 && !lean.data.record ? (
+          <div className="mt-4 md:mt-6">
+            <EmptyState
+              title={range === "season" ? "No CZarp Leans logged yet" : `No CZarp Leans in the ${RANGES[range].label.toLowerCase()}`}
+              body="CZarp Leans show up here once they're logged, and they're graded after the final score. They are not part of the official record."
+              actions={[
+                { href: `/${sport.key}/slate`, label: "See today's slate" },
+                ...(range !== "season" ? [{ href: rangeHref("season"), label: "Whole season" }] : []),
+              ]}
+            />
+          </div>
+        ) : lean.state === "live" ? (
+          <LeanLive data={lean.data} range={range} />
+        ) : (
+          <div className="mt-4 md:mt-6">
+            <EmptyState
+              title="No CZarp Leans logged yet"
+              body="CZarp Leans show up here once they're logged. They are not part of the official record."
+              actions={[{ href: `/${sport.key}/slate`, label: "See today's slate" }]}
+            />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const res = await loadResults(sport, range, tier);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-5 md:px-6 md:py-10">
@@ -79,17 +135,8 @@ export default async function ResultsPage({
         }
       />
 
-      {SHOW_TRACKED_TIER && (
-        <div role="tablist" aria-label="Record" className="mt-4 grid grid-cols-2 gap-1 rounded-xl border border-ink-700 bg-ink-900 p-1 md:mt-6 md:inline-grid md:w-auto">
-          {(["official", "track"] as PickTier[]).map((t) => (
-            <Link key={t} role="tab" aria-selected={t === tier} href={resultsHref(sport.key, range, t)}
-              className={`flex min-h-10 items-center justify-center rounded-lg px-5 text-sm font-semibold ${t === tier ? "bg-court-500/15 text-court-400" : "text-zinc-400 hover:bg-ink-800"}`}>
-              {PICK_TIER_LABEL[t]}
-            </Link>
-          ))}
-        </div>
-      )}
-      <p className={`text-xs text-zinc-500 ${SHOW_TRACKED_TIER ? "mt-2" : "mt-4 md:mt-6"}`}>
+      <RecordTabs sportKey={sport.key} range={range} tier={tier} tabs={recordTabs} />
+      <p className="mt-2 text-xs text-zinc-500">
         {tier === "official"
           ? "Official record: the picks CZarp actually stakes (¼-Kelly units)."
           : "Tracked picks: flat 1u, tracked for testing, not part of the official record."}
@@ -189,7 +236,7 @@ function Live({ data, range }: { data: Extract<Awaited<ReturnType<typeof loadRes
         <div className="card p-4 md:p-5">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="font-bold">Cumulative units</h2>
-            <span className="text-xs text-zinc-500">{data.tier === "track" ? "flat 1u" : "¼-Kelly"} · {RANGES[range].label}</span>
+            <span className="text-xs text-zinc-500">{data.tier === "official" ? "¼-Kelly" : "flat 1u"} · {RANGES[range].label}</span>
           </div>
           {data.cumulativeUnits.length >= 3 ? (
             <UnitsChart data={data.cumulativeUnits} />
@@ -336,8 +383,8 @@ function Live({ data, range }: { data: Extract<Awaited<ReturnType<typeof loadRes
 }
 
 function stakeLabel(r: LedgerRow) {
-  if (r.pick_tier === "track") return "1u flat";
-  return r.stake_units == null ? "—" : `${r.stake_units.toFixed(2)}u`;
+  if (r.pick_tier === "official") return r.stake_units == null ? "—" : `${r.stake_units.toFixed(2)}u`;
+  return "1u flat";
 }
 function Proof({ r, inline }: { r: LedgerRow; tipoff?: string; inline?: boolean }) {
   const posted = fmtPostedStamp(r.logged_at ?? r.created_at);
@@ -408,5 +455,58 @@ function UnitsChart({ data }: { data: number[] }) {
       <path d={area} fill="url(#u)" />
       <path d={line} fill="none" stroke="#ff9a3d" strokeWidth="3" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
     </svg>
+  );
+}
+
+
+function RecordTabs({ sportKey, range, tier, tabs }: { sportKey: string; range: RangeKey; tier: PickTier; tabs: PickTier[] }) {
+  const cols = tabs.length === 3 ? "grid-cols-3" : "grid-cols-2";
+  return (
+    <div role="tablist" aria-label="Record" className={`mt-4 grid ${cols} gap-1 rounded-xl border border-ink-700 bg-ink-900 p-1 md:mt-6 md:inline-grid md:w-auto`}>
+      {tabs.map((t) => (
+        <Link key={t} role="tab" aria-selected={t === tier} href={resultsHref(sportKey, range, t)}
+          className={`flex min-h-10 items-center justify-center rounded-lg px-5 text-sm font-semibold ${t === tier ? "bg-court-500/15 text-court-400" : "text-zinc-400 hover:bg-ink-800"}`}>
+          {PICK_TIER_LABEL[t]}
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function leanResultLabel(r: LeanPick["result"]): string {
+  if (r === "W") return "Win";
+  if (r === "L") return "Loss";
+  if (r === "P") return "Push";
+  if (r === "V") return "Void";
+  return "Pending";
+}
+
+function LeanLive({ data, range }: { data: LeanResultsData; range: RangeKey }) {
+  const rec = data.record;
+  return (
+    <>
+      <div className="mt-4 rounded-2xl border border-zinc-500/30 bg-ink-900 p-4 md:mt-6 md:p-5">
+        <div className="text-xs font-semibold uppercase tracking-wider text-zinc-500">CZarp Leans</div>
+        <div className="mt-1 font-sans text-2xl font-bold text-white">{data.summaryLine}</div>
+        {rec && rec.pending > 0 && <div className="mt-1 text-sm text-zinc-400">{rec.pending} pending</div>}
+        {data.season ? <div className="mt-1 text-xs text-zinc-500">{data.season - 1}–{String(data.season).slice(2)} season · {RANGES[range].label}</div> : <div className="mt-1 text-xs text-zinc-500">{RANGES[range].label}</div>}
+      </div>
+      {data.picks.length > 0 && (
+        <ul className="mt-4 divide-y divide-ink-800 overflow-hidden rounded-2xl border border-ink-700 md:mt-6">
+          {data.picks.slice(0, SHOWN_ROWS).map((p) => (
+            <li key={`${p.game_id}-${p.pick_hash ?? p.pick}`} className="flex items-baseline gap-3 px-3 py-2.5 text-sm">
+              <div className="min-w-0 flex-1">
+                <div className="font-semibold text-white">{p.pick}</div>
+                <div className="text-[11px] text-zinc-500">{fmtGameDate(p.game_date)}</div>
+              </div>
+              <div className="shrink-0 text-right">
+                <div className="text-zinc-300">{leanResultLabel(p.result)}</div>
+                <div className="font-mono text-[13px] text-zinc-200">{p.units == null ? "—" : fmtUnits(p.units)}</div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
   );
 }

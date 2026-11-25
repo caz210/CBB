@@ -258,7 +258,7 @@ export type LedgerPickRow = {
   result?: string | null;
 };
 
-/** Keep official-play results only. Tracked, paper, Toss Up, and Lean never appear as chips. */
+/** Keep official-play results only. Tracked, paper, Toss Up, and Small edge never appear as chips. */
 export function officialPicksFromLedger(rows: LedgerPickRow[]): OfficialPickResult[] {
   const out: OfficialPickResult[] = [];
   for (const row of rows) {

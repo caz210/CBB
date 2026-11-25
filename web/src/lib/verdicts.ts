@@ -48,7 +48,7 @@ export const VERDICT_LADDER: readonly VerdictDef[] = [
   },
   {
     level: "lean",
-    label: "Lean",
+    label: "Small edge",
     short: "A small edge on the current line: 2% to 3% on sides, 1.5% to 2.25% on totals. Not a play.",
   },
   {
@@ -116,7 +116,7 @@ export function clearsBar(market: Market, edgeNow: number | null | undefined): b
  *  1. CZarp Play: posted at the morning run, whatever the edge does later.
  *  2. Toss Up: no stored edge.
  *  3. Past the bar (≥ 4% sides / 3% totals): a hold code → Value (with the holds); none → Late Value.
- *  4. Value: ≥ 3% / 2.25%.   5. Lean: ≥ 2% / 1.5%.   6. Toss Up otherwise.
+ *  4. Value: ≥ 3% / 2.25%.   5. Small edge: ≥ 2% / 1.5%.   6. Toss Up otherwise.
  *  Lower bounds are inclusive; holds only matter past the bar. */
 export function ladderLevel(x: LadderInput): LadderResult {
   if (x.official) return { level: "official", holds: [] };

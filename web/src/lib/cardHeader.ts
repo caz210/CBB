@@ -7,6 +7,7 @@
  *             Never slate_games.proj_total. */
 import { MARKET_LABEL, fmtEdgeVsBar, fmtLine, fmtOne, fmtSpread, type Market } from "./labels";
 import { currentLineForBet } from "./posted";
+import { LEAN_STAKE_LABEL, leanEdgeLabel, leanHeaderPick } from "./lean";
 import type { SlateGame, ValueBet } from "./types";
 import { cardHeadline, notAPlayLine, type CardHeadline } from "./verdict";
 import type { VerdictLevel } from "./verdicts";
@@ -14,7 +15,7 @@ import type { VerdictLevel } from "./verdicts";
 export const NO_EDGE_TEXT = "No edge at this price";
 export const NO_LINE_TEXT = "No line yet";
 
-/** Edge-number color: CZarp Play and Late Value green; Value and Lean neutral; Toss Up dim.
+/** Edge-number color: CZarp Play and Late Value green; Value and Small edge neutral; Toss Up dim.
  *  A CZarp Play whose edge now is below the bar is neutral, not green. */
 export type EdgeTone = "green" | "neutral" | "dim";
 export function edgeTone(verdict: VerdictLevel, belowBar: boolean, hasEdge = true): EdgeTone {
@@ -79,6 +80,8 @@ export type CardHeaderRow = {
   openNowContext: string | null;
   belowBar: boolean;
   headline: CardHeadline;
+  /** Lean cards only: "1u tracked". Official cards never use this (they show Kelly in the play list). */
+  stakeNote: string | null;
 };
 
 export function cardHeaderRow(g: SlateGame, bets: ValueBet[]): CardHeaderRow {
@@ -88,13 +91,29 @@ export function cardHeaderRow(g: SlateGame, bets: ValueBet[]): CardHeaderRow {
   const base = { market: m, marketLabel: m ? MARKET_LABEL[m] : null, edgeLabel, verdict: h.verdict, lineMoveNote: h.lineMoveNote, openNowContext: h.openNowContext, belowBar: h.belowBar, headline: h };
   const tone = edgeTone(h.verdict, h.belowBar, edgeLabel != null);
   if (h.officialBet) {
-    return { ...base, pick: postedPick(h.officialBet), fallback: null, now: nowLine(h.officialBet, g), tone };
+    return { ...base, pick: postedPick(h.officialBet), fallback: null, now: nowLine(h.officialBet, g), tone, stakeNote: null };
   }
-  if (!m) return { ...base, pick: null, fallback: NO_LINE_TEXT, now: null, tone };
+  const lean = g.leans?.[0];
+  if (lean) {
+    return {
+      ...base,
+      market: null,
+      marketLabel: null,
+      pick: leanHeaderPick(lean),
+      fallback: null,
+      now: null,
+      edgeLabel: leanEdgeLabel(lean),
+      tone: "neutral",
+      lineMoveNote: false,
+      openNowContext: null,
+      stakeNote: LEAN_STAKE_LABEL,
+    };
+  }
+  if (!m) return { ...base, pick: null, fallback: NO_LINE_TEXT, now: null, tone, stakeNote: null };
   const s = sideAtPrice(g, m);
-  if (s.status === "pick") return { ...base, pick: s.pick, fallback: null, now: null, tone };
-  if (s.status === "even") return { ...base, pick: null, fallback: NO_EDGE_TEXT, now: null, tone: "dim" };
-  return { ...base, pick: null, fallback: NO_LINE_TEXT, now: null, tone };
+  if (s.status === "pick") return { ...base, pick: s.pick, fallback: null, now: null, tone, stakeNote: null };
+  if (s.status === "even") return { ...base, pick: null, fallback: NO_EDGE_TEXT, now: null, tone: "dim", stakeNote: null };
+  return { ...base, pick: null, fallback: NO_LINE_TEXT, now: null, tone, stakeNote: null };
 }
 
 /** The card's note line under the projection: only a hold reason (new-coach pause, market move, stake under

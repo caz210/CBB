@@ -4,7 +4,7 @@
 // silently falling back to example numbers.
 import { createSupabaseServerClient } from "./supabase/server";
 import type { Sport } from "./sports";
-import type { Archetypes, GameInsight, LedgerRow, SlateGame, TierRecord, ValueBet } from "./types";
+import type { Archetypes, GameInsight, LeanPick, LeanRecord, LedgerRow, SlateGame, TierRecord, ValueBet } from "./types";
 import { portfolioRisk, computedLineEdge, type PortfolioRisk } from "./portfolio";
 import { parseTagList, visibleCopy, visibleNotes, visibleTags, type ArchetypeTag } from "./archetypes";
 import { teamSlug, type ModelGrade, type TeamModelRecord, type TeamProfile } from "./teams";
@@ -22,7 +22,9 @@ import {
   parseTeamRanking,
   type TeamRankingSnapshot,
 } from "./teamPage";
-import { isPickTier, type Market, type MarketSource, type PickTier } from "./labels";
+import { isOfficialTier, parsePickTier, type Market, type MarketSource, type PickTier } from "./labels";
+import { isMissingRelation, leanRecordLine, CZARP_LEANS_TAB } from "./lean";
+import { leanFixtureEnabled, mergeLeanFixtureGames, fixtureLeanResults } from "./leanFixture";
 import { wilsonCi, SMALL_SAMPLE_N } from "./stats";
 import { newCoachLock, type NewCoachLock } from "./coach";
 import { parseVerdict } from "./verdict";
@@ -115,6 +117,10 @@ function toSlateGame(r: Row): SlateGame {
     verdict_total: parseVerdict(r.verdict_total),
     lean_spread: r.lean_spread == null ? null : r.lean_spread === true,
     lean_total: r.lean_total == null ? null : r.lean_total === true,
+    // present once the lean-tier migration lands; a missing column just leaves these null
+    line_moved_away: r.line_moved_away == null ? null : r.line_moved_away === true,
+    line_moved_away_pts: num(r.line_moved_away_pts),
+    leans: [],
     // present once the pipeline adds it; absent today, which just leaves this null
     market_fetched_at: typeof r.market_fetched_at === "string" ? r.market_fetched_at : null,
     edges_as_of: typeof r.edges_as_of === "string" ? r.edges_as_of : null,
@@ -136,7 +142,7 @@ function toValueBet(r: Row): ValueBet {
     prob_edge: num(r.prob_edge) ?? 0,
     line_edge_pct: edge ?? 0,
     kelly_quarter_units: num(r.kelly_quarter_units),
-    pick_tier: isPickTier(r.tier) ? r.tier : "official",
+    pick_tier: parsePickTier(r.tier) ?? undefined,
     logged_at: postedAt,
     posted_line: line,
     posted_odds: num(r.price) ?? num(r.posted_odds),
@@ -166,7 +172,9 @@ function applyLocked(v: ValueBet, r: Row) {
     v.posted_at = str(r.posted_at);
     if (!v.logged_at) v.logged_at = str(r.posted_at);
   }
-  if (isPickTier(r.tier)) v.pick_tier = r.tier;
+  const lockedTier = parsePickTier(r.tier);
+  if (lockedTier === "track" || lockedTier === "lean") v.pick_tier = lockedTier;
+  else v.pick_tier = "official";
   if (num(r.edge_at_post_pct) != null) v.line_edge_pct = num(r.edge_at_post_pct)!;
 }
 
@@ -186,7 +194,12 @@ async function mergeOfficialLocked(sb: SB, sport: Sport, ids: number[], all: Val
   for (const r of (lk.data ?? []) as Row[]) {
     const hit = all.find((v) => lockedMatches(r, v));
     if (hit) applyLocked(hit, r);
-    else all.push(toValueBet({ ...r, sport: sport.key, side: r.bet || r.side }));
+    else {
+      const lockedTier = parsePickTier(r.tier);
+      // official_picks_locked is the official book; only an explicit non-official tier is kept.
+      const tier = lockedTier === "track" || lockedTier === "lean" ? lockedTier : "official";
+      all.push(toValueBet({ ...r, sport: sport.key, side: r.bet || r.side, tier }));
+    }
   }
   return all;
 }
@@ -211,7 +224,7 @@ async function attachOfficialRecord(sb: SB, sport: Sport, ids: number[], bets: V
       clv: num(r.clv),
       logged_at: r.logged_at ? str(r.logged_at) : null,
       pick_hash: r.pick_hash ? str(r.pick_hash) : null,
-      pick_tier: isPickTier(r.tier) ? r.tier : "official",
+      pick_tier: parsePickTier(r.tier) ?? undefined,
     });
     if (rec) rows.push(rec);
   }
@@ -231,7 +244,7 @@ function toLedgerRow(r: Row): LedgerRow {
     result: res === "W" || res === "L" || res === "P" ? res : null,
     profit_units: num(r.profit_units),
     is_paper: r.is_paper !== false,
-    pick_tier: isPickTier(r.tier) ? r.tier : "official",
+    pick_tier: parsePickTier(r.tier) ?? undefined,
     flat_units: num(r.flat_units),
     clv: num(r.clv),
     created_at: r.created_at ? str(r.created_at) : null,
@@ -349,6 +362,7 @@ export async function loadSlateFrom(sb: SB, sport: Sport, date: string): Promise
     await attachTeamTags(sb, games, st.data ?? []);
     await attachEspnTeamIds(sb, games, (st.data ?? []) as Row[]);
     aliases = await loadSlateAliases(sb, games, (st.data ?? []) as Row[]);
+    await attachLeanPicks(sb, sport, games);
     const ins = await loadInsights(sb, ids);
     for (const x of games) {
       x.insight = ins.get(x.game_id);
@@ -367,6 +381,7 @@ export async function loadSlateFrom(sb: SB, sport: Sport, date: string): Promise
     nextDate = n.data?.[0] ? str(n.data[0].game_date) : null;
     prevDate = p.data?.[0] ? str(p.data[0].game_date) : null;
   }
+  if (leanFixtureEnabled()) mergeLeanFixtureGames(games, date);
   return { state: "live", data: { date, games, bets, tracked, prevDate, nextDate, updatedAt, finished, finalAt, finalAtEstimated, hasScheduledGames, aliases } };
 }
 
@@ -742,7 +757,7 @@ export async function loadHero(sport: Sport): Promise<Loaded<Hero | null>> {
   const pick = async (q: PromiseLike<{ data: Row[] | null; error: { message: string } | null }>, when: "yesterday" | "latest") => {
     const r = await q;
     const row = r.data?.[0] ? toLedgerRow(r.data[0]) : null;
-    if (!row) return null;
+    if (!row || !isOfficialTier(row.pick_tier)) return null;
     const n = await sb.from("slate_games").select("game").eq("game_id", row.game_id).limit(1);
     const neutral = (await neutralIds(sb, [row.game_id])).has(row.game_id);
     return { kind: "graded" as const, when, row, game: n.data?.[0] ? str(n.data[0].game) : null, neutral };
@@ -753,6 +768,204 @@ export async function loadHero(sport: Sport): Promise<Loaded<Hero | null>> {
   const l = await pick(sb.from("ledger").select("*").eq("sport", sport.key).eq("tier", "official")
     .not("result", "is", null).order("game_date", { ascending: false }).order("stake_units", { ascending: false, nullsFirst: false }).limit(1), "latest");
   return { state: "live", data: l };
+}
+
+
+function toLeanPick(r: Row): LeanPick | null {
+  const pick = str(r.pick);
+  const game_id = Number(r.game_id);
+  if (!pick || !Number.isFinite(game_id)) return null;
+  const res = str(r.result);
+  return {
+    sport: (str(r.sport) || "cbb") as LeanPick["sport"],
+    game_date: str(r.game_date),
+    game_id,
+    tipoff: r.tipoff ? str(r.tipoff) : null,
+    home: str(r.home),
+    away: str(r.away),
+    pick_id: r.pick_id ? str(r.pick_id) : null,
+    pick,
+    line: num(r.line),
+    odds: num(r.odds),
+    edge_pct: num(r.edge_pct),
+    edge_vs_open_pct: num(r.edge_vs_open_pct),
+    czarp_line: num(r.czarp_line),
+    open_line: num(r.open_line),
+    new_coach: r.new_coach === true,
+    result: res === "W" || res === "L" || res === "P" || res === "V" ? res : null,
+    units: num(r.units),
+    clv: num(r.clv),
+    created_at: r.created_at ? str(r.created_at) : null,
+    pick_hash: r.pick_hash ? str(r.pick_hash) : null,
+  };
+}
+
+function toLeanRecord(r: Row): LeanRecord {
+  return {
+    league: str(r.league),
+    season: num(r.season) ?? 0,
+    wins: num(r.wins) ?? 0,
+    losses: num(r.losses) ?? 0,
+    pushes: num(r.pushes) ?? 0,
+    pending: num(r.pending) ?? 0,
+    units: num(r.units) ?? 0,
+    roi: num(r.roi),
+    avg_clv: num(r.avg_clv),
+    new_coach_picks: num(r.new_coach_picks) ?? 0,
+    new_coach_units: num(r.new_coach_units) ?? 0,
+  };
+}
+
+function rollupLeanPicks(picks: LeanPick[], league: string, season: number): LeanRecord {
+  let wins = 0, losses = 0, pushes = 0, pending = 0, units = 0, clvS = 0, clvN = 0, nc = 0, ncu = 0;
+  for (const p of picks) {
+    if (p.result == null) { pending++; continue; }
+    if (p.result === "W") wins++;
+    else if (p.result === "L") losses++;
+    else if (p.result === "P") pushes++;
+    units += p.units ?? 0;
+    if (p.clv != null) { clvS += p.clv; clvN++; }
+    if (p.new_coach) { nc++; ncu += p.units ?? 0; }
+  }
+  const graded = wins + losses;
+  return {
+    league, season, wins, losses, pushes, pending,
+    units: Math.round(units * 100) / 100,
+    roi: graded ? units / (wins + losses + pushes || 1) : null,
+    avg_clv: clvN ? clvS / clvN : null,
+    new_coach_picks: nc,
+    new_coach_units: Math.round(ncu * 100) / 100,
+  };
+}
+
+function leanPickFromLedger(r: LedgerRow): LeanPick {
+  return {
+    sport: r.sport,
+    game_date: r.game_date,
+    game_id: r.game_id,
+    tipoff: null,
+    home: "",
+    away: "",
+    pick_id: null,
+    pick: r.pick,
+    line: r.line,
+    odds: r.odds,
+    edge_pct: null,
+    edge_vs_open_pct: null,
+    czarp_line: null,
+    open_line: null,
+    new_coach: false,
+    result: r.result,
+    units: r.flat_units ?? r.profit_units,
+    clv: r.clv ?? null,
+    created_at: r.created_at ?? r.logged_at ?? null,
+    pick_hash: r.pick_hash ?? null,
+  };
+}
+
+/** Missing lean_picks / lean_record must not fail the slate. */
+async function loadLeanPicks(sb: SB, sport: Sport, ids: number[]): Promise<LeanPick[]> {
+  if (!ids.length) return [];
+  try {
+    const q = await sb.from("lean_picks").select("*").eq("sport", sport.key).in("game_id", ids);
+    if (q.error) {
+      if (isMissingRelation(q.error)) return [];
+      console.error(`[supabase] lean_picks: ${q.error.code ?? ""} ${q.error.message}`);
+      return [];
+    }
+    return (q.data ?? []).map((r) => toLeanPick(r as Row)).filter((x): x is LeanPick => x != null);
+  } catch (e) {
+    console.error("[supabase] lean_picks:", e);
+    return [];
+  }
+}
+
+async function attachLeanPicks(sb: SB, sport: Sport, games: SlateGame[]): Promise<void> {
+  const leans = await loadLeanPicks(sb, sport, games.map((g) => g.game_id));
+  for (const g of games) g.leans = leans.filter((l) => l.game_id === g.game_id);
+}
+
+export type LeanResultsData = {
+  record: LeanRecord | null;
+  picks: LeanPick[];
+  summaryLine: string;
+  season: number | null;
+};
+
+/** CZarp Leans book. Missing views degrade to an empty live page (or a ledger fallback), never a hard error. */
+export async function loadLeanResults(sport: Sport, range: RangeKey): Promise<Loaded<LeanResultsData>> {
+  if (leanFixtureEnabled()) {
+    return { state: "live", data: fixtureLeanResults() };
+  }
+  const empty: LeanResultsData = { record: null, picks: [], summaryLine: `${CZARP_LEANS_TAB}: —`, season: null };
+  const sb = await createSupabaseServerClient();
+  if (!sb) return { state: "unconfigured" };
+
+  let picks: LeanPick[] = [];
+  let record: LeanRecord | null = null;
+  let viewsMissing = false;
+
+  try {
+    let q = sb.from("lean_picks").select("*").eq("sport", sport.key);
+    const days = RANGES[range].days;
+    if (days) q = q.gte("game_date", shiftDate(todayCT(), -days));
+    const r = await q.order("game_date", { ascending: false }).order("game_id", { ascending: false }).limit(LEDGER_LIMIT);
+    if (r.error) {
+      if (isMissingRelation(r.error)) viewsMissing = true;
+      else console.error(`[supabase] lean_picks: ${r.error.code ?? ""} ${r.error.message}`);
+    } else {
+      picks = (r.data ?? []).map((row) => toLeanPick(row as Row)).filter((x): x is LeanPick => x != null);
+    }
+  } catch (e) {
+    console.error("[supabase] lean_picks:", e);
+  }
+
+  if (!viewsMissing) {
+    try {
+      const rec = await sb.from("lean_record").select("*").eq("league", sport.league);
+      if (rec.error) {
+        if (isMissingRelation(rec.error)) viewsMissing = true;
+        else console.error(`[supabase] lean_record: ${rec.error.code ?? ""} ${rec.error.message}`);
+      } else {
+        const rows = (rec.data ?? []).map((row) => toLeanRecord(row as Row));
+        record = rows.sort((a, z) => z.season - a.season)[0] ?? null;
+      }
+    } catch (e) {
+      console.error("[supabase] lean_record:", e);
+    }
+  }
+
+  if (viewsMissing || (picks.length === 0 && record == null)) {
+    try {
+      let lq = sb.from("ledger").select("*").eq("sport", sport.key).eq("tier", "lean");
+      const days = RANGES[range].days;
+      if (days) lq = lq.gte("game_date", shiftDate(todayCT(), -days));
+      const l = await lq.order("game_date", { ascending: false }).order("game_id", { ascending: false }).limit(LEDGER_LIMIT);
+      if (l.error) {
+        if (!isMissingRelation(l.error)) console.error(`[supabase] ledger lean fallback: ${l.error.code ?? ""} ${l.error.message}`);
+      } else if (l.data?.length) {
+        picks = (l.data ?? []).map(toLedgerRow).filter((r) => r.pick_tier === "lean").map(leanPickFromLedger);
+        record = null;
+      }
+    } catch (e) {
+      console.error("[supabase] ledger lean fallback:", e);
+    }
+  }
+
+  const used = range === "season" && record
+    ? record
+    : (picks.length ? rollupLeanPicks(picks, sport.league, record?.season ?? 0) : record);
+  if (!used && !picks.length) return { state: "live", data: empty };
+  const lineSrc = used ?? rollupLeanPicks(picks, sport.league, 0);
+  return {
+    state: "live",
+    data: {
+      record: used,
+      picks,
+      summaryLine: leanRecordLine(lineSrc),
+      season: used?.season || null,
+    },
+  };
 }
 
 // ---- /[sport]/results -------------------------------------------------------
@@ -787,8 +1000,8 @@ export type ResultsData = {
 const LEDGER_LIMIT = 1000;
 const NAME_LOOKUP_LIMIT = 200;
 
-/** Units for a ledger row: official = ¼-Kelly profit_units; tracked = flat 1u result. */
-export const rowUnits = (r: LedgerRow) => (r.pick_tier === "track" ? r.flat_units ?? r.profit_units : r.profit_units);
+/** Units for a ledger row: official = ¼-Kelly profit_units; track/lean = flat 1u result. */
+export const rowUnits = (r: LedgerRow) => (isOfficialTier(r.pick_tier) ? r.profit_units : r.flat_units ?? r.profit_units);
 
 export type MarketUnits = { kelly: number; flat: number; staked: number; roi: number | null };
 
@@ -834,7 +1047,8 @@ export async function loadResults(sport: Sport, range: RangeKey, tier: PickTier,
   if (l.error) return fail("ledger", l.error);
   if (tr.error) return fail("tier_record", tr.error);
 
-  const ledger = (l.data ?? []).map(toLedgerRow);
+  // Never let a lean, track, or unknown-tier row count in a different book if the view is loose.
+  const ledger = (l.data ?? []).map(toLedgerRow).filter((r) => r.pick_tier === tier);
 
   const ids = [...new Set(ledger.slice(0, NAME_LOOKUP_LIMIT).map((r) => r.game_id))];
   const gameNames: Record<number, string> = {};
@@ -1101,6 +1315,7 @@ export async function loadTeam(sport: Sport, slug: string): Promise<Loaded<TeamP
     await attachNewCoaches(sb, [g], []);
     await attachLinesAsOf(sb, [g]);
     await attachMarketPrices(sb, [g]);
+    await attachLeanPicks(sb, sport, [g]);
     next = { ...g, officialBets };
   }
   const neutral = await neutralP;

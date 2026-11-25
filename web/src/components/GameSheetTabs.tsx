@@ -7,6 +7,7 @@ import { marketRatings, type MarketRating } from "@/lib/verdict";
 import { nowLine } from "@/lib/cardHeader";
 import { LineMoveNote, OpenNowNote } from "@/components/HeaderRow";
 import { totalFair } from "@/lib/posted";
+import { officialBetsOf } from "@/lib/officialPick";
 import {
   COMPARE_ROWS,
   DEFAULT_SHEET_TAB,
@@ -31,7 +32,7 @@ import {
 import { ArchetypeChip } from "./ArchetypeChip";
 import { LiveLineEntry } from "./LiveLinePanel";
 import { InfoTip } from "./InfoTip";
-import { VerdictChip } from "./StatusChips";
+import { CzarpLeanChip, VerdictChip } from "./StatusChips";
 import Link from "next/link";
 
 const EDGE_TONE = { official: "text-edge-400", late_value: "text-edge-400", value: "text-zinc-300", lean: "text-zinc-300", toss_up: "text-zinc-500" } as const;
@@ -70,7 +71,7 @@ function NamedNumLine({ tag, line }: { tag?: string; line: NamedNum }) {
   );
 }
 
-function MarketBetRow({ label, fair, price, rating, official, now, edge }: {
+function MarketBetRow({ label, fair, price, rating, official, now, edge, lean = false }: {
   label: string;
   fair: NamedNum;
   price: NamedNum;
@@ -78,6 +79,7 @@ function MarketBetRow({ label, fair, price, rating, official, now, edge }: {
   official: ValueBet | undefined;
   now: string | null;
   edge: string | null;
+  lean?: boolean;
 }) {
   const tone = rating.belowBar ? "text-zinc-300" : EDGE_TONE[rating.level];
   return (
@@ -86,7 +88,7 @@ function MarketBetRow({ label, fair, price, rating, official, now, edge }: {
         <div className="min-w-0 flex-1">
           <div className="mb-1 flex flex-wrap items-center gap-1.5">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">{label}</span>
-            <VerdictChip level={rating.level} noLine={rating.noLine} wrap />
+            {lean ? <CzarpLeanChip wrap /> : <VerdictChip level={rating.level} noLine={rating.noLine} wrap />}
           </div>
           <div className="space-y-0.5 text-[13px] text-zinc-300">
             <NamedNumLine tag="FV" line={fair} />
@@ -113,8 +115,9 @@ export function QuickBetBlock({ g, bets }: { g: SlateGame; bets: ValueBet[] }) {
   const czTotal = totalFair(g, bets);
   const curS = g.insight?.cur_spread ?? g.market_spread;
   const curT = g.insight?.cur_total ?? g.market_total;
-  const officialSpread = bets.find((b) => b.market === "spread" || b.market === "moneyline");
-  const officialTotal = bets.find((b) => b.market === "total");
+  const official = officialBetsOf(bets);
+  const officialSpread = official.find((b) => b.market === "spread" || b.market === "moneyline");
+  const officialTotal = official.find((b) => b.market === "total");
   const edgeS = ratings.spread.edgeNow != null ? fmtEdgeVsBar(ratings.spread.edgeNow, "spread") : null;
   const edgeT = ratings.total.edgeNow != null ? fmtEdgeVsBar(ratings.total.edgeNow, "total") : null;
   // Home-line notation still names the home team on a neutral floor.
@@ -129,6 +132,7 @@ export function QuickBetBlock({ g, bets }: { g: SlateGame; bets: ValueBet[] }) {
         official={officialSpread}
         now={officialSpread ? nowLine(officialSpread, g) : null}
         edge={edgeS}
+        lean={(g.leans?.length ?? 0) > 0}
       />
       <MarketBetRow
         label="Total"
@@ -278,7 +282,7 @@ function TagsRow({ away, home }: { away: SheetTeamExtras | null; home: SheetTeam
   );
 }
 
-/** Official-play result only. Never a Toss Up / Lean / model-side chip. */
+/** Official-play result only. Never a Toss Up / Small edge / model-side chip. */
 function OfficialBadge({ picks }: { picks: SheetRecentGame["official"] }) {
   if (!picks.length) return null;
   return (

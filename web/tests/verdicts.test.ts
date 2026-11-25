@@ -1,5 +1,5 @@
 // Five-tier verdict ladder, per market, judged on the edge vs the current line:
-// Toss Up → Lean → Value → Late Value → CZarp Play. Run: npm test
+// Toss Up → Small edge → Value → Late Value → CZarp Play. Run: npm test
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { HOLD_CODES, LATE_VALUE_NOTE, LINE_MOVE_NOTE, NO_LINE_TIP, TIER_BOUNDS, VERDICT_LADDER, VERDICT_RANK, clearsBar, holdCodes, ladderLevel, lineMovedAwayFromCzarp, officialBelowBar, officialOpenNowContext, showsLineMoveNote, verdictLabel, type LadderInput, type VerdictLevel } from "../src/lib/verdicts";
@@ -19,7 +19,7 @@ const lvl = (market: LadderInput["market"], edgeNow: number | null, skipCodes: s
   ladderLevel(L({ market, edgeNow, skipCodes, official })).level;
 
 test("ladder order, labels and ranking (weakest to strongest)", () => {
-  assert.deepEqual(VERDICT_LADDER.map((d) => d.label), ["Toss Up", "Lean", "Value", "Late Value", "CZarp Play"]);
+  assert.deepEqual(VERDICT_LADDER.map((d) => d.label), ["Toss Up", "Small edge", "Value", "Late Value", "CZarp Play"]);
   assert.deepEqual(VERDICT_LADDER.map((d) => VERDICT_RANK[d.level]), [0, 1, 2, 3, 4]);
   assert.equal(verdictLabel("official"), "CZarp Play");
   assert.equal(EXPLAINERS.czarpPlay.title, "CZarp Play");
@@ -54,7 +54,7 @@ test("totals: every boundary, exact and at full precision", () => {
   for (const [e, want] of cases) assert.equal(lvl("total", e), want, `total ${e}`);
 });
 
-test("display rounding never decides a tier: 1.9999% is Toss Up, 2.0% is Lean", () => {
+test("display rounding never decides a tier: 1.9999% is Toss Up, 2.0% is Small edge", () => {
   assert.equal(lvl("spread", 0.019999), "toss_up");
   assert.equal(fmtPlayPct(0.019999), "2.0%"); // rounds for display only
   assert.equal(lvl("spread", 0.02), "lean");
@@ -264,7 +264,7 @@ test("one decimal style for every edge: posted, current, vs open, headline", () 
 
 // ---- Real games under rule A (stored values from slate_games / official_picks_locked) ----
 
-test("South Alabama @ UCF 11-10: Spread Late Value, Total Lean; header names the market", () => {
+test("South Alabama @ UCF 11-10: Spread Late Value, Total Small edge; header names the market", () => {
   const g = game({
     game_id: 300, game_date: "2026-11-10", home: "UCF", away: "South Alabama", game: "South Alabama @ UCF",
     market_spread: -13.5, market_total: 150.5,

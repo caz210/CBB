@@ -2,7 +2,7 @@
  *  Do not reconstruct missing fair/open — hide those pieces instead.
  *  edge_at_post_pct / edge_vs_open_pct are fractions (0.0173 = 1.73%).
  */
-import { fmtOne, fmtPostedVsNow, fmtSpread, type Market } from "./labels";
+import { fmtOne, fmtPostedVsNow, fmtSpread, isOfficialTier, type Market } from "./labels";
 import type { SlateGame, ValueBet } from "./types";
 
 export function mentionsTeam(side: string, team: string) {
@@ -73,7 +73,7 @@ export const POSTED_TOTAL_NOTE = "Total shown is CZarp's number when this play w
  *  the posted fair for an official total, else the current v1 projection, else "—".
  *  Never the v2 team-score sum. */
 export function totalFair(g: SlateGame, bets: ValueBet[]): { value: string; num: number | null; tag?: "posted" } {
-  const posted = bets.find((b) => b.market === "total" && b.pick_tier !== "track" && typeof b.fair_at_post === "number" && Number.isFinite(b.fair_at_post));
+  const posted = bets.find((b) => b.market === "total" && isOfficialTier(b.pick_tier) && typeof b.fair_at_post === "number" && Number.isFinite(b.fair_at_post));
   if (posted?.fair_at_post != null) return { value: fmtOne(posted.fair_at_post), num: posted.fair_at_post, tag: "posted" };
   if (g.czarp_total != null) return { value: fmtOne(g.czarp_total), num: g.czarp_total };
   return { value: "—", num: null };
