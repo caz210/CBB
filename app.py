@@ -458,7 +458,8 @@ def get_todays_games(today_str):
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_vegas_lines():
-    return fetch_vegas_lines()
+    # one claimed 'manual' call of the shared daily Odds API budget (czarp.odds_budget); refused -> empty lines
+    return fetch_vegas_lines(job="manual")
 
 
 @st.cache_data(ttl=1800, show_spinner=False)

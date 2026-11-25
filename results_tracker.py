@@ -20,7 +20,6 @@ import os
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
-import requests
 
 CENTRAL       = ZoneInfo("America/Chicago")
 SCORES_URL    = "https://api.the-odds-api.com/v4/sports/basketball_ncaab/scores"
@@ -312,12 +311,13 @@ def fetch_final_scores(date_str: str | None = None) -> list[dict]:
         date_str = (datetime.now(CENTRAL).date() - timedelta(days=1)).isoformat()
 
     params = {
-        "apiKey":     api_key,
         "daysFrom":   3,        # look back 3 days — catches missed grade days
         "dateFormat": "iso",
     }
 
-    resp = requests.get(SCORES_URL, params=params, timeout=15)
+    # one claimed 'manual' call of the shared daily budget; key in the x-api-key header (odds_fetcher.odds_api_get)
+    from odds_fetcher import odds_api_get
+    resp = odds_api_get(SCORES_URL, params=params, job="manual", timeout=15)
     resp.raise_for_status()
     games = resp.json()
 
@@ -697,7 +697,6 @@ def backfill_closing_lines(date_str: str | None = None) -> dict:
                      "caesars", "williamhill_us", "pointsbetus"]
 
     params = {
-        "apiKey":     api_key,
         "regions":    "us",
         "markets":    "spreads,totals",
         "oddsFormat": "american",
@@ -709,14 +708,18 @@ def backfill_closing_lines(date_str: str | None = None) -> dict:
     HIST_ODDS_URL = "https://api.the-odds-api.com/v4/historical/sports/basketball_ncaab/odds"
 
     try:
-        resp_api = requests.get(HIST_ODDS_URL, params=params, timeout=15)
+        # one claimed 'manual' call of the shared daily budget (historical odds cost ~20 credits); key in a header
+        from odds_fetcher import odds_api_get
+        resp_api = odds_api_get(HIST_ODDS_URL, params=params, job="manual", timeout=15)
         resp_api.raise_for_status()
         payload  = resp_api.json()
         games    = payload.get("data", [])
         remaining = resp_api.headers.get("x-requests-remaining", "?")
         print(f"  [backfill] {len(games)} games in snapshot | Credits remaining: {remaining}")
     except Exception as e:
-        return {"updated": 0, "no_match": 0, "errors": [f"Historical API: {e}"], "credits_used": 20}
+        from czarp.odds_budget import OddsApiRefused
+        return {"updated": 0, "no_match": 0, "errors": [f"Historical API: {e}"],
+                "credits_used": 0 if isinstance(e, OddsApiRefused) else 20}
 
     # Parse each game's best line
     def _parse_line(g):

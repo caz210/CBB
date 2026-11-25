@@ -204,10 +204,18 @@ def apply_pace_fix(games, today: str, data_dir: str = "data") -> int:
     return n
 
 
-ODDS_API_MAX_CALLS_PER_DAY = 5   # hard cap per America/Chicago day, across ALL jobs and processes
-# Per-job share: no job can use another job's slot. 'refresh' is refresh_lines.py (intraday line refresh:
-# up to 3 paid calls a day, at most 1 each, only for games ESPN has no line for). Christian's cap is 5/day.
-ODDS_API_JOB_SLOTS = {"daily": 1, "pretip": 1, "refresh": 3}
+ODDS_API_MAX_CALLS_PER_DAY = 20  # hard cap per America/Chicago day, across ALL jobs and processes
+# Christian raised the cap to ~20/day on 24 Nov 2026 (The Odds API 20K plan: 20,000 credits a month; one
+# fetch_vegas_lines call = spreads + totals + h2h x 1 region = 3 credits, so 20/day is ~1,800 credits/month).
+# Per-job share: no job can use another job's slot; the slots add up to the cap.
+#   daily   2  the 7 AM run (1) + one re-run of it the same day
+#   pretip 10  pretip_check: missing-line fill + the closing-line snapshot (one shared call per run), several runs
+#              a game day in the 4-10 PM tip window
+#   refresh 6  refresh_lines.py (GitHub Actions, capped in Supabase odds_api_refresh_claims): 1 per scheduled slot
+#              (4 on a normal day) + 2 for --force / extra slots
+#   manual  2  everything else: app.py / run.py / team_mapper.py / results_tracker.py (legacy + hand-run tools)
+ODDS_API_JOB_SLOTS = {"daily": 2, "pretip": 10, "refresh": 6, "manual": 2}
+assert sum(ODDS_API_JOB_SLOTS.values()) == ODDS_API_MAX_CALLS_PER_DAY
 ODDS_API_RESERVE = 100
 ODDS_API_MIN_MISSING = 0.0      # use the Odds API whenever ANY D-I game lacks an ESPN/DK line (0 = any);
                                 # the per-day call cap and the credit reserve still apply
@@ -458,12 +466,39 @@ def _odds_api_record(remaining) -> None:
         log(f"  Odds API: could not record credits ({type(e).__name__}: {e}); usage file left untouched")
 
 
-def odds_api_fallback(games: list[dict], today: str, allow: bool, job: str = "daily", claim=None) -> int:
+def odds_api_board(job: str, claim=None, cache: dict | None = None):
+    """(DataFrame of today's Odds API lines, why-not). ONE claimed paid call through odds_fetcher.fetch_vegas_lines
+    (the claim is made there: czarp.odds_budget). `cache`: a dict owned by ONE run (pretip_check) so its consumers
+    (missing-line fill, play checks, closing-line snapshot) share one paid call; a refusal is cached too."""
+    if cache is not None and "board" in cache:
+        return cache["board"]
+    try:
+        import odds_fetcher as of
+    except Exception as e:
+        return None, f"unavailable ({type(e).__name__})"
+    if not of.ODDS_API_KEY:
+        return None, "no ODDS_API_KEY"
+    from czarp.odds_budget import OddsApiRefused
+    try:
+        out = of.fetch_vegas_lines(job=job, claim=claim, raise_refusal=True), ""
+    except OddsApiRefused as e:
+        out = None, str(e)
+    except Exception as e:
+        redact = getattr(of, "redact_key", lambda t: "(details withheld)")
+        out = None, f"failed ({type(e).__name__}: {redact(str(e))})"
+    if cache is not None:
+        cache["board"] = out
+    return out
+
+
+def odds_api_fallback(games: list[dict], today: str, allow: bool, job: str = "daily", claim=None,
+                      cache: dict | None = None) -> int:
     """Fill missing DK lines from The Odds API: at most ODDS_API_MAX_CALLS_PER_DAY calls a day across all jobs,
     at most ODDS_API_JOB_SLOTS[job] for this job, never below the credit reserve. `today` is the slate date and is
     NOT used for budgeting: calls always count under today's real CT date (odds_api_budget_day).
     `claim`: optional callable -> (ok, why) that replaces the local-file claim (refresh_lines uses a Supabase-backed,
-    server-capped claim); when given, the local counter's seed/claim are not used."""
+    server-capped claim); when given, the local counter's seed/claim are not used. The claim itself happens inside
+    odds_fetcher.fetch_vegas_lines (czarp.odds_budget), the single gate for paid calls. `cache`: see odds_api_board."""
     missing = [g for g in games if g.get("current_home_spread") is None or g.get("current_total") is None]
     if not games or not missing:
         if games:
@@ -476,34 +511,16 @@ def odds_api_fallback(games: list[dict], today: str, allow: bool, job: str = "da
     if frac < ODDS_API_MIN_MISSING:
         log(f"  Odds API: skipped — ESPN covers {1 - frac:.0%} of games (saving credits)")
         return 0
-    try:
-        import odds_fetcher as of
-    except Exception as e:
-        log(f"  Odds API: unavailable ({type(e).__name__})")
+    df, why = odds_api_board(job, claim=claim, cache=cache)
+    if df is None:
+        if why.startswith(("unavailable", "failed")):
+            log(f"  Odds API: {why}")
+        elif why == "no ODDS_API_KEY":
+            log("  Odds API: no ODDS_API_KEY — skipped")
+        else:
+            log(f"  Odds API: skipped — {why}")
         return 0
-    if not of.ODDS_API_KEY:
-        log("  Odds API: no ODDS_API_KEY — skipped")
-        return 0
-    if claim is None:
-        odds_api_seed_remaining(of.ODDS_API_KEY)
-        ok, why = odds_api_claim(job)
-    else:
-        try:
-            ok, why = claim()
-        except Exception as e:                 # a claim that errors is a refusal
-            ok, why = False, f"claim failed ({type(e).__name__})"
-    if not ok:
-        log(f"  Odds API: skipped — {why}")
-        return 0
-    try:
-        df = of.fetch_vegas_lines()
-    except Exception as e:
-        redact = getattr(of, "redact_key", lambda t: "(details withheld)")
-        log(f"  Odds API: failed ({type(e).__name__}: {redact(str(e))})")
-        return 0
-    finally:
-        if claim is None:
-            _odds_api_record(getattr(of, "_odds_credits_remaining", None))
+    import odds_fetcher as of
     try:
         rem = _usage().get("remaining")
     except Exception:

@@ -13,6 +13,7 @@ import daily_run as dr
 import refresh_lines as RL
 from czarp import supabase_writer as sw
 from tests.test_refresh_lines import FakeDB, TODAY, ct, _scoreboard, _seed, QUIET
+from tests.odds_fakes import claimed_fetch
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -274,7 +275,7 @@ def api(monkeypatch, tmp_path):
     fake.ODDS_API_KEY = "test-key"
     fake._odds_credits_remaining = None
     fake._best_score = lambda x, y: 0.0
-    fake.fetch_vegas_lines = a.odds
+    fake.fetch_vegas_lines = claimed_fetch(fake, a.odds)
     fake.redact_key = lambda t: t.replace("test-key", "***")
     monkeypatch.setitem(sys.modules, "odds_fetcher", fake)
     monkeypatch.setattr(dr._S, "get", a.get)
@@ -309,7 +310,7 @@ def test_usage_read_is_free_and_keyed_by_header(api):
     assert RL.read_odds_usage(None, api.get) is None
 
 
-def test_eight_runs_stale_cache_and_failed_saves_never_exceed_five_paid_calls(api, monkeypatch):
+def test_ten_runs_stale_cache_and_failed_saves_never_exceed_the_caps(api, monkeypatch):
     games, projs, lines = _late_games()
     db = FakeDB(games, projs, lines)
     stale = api.usage_file.read_text()
@@ -317,21 +318,21 @@ def test_eight_runs_stale_cache_and_failed_saves_never_exceed_five_paid_calls(ap
     monkeypatch.setattr(dr, "now_ct", lambda: ct(7, 10))
     assert dr.odds_api_fallback([dict(current_home_spread=None, current_total=None)], TODAY, True, job="daily") == 0
     runs = [(ct(10), False), (ct(10, 50), False),          # 10 AM slot fires twice (late duplicate)
-            (ct(11, 30), True), (ct(13), False), (ct(14, 30), True), (ct(16), False), (ct(19), False),
-            (ct(19, 20), True)]                            # 8 refresh runs incl. 3 x --force
+            (ct(11, 30), True), (ct(12, 10), True), (ct(13), False), (ct(14, 30), True), (ct(16), False),
+            (ct(17, 15), True), (ct(19), False), (ct(19, 20), True)]   # 10 refresh runs incl. 5 x --force
     for now, force in runs:
         api.usage_file.write_text(stale)                   # every run: cache restored from an old day, save lost
         _paid_run(db, games, now, api, force=force)
     monkeypatch.setattr(dr, "now_ct", lambda: ct(18))
     dr.odds_api_fallback([dict(current_home_spread=None, current_total=None)], TODAY, True, job="pretip")
-    assert api.paid <= dr.ODDS_API_MAX_CALLS_PER_DAY == 5
-    assert len(db.tables[RL.CLAIMS_TABLE]) == 3 == RL.REFRESH_PAID_CALLS_PER_DAY
-    assert api.paid == 5                                    # daily 1 + refresh 3 + pretip 1
+    assert api.paid <= dr.ODDS_API_MAX_CALLS_PER_DAY == 20
+    assert len(db.tables[RL.CLAIMS_TABLE]) == 6 == RL.REFRESH_PAID_CALLS_PER_DAY
+    assert api.paid == 8                                    # daily 1 + refresh 6 (9 runs, 6 paid) + pretip 1
     slots = sorted(r["slot"] for r in db.tables[RL.RUNS_TABLE])
     assert [s for s in slots if s < RL.FORCED_SLOT_BASE] == [10, 13, 16, 19]   # duplicate 10 AM firing skipped
-    # a 9th forced run the same day is refused by the code/database cap
+    # another forced run the same day is refused by the code/database cap
     _paid_run(db, games, ct(19, 40), api, force=True)
-    assert api.paid == 5
+    assert api.paid == 8
 
 
 def test_force_still_respects_cap_from_the_database(api):
@@ -344,7 +345,7 @@ def test_force_still_respects_cap_from_the_database(api):
 
 def test_new_day_starts_fresh_from_the_database_not_the_cache(api):
     games, projs, lines = _late_games()
-    old = [dict(day="2026-11-20", n=n, slot=10) for n in range(1, 5)]
+    old = [dict(day="2026-11-20", n=n, slot=10) for n in range(1, 7)]
     db = FakeDB(games, projs, lines, claims=old)
     _paid_run(db, games, ct(10), api)
     assert api.paid == 1 and {r["day"] for r in db.tables[RL.CLAIMS_TABLE] if r not in old} == {TODAY}
@@ -364,8 +365,8 @@ def test_low_credits_and_api_side_call_count_refuse(api):
     db = FakeDB(games, projs, lines)
     _paid_run(db, games, ct(10), api)
     assert api.paid == 0
-    # baseline 1000 at today's first run; the API now shows 15 credits (5 calls) used since: refuse
-    api.remaining, api.used = 19000, 1015
+    # baseline 1000 at today's first run; the API now shows 60 credits (20 calls) used since: refuse
+    api.remaining, api.used = 19000, 1000 + RL.ODDS_CREDITS_PER_CALL * dr.ODDS_API_MAX_CALLS_PER_DAY
     db = FakeDB(games, projs, lines, runs=[dict(day=TODAY, slot=10, requests_used=1000.0)])
     _paid_run(db, games, ct(13), api)
     assert api.paid == 0 and db.tables[RL.CLAIMS_TABLE] == []
@@ -392,14 +393,18 @@ def test_dry_run_never_reads_usage_or_claims(api):
     assert api.paid == 0 and api.sports_reads == [] and db.writes == []
 
 
-def test_budget_constants_add_up_to_five():
-    assert dr.ODDS_API_MAX_CALLS_PER_DAY == 5
-    assert dr.ODDS_API_JOB_SLOTS == {"daily": 1, "pretip": 1, "refresh": 3}
-    assert RL.REFRESH_PAID_CALLS_PER_DAY == 3
+def test_budget_constants_add_up_to_twenty():
+    assert dr.ODDS_API_MAX_CALLS_PER_DAY == 20
+    assert dr.ODDS_API_JOB_SLOTS == {"daily": 2, "pretip": 10, "refresh": 6, "manual": 2}
+    assert RL.REFRESH_PAID_CALLS_PER_DAY == 6 == dr.ODDS_API_JOB_SLOTS["refresh"]
     assert sum(dr.ODDS_API_JOB_SLOTS.values()) == dr.ODDS_API_MAX_CALLS_PER_DAY
-    # historical #65 migration CHECK still allows n=1..4; the live cap is the Python loop (n=1..3)
-    sql = (ROOT / "db/migrations/2026-11-21_intraday_line_refresh.sql").read_text().lower()
-    assert "check (n between 1 and 4)" in sql
+    # ~3 credits a call: the full cap every day of a month stays far inside the 20K plan
+    assert RL.ODDS_CREDITS_PER_CALL * dr.ODDS_API_MAX_CALLS_PER_DAY * 31 < 20_000 // 10
+    # the #65 migration's CHECK (n between 1 and 4) is replaced by a tight 1..REFRESH_PAID_CALLS_PER_DAY one
+    old = (ROOT / "db/migrations/2026-11-21_intraday_line_refresh.sql").read_text().lower()
+    assert "check (n between 1 and 4)" in old                     # applied migrations are never edited
+    new = (ROOT / "db/migrations/2026-11-25_odds_api_cap_20_closing_lines.sql").read_text().lower()
+    assert f"check (n between 1 and {RL.REFRESH_PAID_CALLS_PER_DAY})" in new
 
 
 # ── migration ───────────────────────────────────────────────────────────────────
@@ -433,7 +438,8 @@ def test_odds_fetcher_sends_key_in_header_and_redacts_errors(monkeypatch, capsys
         seen.update(url=url, params=params, headers=headers)
         raise ConnectionError(f"HTTPSConnectionPool: url={url}?apiKey=sekret123")
     monkeypatch.setattr(of.requests, "get", get)
-    assert of.fetch_vegas_lines().empty
+    ok = lambda: (True, "")                                        # a granted claim (the gate is tested elsewhere)
+    assert of.fetch_vegas_lines(claim=ok).empty
     out = capsys.readouterr().out
     assert "sekret123" not in out and "apiKey=***" in out
     assert "apiKey" not in (seen["params"] or {}) and seen["headers"] == {"x-api-key": "sekret123"}
@@ -442,5 +448,5 @@ def test_odds_fetcher_sends_key_in_header_and_redacts_errors(monkeypatch, capsys
         status_code = 500
     monkeypatch.setattr(of.requests, "get", lambda *a, **k: R())
     with pytest.raises(RuntimeError) as e:
-        of.fetch_vegas_lines()
+        of.fetch_vegas_lines(claim=ok)
     assert str(e.value) == "Odds API HTTP 500"

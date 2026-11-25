@@ -18,7 +18,6 @@ Usage:
 """
 
 import os
-import requests
 import pandas as pd
 from difflib import SequenceMatcher
 from dotenv import load_dotenv
@@ -315,7 +314,6 @@ def fetch_odds_team_names() -> list[str]:
     iso = lambda dt: dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     params = {
-        "apiKey":           key,
         "regions":          "us",
         "markets":          "spreads",
         "oddsFormat":       "american",
@@ -324,10 +322,10 @@ def fetch_odds_team_names() -> list[str]:
         "dateFormat":       "iso",
     }
     try:
-        resp = requests.get(
-            "https://api.the-odds-api.com/v4/sports/basketball_ncaab/odds",
-            params=params, timeout=10
-        )
+        # one claimed 'manual' call of the shared daily budget; key in the x-api-key header (odds_fetcher.odds_api_get)
+        from odds_fetcher import odds_api_get
+        resp = odds_api_get("https://api.the-odds-api.com/v4/sports/basketball_ncaab/odds",
+                            params=params, job="manual", timeout=10)
         resp.raise_for_status()
         games = resp.json()
         names = set()

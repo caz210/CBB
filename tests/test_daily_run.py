@@ -1,5 +1,6 @@
 import pandas as pd
 import daily_run as dr
+from tests.odds_fakes import claimed_fetch
 
 
 def test_kelly_and_min_stake():
@@ -320,7 +321,7 @@ def test_odds_api_fallback_runs_when_any_game_missing_and_keeps_cap_and_reserve(
                                   vegas_spread=-4.5, vegas_total=143.5, home_spread_price=-110,
                                   away_spread_price=-110, over_price=-110, under_price=-110,
                                   source_book="draftkings")])
-    fake.fetch_vegas_lines = fetch
+    fake.fetch_vegas_lines = claimed_fetch(fake, fetch)
     monkeypatch.setitem(sys.modules, "odds_fetcher", fake)
     clock = {"now": dr.datetime(2026, 11, 21, 7, 13, tzinfo=dr.CENTRAL)}
     monkeypatch.setattr(dr, "now_ct", lambda: clock["now"])          # budget day = real CT date
@@ -340,14 +341,17 @@ def test_odds_api_fallback_runs_when_any_game_missing_and_keeps_cap_and_reserve(
     assert len(calls) == 1 and g[-1]["current_home_spread"] == -4.5 and g[-1]["current_total"] == 143.5
     assert g[-1]["price_source"] == "oddsapi:draftkings"
     assert json.loads(usage.read_text())["calls"]["2026-11-21"] == 1
-    # daily cap: a second run the same day does not call again
-    assert dr.odds_api_fallback(slate(), "2026-11-21", allow=True) == 0 and len(calls) == 1
+    # daily slot: re-runs the same day call until the 'daily' slot (2) is used, then never again
+    D = dr.ODDS_API_JOB_SLOTS["daily"]
+    for _ in range(D - 1):
+        assert dr.odds_api_fallback(slate(), "2026-11-21", allow=True) == 1
+    assert dr.odds_api_fallback(slate(), "2026-11-21", allow=True) == 0 and len(calls) == D
     # credit reserve: below it, no call even on a new day
     clock["now"] = dr.datetime(2026, 11, 22, 7, 13, tzinfo=dr.CENTRAL)
     usage.write_text(json.dumps({"calls": {}, "remaining": dr.ODDS_API_RESERVE - 1}))
-    assert dr.odds_api_fallback(slate(), "2026-11-22", allow=True) == 0 and len(calls) == 1
+    assert dr.odds_api_fallback(slate(), "2026-11-22", allow=True) == 0 and len(calls) == D
     # every game has a line: no call
     usage.write_text(json.dumps({"calls": {}, "remaining": 500}))
-    assert dr.odds_api_fallback(slate()[:50], "2026-11-23", allow=True) == 0 and len(calls) == 1
+    assert dr.odds_api_fallback(slate()[:50], "2026-11-23", allow=True) == 0 and len(calls) == D
     # --no-odds-api still wins
-    assert dr.odds_api_fallback(slate(), "2026-11-23", allow=False) == 0 and len(calls) == 1
+    assert dr.odds_api_fallback(slate(), "2026-11-23", allow=False) == 0 and len(calls) == D

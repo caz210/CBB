@@ -14,6 +14,7 @@ import daily_run as dr
 import pretip_check as pc
 import refresh_lines as RL
 from czarp import supabase_writer as sw
+from tests.odds_fakes import claimed_fetch
 
 CT = dr.CENTRAL
 TODAY = "2026-11-21"
@@ -205,23 +206,31 @@ def usage(monkeypatch, tmp_path):
     return u
 
 
-def test_budget_slots_refresh_three_plus_daily_and_pretip(usage):
-    assert dr.ODDS_API_JOB_SLOTS == {"daily": 1, "pretip": 1, "refresh": 3}
-    assert dr.ODDS_API_MAX_CALLS_PER_DAY == 5 == sum(dr.ODDS_API_JOB_SLOTS.values())
-    assert [dr.odds_api_claim("refresh")[0] for _ in range(4)] == [True] * 3 + [False]
-    assert dr.odds_api_claim("refresh") == (False, "refresh slot used (3/3; the other slot is reserved)")
-    assert dr.odds_api_claim("daily")[0] and dr.odds_api_claim("pretip")[0]      # their slots are untouched
-    assert dr.odds_api_claim("daily")[1].startswith("daily budget used (5/5")
+def test_budget_slots_add_up_to_twenty_and_each_job_keeps_its_own(usage):
+    S = dr.ODDS_API_JOB_SLOTS
+    assert S == {"daily": 2, "pretip": 10, "refresh": 6, "manual": 2}
+    assert dr.ODDS_API_MAX_CALLS_PER_DAY == 20 == sum(S.values())
+    assert [dr.odds_api_claim("refresh")[0] for _ in range(7)] == [True] * 6 + [False]
+    assert dr.odds_api_claim("refresh") == (False, "refresh slot used (6/6; the other slot is reserved)")
+    for job in ("daily", "pretip", "manual"):                                    # their slots are untouched
+        assert [dr.odds_api_claim(job)[0] for _ in range(S[job])] == [True] * S[job]
+    for job in S:
+        assert dr.odds_api_claim(job)[1].startswith("daily budget used (20/20")
     u = json.loads(usage.read_text())
-    assert u["calls"][TODAY] == 5 and u["calls_by_job"][TODAY] == {"refresh": 3, "daily": 1, "pretip": 1}
+    assert u["calls"][TODAY] == 20 and u["calls_by_job"][TODAY] == S
 
 
 def test_refresh_cannot_spend_daily_or_pretip_slots(usage):
-    for _ in range(3):
+    for _ in range(dr.ODDS_API_JOB_SLOTS["refresh"]):
         dr.odds_api_claim("refresh")
     assert not dr.odds_api_claim("refresh")[0]
     u = json.loads(usage.read_text())
-    assert u["calls_by_job"][TODAY] == {"refresh": 3}
+    assert u["calls_by_job"][TODAY] == {"refresh": 6}
+
+
+def test_manual_tools_get_their_own_two_calls_only(usage):
+    assert [dr.odds_api_claim("manual")[0] for _ in range(3)] == [True, True, False]
+    assert dr.odds_api_claim("daily")[0] and dr.odds_api_claim("pretip")[0]
 
 
 def test_unknown_job_gets_no_slot(usage):
@@ -295,7 +304,7 @@ def test_refresh_uses_odds_api_only_for_games_espn_lacks(usage, monkeypatch):
         return pd.DataFrame([dict(vegas_home="B Home", vegas_away="B Away", vegas_spread=-2.5, vegas_total=150.5,
                                   home_spread_price=-110, away_spread_price=-110, over_price=-110,
                                   under_price=-110, source_book="fanduel")])
-    fake.fetch_vegas_lines = fetch
+    fake.fetch_vegas_lines = claimed_fetch(fake, fetch)
     monkeypatch.setitem(sys.modules, "odds_fetcher", fake)
     pre = [dict(id=1, external_id="1", home="A", away="A2"), dict(id=2, external_id="2", home="B", away="B2")]
     espn = {"1": dict(home_full="A Home", away_full="A Away"), "2": dict(home_full="B Home", away_full="B Away")}
@@ -373,13 +382,13 @@ class FakeDB:
 
     def upsert(self, table, rows, on_conflict=None, returning=True, ignore_duplicates=False):
         self.events.append(("write", table))
-        if table in self.KEYS:                         # primary key + CHECK (n between 1 and 4), like Postgres
+        if table in self.KEYS:                         # primary key + CHECK (n between 1 and 6), like Postgres
             key = self.KEYS[table]
             assert on_conflict == ",".join(key) and ignore_duplicates
             have = {tuple(r[k] for k in key) for r in self.tables[table]}
             new = []
             for r in rows:
-                if table == RL.CLAIMS_TABLE and not 1 <= r["n"] <= 4:
+                if table == RL.CLAIMS_TABLE and not 1 <= r["n"] <= 6:
                     raise RuntimeError("Supabase 400: new row violates check constraint")
                 if tuple(r[k] for k in key) not in have:
                     new.append(dict(r))

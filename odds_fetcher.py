@@ -584,10 +584,66 @@ def redact_key(text: str) -> str:
     return text
 
 
-def fetch_vegas_lines() -> pd.DataFrame:
+ODDS_API_HOST = "https://api.the-odds-api.com/"
+
+
+def odds_api_get(url: str, params: dict | None = None, *, job: str = "manual", claim=None, timeout: float = 15):
+    """Every paid Odds API GET outside fetch_vegas_lines (team_mapper, results_tracker) goes through here: one
+    claimed call of the shared daily budget (czarp.odds_budget.paid_call; raises OddsApiRefused when refused, before
+    any request), key in the x-api-key header (never the query string). Returns the requests.Response."""
+    from czarp import odds_budget as OB
+    if not ODDS_API_KEY:
+        raise RuntimeError("ODDS_API_KEY not configured")
+    if not str(url).startswith(ODDS_API_HOST):
+        raise ValueError("odds_api_get is only for The Odds API")
+    params = {k: v for k, v in (params or {}).items() if k.lower() != "apikey"}
+    resp_box = {}
+
+    def _get():
+        r = requests.get(url, params=params, headers={"x-api-key": ODDS_API_KEY}, timeout=timeout)
+        resp_box["r"] = r
+        return r
+
+    try:
+        return OB.paid_call(job, _get, claim_fn=claim, key=ODDS_API_KEY,
+                            remaining=lambda: resp_box["r"].headers.get("x-requests-remaining") if "r" in resp_box else None)
+    except OB.OddsApiRefused:
+        raise
+    except Exception as e:                     # never let the key reach a log via the request URL/error text
+        raise RuntimeError(redact_key(f"Odds API request failed ({type(e).__name__}: {e})")) from None
+
+
+last_refusal: str | None = None                # why the last fetch_vegas_lines call made no request (None = it did)
+
+
+def fetch_vegas_lines(job: str = "manual", claim=None, raise_refusal: bool = False) -> pd.DataFrame:
+    """Today's (CT) Vegas lines from The Odds API: ONE paid call, claimed first under `job` (daily_run's per-day
+    cap and job slots; `claim` = a caller's own claim, e.g. refresh_lines' Supabase cap). Refused -> no request and
+    an empty DataFrame (or OddsApiRefused with raise_refusal=True)."""
+    global last_refusal
+    from czarp import odds_budget as OB
+    last_refusal = None
     if not ODDS_API_KEY:
         print("     ODDS_API_KEY not set — skipping Vegas lines.")
+        last_refusal = "no ODDS_API_KEY"
+        if raise_refusal:
+            raise OB.OddsApiRefused(last_refusal)
         return pd.DataFrame()
+    try:
+        return OB.paid_call(job, _fetch_vegas_lines_claimed, claim_fn=claim, key=ODDS_API_KEY,
+                            remaining=lambda: _odds_credits_remaining)
+    except OB.OddsApiRefused as e:
+        last_refusal = str(e)
+        if raise_refusal:
+            raise
+        print(f"    Odds API: skipped — {e}")
+        return pd.DataFrame()
+
+
+def _fetch_vegas_lines_claimed() -> pd.DataFrame:
+    """The paid request itself. Only ever called through czarp.odds_budget.paid_call (after a claim)."""
+    global _odds_credits_remaining
+    _odds_credits_remaining = None             # a failed request must not re-record an older number
 
     now_utc = datetime.now(timezone.utc)
     now_ct  = datetime.now(CENTRAL)
@@ -624,7 +680,6 @@ def fetch_vegas_lines() -> pd.DataFrame:
         raise RuntimeError(f"Odds API HTTP {resp.status_code}")   # no URL / key in the message
 
     games = resp.json()
-    global _odds_credits_remaining
     _odds_credits_remaining = resp.headers.get("x-requests-remaining")
     remaining = resp.headers.get("x-requests-remaining", "?")
     print(f"    Vegas lines fetched ({len(games)} games) | Credits remaining: {remaining}")
