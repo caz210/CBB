@@ -673,8 +673,20 @@ def insert_missing_lines(c: "Client", newest: dict[int, dict], fills: dict[int, 
     return len(rows)
 
 
+def _locked_rows(c: Client, vcols: str) -> list[dict]:
+    """Post-time lock rows for every tier. picks_locked (2026-11-25 migration) covers official, track and
+    lean; official_picks_locked is official-only after that migration. Before it is applied, picks_locked
+    does not exist (PGRST205 / 42P01) and the old all-tiers official_picks_locked is read instead."""
+    try:
+        return c.get("picks_locked", select=vcols)
+    except RuntimeError as e:
+        if "PGRST205" in str(e) or "42P01" in str(e):
+            return c.get("official_picks_locked", select=vcols)
+        raise
+
+
 def fill_pick_locks(c: Client, log=print) -> int:
-    """Fill NULL post-time lock columns on published picks from the official_picks_locked view.
+    """Fill NULL post-time lock columns on published picks (every tier) from the picks_locked view.
 
     Only NULL columns are written (each PATCH is filtered on `col=is.null`), which is exactly what the
     picks_immutable trigger allows; no hashed or pick fields are touched. The view reads the projection and
@@ -686,7 +698,7 @@ def fill_pick_locks(c: Client, log=print) -> int:
     if not todo:
         return 0
     vcols = ",".join(["pick_id"] + [v for _, v in LOCK_FIELDS])
-    locked = {r["pick_id"]: r for r in c.get("official_picks_locked", select=vcols)}
+    locked = {r["pick_id"]: r for r in _locked_rows(c, vcols)}
     n = 0
     for key, p in todo.items():
         v = locked.get(key)

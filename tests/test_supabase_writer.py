@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pandas as pd
+import pytest
 
 import daily_run as dr
 from czarp import supabase_writer as sw
@@ -173,7 +175,7 @@ def test_fill_pick_locks_only_null_columns():
                          "open_line": None, "edge_vs_open": 0.04},
                         {"pick_key": "c", "fair_at_post": 1.0, "line_at_post": 2.0, "total_at_post": 3.0,
                          "open_line": 4.0, "edge_vs_open": 0.05}]
-            if table == "official_picks_locked":
+            if table == "picks_locked":
                 return [{"pick_id": "a", "fair_at_post": 142.0, "line_at_post": 144.5, "total_at_post": 144.5,
                          "open_line": 147.5, "edge_vs_open_pct": 0.0373},
                         {"pick_id": "b", "fair_at_post": 999.0, "line_at_post": 999.0, "total_at_post": 999.0,
@@ -262,3 +264,68 @@ def test_sync_team_scores_match_czarp_total_and_spread_incl_neutral():
     # stored total / spread columns unchanged by the reconciliation
     assert (v2[gid["1"]]["total"], v2[gid["1"]]["spread"]) == (159.8, -9.8)
     assert (v2[gid["2"]]["total"], v2[gid["2"]]["spread"]) == (147.0, 5.6)
+
+
+def _lock_client(missing_view: bool, err: str = "PGRST205"):
+    calls = []
+
+    class C:
+        def get(self, table, **params):
+            calls.append(table)
+            if table == "picks":
+                return [{"pick_key": "lean1", "fair_at_post": None, "line_at_post": -2.5, "total_at_post": 146.0,
+                         "open_line": -3.0, "edge_vs_open": 0.03}]
+            if table == "picks_locked":
+                if missing_view:
+                    raise RuntimeError(f"picks_locked: HTTP 404 {{\"code\":\"{err}\",\"message\":\"Could not find the table\"}}")
+                return [{"pick_id": "lean1", "fair_at_post": -6.8, "line_at_post": -2.5, "total_at_post": 146.0,
+                         "open_line": -3.0, "edge_vs_open_pct": 0.03}]
+            if table == "official_picks_locked":
+                return [{"pick_id": "lean1", "fair_at_post": -7.0, "line_at_post": -2.5, "total_at_post": 146.0,
+                         "open_line": -3.0, "edge_vs_open_pct": 0.03}]
+            return []
+
+        def patch(self, table, row, **params):
+            calls.append(("patch", params["pick_key"], dict(row)))
+
+    return C(), calls
+
+
+def test_fill_pick_locks_reads_all_tier_picks_locked():
+    """official_picks_locked is official-only (2026-11-25); lean/track locks come from picks_locked."""
+    c, calls = _lock_client(missing_view=False)
+    assert sw.fill_pick_locks(c, log=lambda *_: None) == 1
+    assert "official_picks_locked" not in calls
+    assert ("patch", "eq.lean1", {"fair_at_post": -6.8}) in calls
+
+
+@pytest.mark.parametrize("err", ["PGRST205", "42P01"])
+def test_fill_pick_locks_falls_back_before_migration(err):
+    c, calls = _lock_client(missing_view=True, err=err)
+    assert sw.fill_pick_locks(c, log=lambda *_: None) == 1
+    assert calls[:3] == ["picks", "picks_locked", "official_picks_locked"]
+    assert ("patch", "eq.lean1", {"fair_at_post": -7.0}) in calls
+
+
+def test_fill_pick_locks_other_errors_raise():
+    class C:
+        def get(self, table, **params):
+            if table == "picks":
+                return [{"pick_key": "x", "fair_at_post": None}]
+            raise RuntimeError(f"{table}: HTTP 500 boom")
+    with pytest.raises(RuntimeError, match="500"):
+        sw.fill_pick_locks(C(), log=lambda *_: None)
+
+
+def test_official_picks_locked_official_only_migration():
+    raw = (Path(__file__).parents[1] / "db" / "migrations" / "2026-11-25_official_picks_locked_official_only.sql").read_text()
+    sql = "\n".join(line.split("--")[0] for line in raw.splitlines())   # code only, no comments
+    opl = sql[sql.index("create or replace view official_picks_locked"):]
+    opl = opl[:opl.index(";")]
+    assert "from picks_locked" in opl and "where tier = 'official'" in opl
+    vb = sql[sql.index("create or replace view value_bets"):]
+    vb = vb[:vb.index(";")]
+    assert "left join picks_locked lk" in vb and "official_picks_locked" not in vb
+    low = sql.lower()
+    for bad in ("drop view", "drop trigger", "picks_guard", "picks_immutable()", "update picks", "delete from picks", "insert into picks"):
+        assert bad not in low
