@@ -1,6 +1,7 @@
 // Team search: normalisation, alias handling and ranking. Pure functions (no React, no network)
 // so they are unit-tested in tests/teamSearch.test.ts.
 import { localAliases, type AliasLookup } from "./teamAliases";
+import { gameSheetHref } from "./officialPick";
 
 export type TeamNextGame = {
   gameId: number;
@@ -200,7 +201,7 @@ export function searchTeams(index: TeamIndexEntry[], query: string, limit = MAX_
 
 /** Link to the slate with a game sheet open: /cbb/slate?date=YYYY-MM-DD&game=123 */
 export function nextGameHref(sportKey: string, g: TeamNextGame): string {
-  return `/${sportKey}/slate?date=${g.date}&game=${g.gameId}`;
+  return gameSheetHref(sportKey, g.date, g.gameId);
 }
 
 // ---- next-game freshness ----------------------------------------------------

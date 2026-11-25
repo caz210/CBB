@@ -28,6 +28,7 @@ import { newCoachLock, type NewCoachLock } from "./coach";
 import { parseVerdict } from "./verdict";
 import { newestByGame, pickLinesAsOf } from "./linesAsOf";
 import { parseMarketPrices } from "./kelly";
+import { applyOfficialRecord, ledgerToOfficialRecord } from "./officialPick";
 
 export type Loaded<T> =
   | { state: "live"; data: T }
@@ -190,6 +191,33 @@ async function mergeOfficialLocked(sb: SB, sport: Sport, ids: number[], all: Val
   return all;
 }
 
+/** Official ledger stake/result/P/L onto official ValueBets. Tracked rows are ignored.
+ *  A failed read leaves bets unchanged so the slate/hero/team page still render. */
+async function attachOfficialRecord(sb: SB, sport: Sport, ids: number[], bets: ValueBet[]): Promise<ValueBet[]> {
+  if (!ids.length || !bets.length) return bets;
+  const q = await sb.from("ledger").select("game_id,pick,stake_units,result,profit_units,clv,logged_at,tier,pick_hash").eq("sport", sport.key).eq("tier", "official").in("game_id", ids);
+  if (q.error) {
+    console.error(`[supabase] ledger official record: ${q.error.message}`);
+    return bets;
+  }
+  const rows = [];
+  for (const r of (q.data ?? []) as Row[]) {
+    const rec = ledgerToOfficialRecord({
+      game_id: Number(r.game_id),
+      pick: r.pick != null ? str(r.pick) : "",
+      stake_units: num(r.stake_units),
+      result: (() => { const x = str(r.result); return x === "W" || x === "L" || x === "P" ? x : null; })(),
+      profit_units: num(r.profit_units),
+      clv: num(r.clv),
+      logged_at: r.logged_at ? str(r.logged_at) : null,
+      pick_hash: r.pick_hash ? str(r.pick_hash) : null,
+      pick_tier: isPickTier(r.tier) ? r.tier : "official",
+    });
+    if (rec) rows.push(rec);
+  }
+  return applyOfficialRecord(bets, rows);
+}
+
 function toLedgerRow(r: Row): LedgerRow {
   const res = str(r.result);
   return {
@@ -266,7 +294,7 @@ export async function loadSlateFrom(sb: SB, sport: Sport, date: string): Promise
     const b = await sb.from("value_bets").select("*").eq("sport", sport.key).in("game_id", games.map((x) => x.game_id));
     if (b.error) return fail("value_bets", b.error);
     const ids = games.map((x) => x.game_id);
-    const all = await mergeOfficialLocked(sb, sport, ids, (b.data ?? []).map(toValueBet));
+    const all = await attachOfficialRecord(sb, sport, ids, await mergeOfficialLocked(sb, sport, ids, (b.data ?? []).map(toValueBet)));
     all.sort((a, z) => z.line_edge_pct - a.line_edge_pct);
     bets = all.filter((x) => x.pick_tier === "official");
     // neutralIds() is its own read in the same Promise.all: if it fails, only titles fall back to "@".
@@ -703,7 +731,7 @@ export async function loadHero(sport: Sport): Promise<Loaded<Hero | null>> {
     for (const x of games) x.neutral = neutral.has(x.game_id);
     if (b.error) return fail("value_bets", b.error);
     // Same merge as the slate, so every time-stamped official play shows (not just the top value_bets row).
-    const all = await mergeOfficialLocked(sb, sport, ids, (b.data ?? []).map(toValueBet));
+    const all = await attachOfficialRecord(sb, sport, ids, await mergeOfficialLocked(sb, sport, ids, (b.data ?? []).map(toValueBet)));
     const plays = all
       .filter((x) => x.pick_tier === "official")
       .sort((a, z) => (z.edge_at_post_pct ?? z.line_edge_pct) - (a.edge_at_post_pct ?? a.line_edge_pct))
@@ -1055,7 +1083,7 @@ export async function loadTeam(sport: Sport, slug: string): Promise<Loaded<TeamP
     try {
       const b = await sb.from("value_bets").select("*").eq("sport", sport.key).eq("game_id", g.game_id);
       if (!b.error) {
-        officialBets = (await mergeOfficialLocked(sb, sport, [g.game_id], (b.data ?? []).map((r) => toValueBet(r as Row))))
+        officialBets = (await attachOfficialRecord(sb, sport, [g.game_id], await mergeOfficialLocked(sb, sport, [g.game_id], (b.data ?? []).map((r) => toValueBet(r as Row)))))
           .filter((x) => x.pick_tier === "official");
       }
     } catch { /* team page still renders without official rows */ }

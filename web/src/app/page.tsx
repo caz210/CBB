@@ -12,6 +12,7 @@ import { RESULT_LABEL, fmtGameDate, fmtPostedStamp } from "@/lib/labels";
 import { postedVsNow } from "@/lib/posted";
 import { verdictLabel } from "@/lib/verdicts";
 import { TitleLine } from "@/components/NeutralChip";
+import { gameSheetHref } from "@/lib/officialPick";
 import { gameTitle, retitle } from "@/lib/gameTitle";
 import { homeCtas, homePromoCtas } from "@/lib/accounts";
 import { OFFICIAL_POST_TIME } from "@/lib/officialPost";
@@ -214,9 +215,9 @@ function LiveHero({ hero }: { hero: Hero }) {
             const pvn = postedVsNow(v, g);
             return (
               <li key={`${v.game_id}-${v.market}-${v.side}`}>
-                <Link href="/cbb/slate?sort=value" className="flex items-center justify-between gap-3 rounded-xl border border-edge-400/30 bg-edge-400/10 px-4 py-3 hover:border-edge-400/60">
+                <Link href={gameSheetHref("cbb", g.game_date, g.game_id)} className="flex items-center justify-between gap-3 rounded-xl border border-edge-400/30 bg-edge-400/10 px-4 py-3 hover:border-edge-400/60">
                   <div className="min-w-0">
-                    <TitleLine text={gameTitle(g.away, g.home, g.neutral).text} neutral={g.neutral === true} className="text-[11px] text-zinc-400" wrap suffix={` · ${g.tipoff ? fmtTipoff(g.tipoff) : "Tip TBD"}`} />
+                    <TitleLine text={gameTitle(g.away, g.home, g.neutral).text} neutral={g.neutral === true} interactive={false} className="text-[11px] text-zinc-400" wrap suffix={` · ${g.tipoff ? fmtTipoff(g.tipoff) : "Tip TBD"}`} />
                     <div className="text-[11px] font-semibold uppercase tracking-wider text-edge-400">{verdictLabel("official")} · {MARKET_LABEL[v.market]} · Edge</div>
                     <div className="truncate text-sm font-semibold">{v.side}</div>
                     {pvn && <div className="font-mono text-[11px] text-zinc-400">{pvn}</div>}
@@ -235,7 +236,7 @@ function LiveHero({ hero }: { hero: Hero }) {
   const r = hero.row;
   const tone = r.result === "W" ? "text-edge-400" : r.result === "L" ? "text-red-400" : "text-zinc-300";
   return (
-    <Link href="/cbb/results" className="card relative block p-4 shadow-2xl shadow-black/50 md:p-5">
+    <Link href={gameSheetHref("cbb", r.game_date, r.game_id)} className="card relative block p-4 shadow-2xl shadow-black/50 md:p-5">
       <div className="mb-2 flex items-center justify-between text-xs">
         <span className="font-semibold uppercase tracking-wider text-zinc-400">{hero.when === "yesterday" ? "Yesterday's top play" : "Latest graded play"}</span>
         <span className="text-zinc-500">{fmtGameDate(r.game_date)}</span>
