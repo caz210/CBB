@@ -5,8 +5,11 @@ Christian's schedule (America/Chicago local time, so DST is handled here, not in
   * light day  : 12 PM and 5 PM CT — a slate with fewer than LIGHT_DAY_MAX_GAMES (20) D-I games
 The GitHub Actions workflow fires at :05 of every UTC hour that can be one of those CT hours in either CST or CDT;
 this script decides from the CT clock and today's game count (a HEAD count, no full read) whether `now` is inside a
-run slot, H:00 to H+1:05 CT, so a firing up to 60 minutes late still runs. Each (CT day, slot) runs once
-(line_refresh_runs primary key); --force skips the slot gate but never the paid-call cap.
+run slot, H:00 to H+1:05 CT, so a firing up to 60 minutes late still runs. If a scheduled run starts later than that,
+or in an off hour after a slot has opened, it catches up the latest still-unclaimed same-day slot (hours whose H:00 CT
+has already passed and that have no line_refresh_runs row; --force slots >= 1000 are ignored) instead of exiting.
+Each (CT day, slot) runs once (line_refresh_runs primary key); --force skips the slot gate and uses its own key,
+but never the paid-call cap.
 
 Odds API hard cap (fail closed, server-side; see "Odds API: server-side hard cap" below): every run first reads the
 API's own x-requests-used / x-requests-remaining from the free /v4/sports endpoint (key in a header). A paid call
@@ -92,9 +95,39 @@ def slot_for(now, hours) -> int | None:
     return None
 
 
+def due_slots(now, hours) -> list[int]:
+    """Today's run hours (CT) whose H:00 has already been reached. Future hours are omitted."""
+    t = now.astimezone(dr.CENTRAL)
+    return [h for h in hours if t.replace(hour=h, minute=0, second=0, microsecond=0) <= t]
+
+
+def claimed_real_slots(client, today: str) -> set[int]:
+    """Scheduled slots already in line_refresh_runs today. --force keys (>= 1000) are ignored."""
+    rows = client.get_all(RUNS_TABLE, order="slot", select="slot", day=f"eq.{today}")
+    out = set()
+    for r in rows:
+        s = _f(r.get("slot"))
+        if s is not None and int(s) < FORCED_SLOT_BASE:
+            out.add(int(s))
+    return out
+
+
+def latest_unclaimed_slot(now, hours, claimed) -> int | None:
+    """The latest due slot that has no line_refresh_runs row yet, else None."""
+    taken = {int(s) for s in claimed}
+    due = [h for h in due_slots(now, hours) if h not in taken]
+    return max(due) if due else None
+
+
 def maybe_run_hour(now) -> bool:
     """Cheap pre-check (no network): could `now` be inside a run slot on any kind of day?"""
     return slot_for(now, ALL_RUN_HOURS_CT) is not None
+
+
+def maybe_catch_up(now) -> bool:
+    """Cheap pre-check (no network): at least one possible run hour (normal or light) has started today,
+    so an off-hour firing might still need to catch up a missed slot."""
+    return bool(due_slots(now, ALL_RUN_HOURS_CT))
 
 
 def should_run(now, n_games: int) -> tuple[bool, str]:
@@ -547,11 +580,17 @@ def run(now, client, today: str | None = None, force=False, dry_run=False, allow
     flt = {"date": f"eq.{today}", "league": f"eq.{sw.LEAGUE}"}
     # the day type needs only a count (HEAD + Prefer: count=exact); the full games read happens only on a run
     n = client.count("games", **flt)
+    hours = run_hours(n) if n else ()
     ok, why = should_run(now, n)
+    catch_slot = None
+    if n and not ok and not force and due_slots(now, hours):
+        catch_slot = latest_unclaimed_slot(now, hours, claimed_real_slots(client, today))
+        if catch_slot is not None:
+            why = f"catch-up of {catch_slot}:00 CT slot; {why}"
     log(f"refresh_lines {today} {t:%H:%M} CT: {why}" + (" [--force]" if force and not ok else ""))
-    if not n or not (ok or force):
+    if not n or not (ok or force or catch_slot is not None):
         return {"ran": False, "reason": why, "games": n}
-    slot = slot_for(now, run_hours(n)) if ok and not force else None
+    slot = catch_slot if catch_slot is not None else (slot_for(now, hours) if ok and not force else None)
     if slot is None:                           # --force: its own key (never a scheduled slot); paid calls still capped
         slot = FORCED_SLOT_BASE + t.hour * 60 + t.minute
     if not dry_run:
@@ -626,7 +665,7 @@ def main(argv=None) -> int:
     ap.add_argument("--no-odds-api", action="store_true")
     a = ap.parse_args(argv)
     now = dr.now_ct()
-    if not a.force and not maybe_run_hour(now):
+    if not a.force and not maybe_run_hour(now) and not maybe_catch_up(now):
         print(f"refresh_lines: {now:%H:%M} CT is not inside a refresh slot "
               f"({', '.join(map(str, ALL_RUN_HOURS_CT))}:00 + {SLOT_GRACE_MIN} min CT) — nothing to do")
         return 0
