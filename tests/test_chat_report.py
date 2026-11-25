@@ -128,7 +128,7 @@ def test_verdicts_official_low_value_and_lean():
                 reasons=["edge vs open below 3%"])
     assert dr.is_lean(lean)
     text = "\n".join(dr.format_chat_edge_block(lean))
-    assert "Edge: Over · 5.5% now, 2.5% vs open · Low value (Lean): edge vs open below 3%" in text
+    assert "Edge: Over · 5.5% now, 2.5% vs open · Low value (edge only vs now): edge vs open below 3%" in text
 
     # sides lean: 5.4% now, 3.8% vs open, bar 4%
     slean = _row(g, market="spread", side="Jacksonville St.", qualifies=False,
@@ -136,7 +136,7 @@ def test_verdicts_official_low_value_and_lean():
                  reasons=["edge vs open below 4%"])
     assert dr.is_lean(slean)
     text = "\n".join(dr.format_chat_edge_block(slean))
-    assert "Low value (Lean): edge vs open below 4%" in text
+    assert "Low value (edge only vs now): edge vs open below 4%" in text
 
     # tracked tier
     tr = _row(g, market="spread", side="H", qualifies=False, tier="track",

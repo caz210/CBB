@@ -298,6 +298,11 @@ def projection_rows(g: dict, v2: dict, v1: dict | None, ts: str, markets: set, s
                   "skip_reason_total": g.get("skip_reason_total"),
                   "over_prob": round(1 - _ncdf((MT - T) / tsd), 4) if T is not None and MT is not None else None},
     }
+    # LINE MOVED AWAY flag rides with the spread inputs; written only once the db has the columns (the base row read
+    # back from projections carries them), so an unapplied migration never breaks the refresh insert.
+    flags = sw._flag_fields(g)
+    if "line_moved_away" in v2:
+        new2["spread"].update(flags)
     keep = lambda row: {k: v for k, v in row.items() if k not in ("id", "created_at", "edges_as_of")}
     row = keep(v2)
     for m in markets:
@@ -308,6 +313,8 @@ def projection_rows(g: dict, v2: dict, v1: dict | None, ts: str, markets: set, s
         r1 = keep(v1)
         if "spread" in markets:     # the v1 row carries the game-level edges for both markets (supabase_writer.sync)
             r1.update({k: new2["spread"][k] for k in ("edge_now_pct_spread", "edge_vs_open_pct_spread")})
+            if "line_moved_away" in v1:
+                r1.update(flags)
         if "total" in markets:
             r1.update({k: new2["total"][k] for k in ("edge_now_pct_total", "edge_vs_open_pct_total",
                                                      "skip_reasons_total", "skip_reason_total")})

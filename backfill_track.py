@@ -77,7 +77,7 @@ def backfill(day: str, write: bool, log=print) -> list[dict]:
         + ("" if set(off) <= set(have_off) else "  ⚠ mismatch (rules changed since the live run; not added)"))
     track = [r for r in rows if r["tier"] == "track"]
     for c in dr.candidates(games, at):
-        if c["market"] == "spread" and (c["edge_pct_vs_open"] or 0) >= 0.03 and c["tier"] is None:
+        if c["market"] == "spread" and (c["edge_pct_vs_open"] or 0) >= 0.03 and c["tier"] in (None, "lean"):
             log(f"   not track: {c['side']} {c['line']:+g} (open {c['open_line']:+g}) edge open "
                 f"{c['edge_pct_vs_open']:.1%} / current {c['edge_pct'] or 0:.1%} — {'; '.join(c['reasons'])}")
     for r in track:

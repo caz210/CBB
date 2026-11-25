@@ -23,12 +23,21 @@ def test_tiers_official_track_none(monkeypatch):
     # current edge below 2% -> nothing
     assert _sides(_game(open_home_spread=-21.5, current_home_spread=-25.5, v2_home_margin=28.1,
                         open_total=157.5, current_total=159.5))["tier"] is None
-    # opened under 4% (Missouri 3.4%) -> never track
+    # opened under 4% (Missouri 3.4%) -> never track (it is a CZarp Lean: 2.5-4% now, flat line)
+    m = _sides(_game(open_home_spread=-26.5, current_home_spread=-26.5, v2_home_margin=31.8,
+                     open_total=158.5, current_total=160.5))
+    assert not m["track_ok"] and m["tier"] == "lean"
+    monkeypatch.setattr(dr, "LEAN_ENABLED", False)
     assert _sides(_game(open_home_spread=-26.5, current_home_spread=-26.5, v2_home_margin=31.8,
                         open_total=158.5, current_total=160.5))["tier"] is None
     # NEW COACH lock applies to track too ...
     g["coach_home"] = {"team": "H", "games": 0}
     assert _sides(g)["tier"] is None
+    # ... (with the lean tier on, a paused side in the lean band is a new-coach lean, never track)
+    monkeypatch.setattr(dr, "LEAN_ENABLED", True)
+    s = _sides(g)
+    assert s["tier"] == "lean" and s["new_coach"] and not s["track_ok"]
+    monkeypatch.setattr(dr, "LEAN_ENABLED", False)
     # ... unless TRACK_IGNORE_COACH_LOCK
     monkeypatch.setattr(dr, "TRACK_IGNORE_COACH_LOCK", True)
     assert _sides(g)["tier"] == "track"

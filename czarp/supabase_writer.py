@@ -66,6 +66,26 @@ def _edge_fields(g: dict) -> dict:
         "edge_now_pct_total", "edge_vs_open_pct_total")}
 
 
+# LINE MOVED AWAY flag (db/migrations/2026-11-24_lean_tier_line_moved_away.sql): display only, never a play.
+FLAG_COLS = ("line_moved_away", "line_moved_away_pts")
+
+
+def _flag_fields(g: dict) -> dict:
+    """projections.line_moved_away / line_moved_away_pts from daily_run.line_moved_away (stamped on g by
+    attach_market_edges). None when the game has no model margin or no open/current spread."""
+    f, pts = g.get("line_moved_away"), _clean(g.get("line_moved_away_pts"))
+    return {"line_moved_away": None if f is None else bool(f),
+            "line_moved_away_pts": None if pts is None else round(float(pts), 1)}
+
+
+# CZarp LEAN picks (tier='lean') are mirrored to Supabase only when CZARP_SYNC_LEAN=1. Keep it OFF until BOTH
+#   1. db/migrations/2026-11-24_lean_tier_line_moved_away.sql is applied (picks_tier_chk allows 'lean'; picks.new_coach),
+#   2. the site reads tier='lean' as its own record (web/src/lib/data.ts maps unknown tiers to 'official' today).
+# Lean rows always stay in the CSV ledger (hash-sealed) and are graded there either way.
+def sync_lean_enabled() -> bool:
+    return os.getenv("CZARP_SYNC_LEAN", "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def _row(d: dict) -> dict:
     return {k: _clean(v) for k, v in d.items()}
 
@@ -414,6 +434,7 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
                      "skip_reason_spread": g.get("skip_reason_spread"),
                      "skip_reason_total": g.get("skip_reason_total"),
                      **_edge_fields(g),
+                     **_flag_fields(g),
                      **extra,
                      # full precision (the 0.1-rounded spread/total above are what customers see); the intraday
                      # refresh recomputes edges from these so they match this run exactly
@@ -428,6 +449,7 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
                          "skip_reasons_total": g.get("skip_reasons_total") or [],
                          "skip_reason_total": g.get("skip_reason_total"),
                          **_edge_fields(g),
+                         **_flag_fields(g),
                          **extra,
                          "home_margin_full": float(m1) if m1 is not None else None, "total_full": float(t1),
                          "created_at": ts})
@@ -468,7 +490,12 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
     # are attached only on INSERT of new pick_keys so existing immutable rows are not updated.
     existing_keys = {x["pick_key"] for x in c.get("picks", select="pick_key", league=f"eq.{LEAGUE}")}
     pk = []
+    lean_on = sync_lean_enabled()
+    n_lean_held = 0
     for _, r in ledger.iterrows():
+        if _str(r.get("tier")) == "lean" and not lean_on:
+            n_lean_held += 1              # see sync_lean_enabled(): never mirrored before the db + site are ready
+            continue
         k = gid.get(str(r.event_id))
         if k is None:
             continue
@@ -492,6 +519,9 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
                    "logged_at": _str(r.get("logged_ct")),
                    "units_pnl": _clean(pd.to_numeric(r.get("pnl_units"), errors="coerce")),
                    "pick_hash": _str(r.get("pick_hash"))}
+        if lean_on:                       # picks.new_coach exists once the lean migration is applied
+            nc = r.get("new_coach")
+            row["new_coach"] = (nc.strip().lower() in ("true", "1")) if isinstance(nc, str) else bool(nc is True or nc == 1)
         if str(r.pick_id) not in existing_keys:
             # Locked post-time numbers. Same convention as line_or_price:
             # totals = model total; spreads = picked-side line. Never written on existing rows.
@@ -511,6 +541,8 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
     c.upsert("picks", pk, on_conflict="pick_key", returning=False)
     # Picks are immutable once published (db trigger picks_immutable blocks updates to pick fields and deletes), so
     # mirrored picks missing from the ledger are reported, never deleted.
+    if n_lean_held:
+        log(f"  Supabase: {n_lean_held} CZarp Lean picks kept local (CZARP_SYNC_LEAN off)")
     keep = {str(x) for x in ledger.pick_id}
     remote = {x["pick_key"] for x in c.get("picks", select="pick_key", league=f"eq.{LEAGUE}")}
     stale = sorted(remote - keep)
@@ -530,6 +562,7 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
 
 LINE_PRICE_KEYS = ("home_spread_price", "away_spread_price", "over_price", "under_price")
 FULL_PRECISION_COLS = ("home_margin_full", "total_full")   # db/migrations/2026-11-21_intraday_line_refresh.sql
+OPTIONAL_PROJ_COLS = FULL_PRECISION_COLS + FLAG_COLS       # dropped (once) if the db doesn't have them yet
 
 
 def upsert_projections(c: "Client", rows: list[dict], log=print) -> None:
@@ -538,11 +571,11 @@ def upsert_projections(c: "Client", rows: list[dict], log=print) -> None:
     try:
         c.upsert("projections", rows, on_conflict=PROJ_KEY, returning=False)
     except RuntimeError as e:
-        if "PGRST204" not in str(e) or not any(k in str(e) for k in FULL_PRECISION_COLS):
+        if "PGRST204" not in str(e) or not any(k in str(e) for k in OPTIONAL_PROJ_COLS):
             raise
-        log("  projections: full-precision columns missing (apply 2026-11-21_intraday_line_refresh.sql) — "
-            "written without them")
-        c.upsert("projections", [{k: v for k, v in r.items() if k not in FULL_PRECISION_COLS} for r in rows],
+        log("  projections: optional columns missing (apply 2026-11-21_intraday_line_refresh.sql / "
+            "2026-11-24_lean_tier_line_moved_away.sql) — written without them")
+        c.upsert("projections", [{k: v for k, v in r.items() if k not in OPTIONAL_PROJ_COLS} for r in rows],
                  on_conflict=PROJ_KEY, returning=False)
 
 
