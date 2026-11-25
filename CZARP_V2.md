@@ -62,17 +62,18 @@ python -m pytest -q tests
     python daily_run.py [--date YYYY-MM-DD] [--no-refresh] [--no-odds-api] [--no-kalshi] [--dry-run] [--config FILE]
 
 One command: refresh KenPom (ratings/prior/HCA) + FanMatch → ESPN slate + DraftKings open/current
-lines (free) → Odds API fallback whenever any D-I game lacks an ESPN/DK line (≤5 calls/day across all jobs: 1 for the 7 AM run, 1 reserved for pretip_check, which also fills missing market_lines, and 3 for the intraday `refresh_lines.py`;
+lines (free) → Odds API fallback whenever any D-I game lacks an ESPN/DK line (≤20 paid calls per CT day across all jobs, raised from 5 on 24 Nov 2026 for The Odds API 20K plan: daily 2 (the 7 AM run + one re-run), pretip 10 (pretip_check: missing market_lines fill + closing-line snapshot, one shared call per run), refresh 6 (the intraday `refresh_lines.py`), manual 2 (app.py, run.py, team_mapper.py, results_tracker.py);
+every paid request is claimed first in ONE place, `czarp/odds_budget.py` (via `odds_fetcher.fetch_vegas_lines` / `odds_fetcher.odds_api_get`), key in the `x-api-key` header;
 100-credit reserve, usage in `data/ledger/odds_api_usage.json` under the checkout — counted under the real CT date, never `--date`;
 fails closed if that file is missing/corrupt; create it once with `python3 -m czarp.odds_usage --init`, check it with `--check`.
 The 7 AM run and `pretip_check.py` MUST run on the same machine from the same checkout: the cap is a local file + flock and is not
 shared across machines/runners. Exception: `refresh_lines.py` runs in GitHub Actions and does NOT use that file for its cap: its
-paid calls are claimed in Supabase (`odds_api_refresh_claims`, primary key (CT day, n)); the job only inserts n=1..3
-(the live refresh cap; the historical CHECK still allows n=1..4). A missing, stale or unsaved Actions cache can never hide
-earlier calls, and --force or a duplicate firing cannot exceed 3. Each refresh run first reads the API's own
+paid calls are claimed in Supabase (`odds_api_refresh_claims`, primary key (CT day, n)); the job only inserts n=1..6
+and the table's CHECK is n between 1 and 6 (migration `2026-11-25_odds_api_cap_20_closing_lines.sql`). A missing, stale or
+unsaved Actions cache can never hide earlier calls, and --force or a duplicate firing cannot exceed 6. Each refresh run first reads the API's own
 x-requests-used / x-requests-remaining from the free `/v4/sports` endpoint (key in a header); if that read fails, credits
-are under the reserve, or the API shows 5+ paid calls since today's first refresh run, it makes no paid call (ESPN only).
-Box daily (1) + pretip (1) + refresh (3) = at most 5 a day)
+are under the reserve, or the API shows 20+ paid calls since today's first refresh run, it makes no paid call (ESPN only).
+Box daily (2) + pretip (10) + manual (2) + refresh (6) = at most 20 a day)
 
 **Intraday line refresh (`refresh_lines.py`, GitHub Actions on main: "Intraday line refresh").** Normal days run at 10 AM, 1 PM,
 4 PM and 7 PM CT; light days (fewer than `LIGHT_DAY_MAX_GAMES` = 20 D-I games on today's slate) at 12 PM and 5 PM CT. The workflow
@@ -220,8 +221,13 @@ within the daily budget) for today's open plays that have not tipped, and prints
 play whose line moved ≥2 pts against us since the pick or (sides only) whose edge vs the current line fell
 below the threshold. It prints nothing when there is nothing to flag. It only writes the ledger's `pretip_flag`
 column (never prices, stakes or results); `--dry-run` writes nothing and spends no Odds API credits.
+**Closing lines:** every run also snapshots the spread/total of games with an open official or lean play tipping within
+`--close-within` minutes (default 30) into Supabase `closing_line_snapshots` (insert-only; ESPN/DK every run, The Odds
+API once per game when the pretip slot allows). A game's closing line is its newest row before tipoff. Picks, the
+picks_immutable trigger and the hash chain are never touched. All Odds API use in one run shares ONE claimed call.
 
-    python pretip_check.py [--dry-run] [--within MINUTES] [--move 2] [--date YYYY-MM-DD] [--no-odds-api] [-v]
+    python pretip_check.py [--dry-run] [--within MINUTES] [--move 2] [--date YYYY-MM-DD] [--no-odds-api]
+                           [--close-within 30] [-v]
 
 ## Track record: OFFICIAL vs TRACK tiers, immutable ledger
 - **OFFICIAL** (unchanged): sides ≥4% vs open AND vs current; totals ≥3% vs open (+ move skip). Quarter-Kelly paper stakes.

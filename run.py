@@ -338,7 +338,7 @@ def run(refresh_data: bool = True, target_date: str = None, price_source: str | 
     # 6. Prices: Vegas (The Odds API) or prediction market (Kalshi / Robinhood)
     if price_source == "vegas":
         print(" Fetching Vegas lines...")
-        vegas_df = fetch_vegas_lines()
+        vegas_df = fetch_vegas_lines(job="manual")     # one claimed 'manual' call of the daily Odds API budget
         results = [match_vegas_to_game(r, vegas_df) for r in results]
     else:
         print(f" Fetching Kalshi CBB board (fees: {price_source})...")

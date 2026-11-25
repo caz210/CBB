@@ -1,7 +1,7 @@
 """pretip_check.py — pre-tip line check for today's open paper plays.
 
 Re-pulls the current DraftKings line (ESPN's free feed; The Odds API only for plays ESPN has no line
-for, using the pre-tip job's reserved slot of the shared daily budget in data/ledger/odds_api_usage.json)
+for, using the pre-tip job's slot of the shared daily budget in data/ledger/odds_api_usage.json)
 for every open ledger play that has not tipped yet, and reports a play when
   * its line moved >= --move pts AGAINST us since the pick (negative CLV so far), or
   * its edge% vs the current line dropped below the rule threshold (or flipped sides).
@@ -17,10 +17,15 @@ projections row (refresh_lines.recompute_edges, the same function the intraday r
 picks, grading and the ledger are never touched. Skipped with --dry-run; --no-odds-api still fills from ESPN.
 
     python pretip_check.py                 # today's slate (America/Chicago), annotate ledger
+CLOSING LINES: open official and lean plays tipping within --close-within minutes (default 30) get a closing-line
+snapshot in Supabase closing_line_snapshots (insert-only): ESPN/DK every run, plus The Odds API when a target game has
+no Odds API snapshot yet. All Odds API use in one run shares ONE claimed 'pretip' call (daily_run.ODDS_API_JOB_SLOTS).
+
     python pretip_check.py --dry-run       # report only, no ledger write, no Odds API call
     options: --date YYYY-MM-DD  --within MIN (only games tipping in the next MIN minutes)
              --move PTS (default 2)  --no-odds-api  -v (progress to stderr)
              --big-within MIN (default 90; 0 = no big-move section)
+             --close-within MIN (default 30; 0 = no closing-line snapshot)
 """
 from __future__ import annotations
 
@@ -127,14 +132,15 @@ def check_play(row, ln: dict, move_pts: float = MOVE_PTS) -> list[str]:
     return out
 
 
-def _run_odds_api(games: list[dict], today: str, log) -> None:
-    """daily_run.odds_api_fallback under the 'pretip' slot. Its prints go to stderr: stdout is the alert text."""
+def _run_odds_api(games: list[dict], today: str, log, cache: dict | None = None) -> None:
+    """daily_run.odds_api_fallback under the 'pretip' slot. Its prints go to stderr: stdout is the alert text.
+    `cache`: this run's shared Odds API board (one paid call per pretip_check run, whoever asks first)."""
     n_issues = len(dr.ODDS_API_COUNTER_ISSUES)
     try:
         dr.log_lines.clear()
         _out, dr.log = dr.log, log
         with contextlib.redirect_stdout(sys.stderr):
-            dr.odds_api_fallback(games, today, allow=True, job="pretip")
+            dr.odds_api_fallback(games, today, allow=True, job="pretip", cache=cache)
     except Exception as e:                     # optional; never block the play checks
         log(f"  Odds API fallback failed ({type(e).__name__}: {e})")
     finally:
@@ -145,18 +151,18 @@ def _run_odds_api(games: list[dict], today: str, log) -> None:
               "Check with `python3 -m czarp.odds_usage --check`; recovery steps in CZARP_V2.md.", file=sys.stderr)
 
 
-def _odds_api_lines(rows, today, allow, log) -> dict:
+def _odds_api_lines(rows, today, allow, log, cache: dict | None = None) -> dict:
     """Odds API lines for plays ESPN has no line for, via daily_run's budget-aware fallback."""
     if not allow or not rows:
         return {}
     games = [{"event_id": str(r.event_id), "home_full": r.home, "away_full": r.away,
               "current_home_spread": None, "current_total": None} for r in rows]
-    _run_odds_api(games, today, log)
+    _run_odds_api(games, today, log, cache)
     return {g["event_id"]: g for g in games if g.get("current_home_spread") is not None or g.get("current_total") is not None}
 
 
 def fill_missing_lines(today: str, now, led: pd.DataFrame, allow_api: bool, log=lambda m: None,
-                       client=None, lines=None) -> dict:
+                       client=None, lines=None, cache: dict | None = None) -> dict:
     """Fill today's not-started games whose newest Vegas line in market_lines lacks a spread or total.
 
     Order: official open plays first, then by tip time. ESPN/DK (free) first; the reserved pre-tip Odds API call
@@ -212,7 +218,7 @@ def fill_missing_lines(today: str, now, led: pd.DataFrame, allow_api: bool, log=
     still = [w for w in work if w["current_home_spread"] is None or w["current_total"] is None]
     log(f"  missing lines: {len(gaps)} game(s); {len(gaps) - len(still)} filled from ESPN/DK, {len(still)} left")
     if still and allow_api:
-        _run_odds_api(still, today, log)
+        _run_odds_api(still, today, log, cache)
     fills = {w["game_id"]: w for w in work}
     ts = now.isoformat(timespec="seconds")
     n = sw.insert_missing_lines(client, newest, fills, ts, log=log)
@@ -230,6 +236,106 @@ def fill_missing_lines(today: str, now, led: pd.DataFrame, allow_api: bool, log=
             if w["current_home_spread"] is not None or w["current_total"] is not None}
 
 
+# ── Closing-line snapshot ───────────────────────────────────────────────────────
+CLOSE_WINDOW_MIN = 30          # plays tipping within the next 30 minutes get a closing-line snapshot
+CLOSE_TABLE = "closing_line_snapshots"
+CLOSE_TIERS = ("official", "lean")
+
+
+def closing_targets(led: pd.DataFrame, today: str, now, window: float = CLOSE_WINDOW_MIN) -> dict:
+    """event_id -> {"tip": naive CT Timestamp, "pick_ids": [...]} for today's OPEN official/lean plays whose game tips
+    within `window` minutes (and has not tipped). Track-tier and void/graded rows are never targets."""
+    if led is None or not len(led):
+        return {}
+    naive_now = pd.Timestamp(now.replace(tzinfo=None))
+    tips = pd.to_datetime(led.tip_ct, errors="coerce")
+    tier = led.tier.fillna("official") if "tier" in led else pd.Series("official", index=led.index)
+    m = ((led.status == "open") & (led.game_date.astype(str) == today) & tier.isin(CLOSE_TIERS)
+         & (tips > naive_now) & (tips <= naive_now + timedelta(minutes=window)))
+    out = {}
+    for i in led.index[m]:
+        t = out.setdefault(str(led.at[i, "event_id"]), {"tip": tips[i], "pick_ids": []})
+        t["pick_ids"].append(str(led.at[i, "pick_id"]))
+    return out
+
+
+def _snap_row(g: dict, ev: str, today: str, source: str, book, ln: dict, ts: str, now, pick_ids) -> dict | None:
+    spread, total = ln.get("current_home_spread"), ln.get("current_total")
+    if spread is None and total is None:
+        return None
+    tip = pd.Timestamp(g["tipoff"]) if g.get("tipoff") else None
+    mins = round((tip - pd.Timestamp(now).tz_convert("UTC")).total_seconds() / 60, 1) if tip is not None else None
+    return {"game_id": int(g["id"]), "event_id": ev, "game_date": today, "source": source, "book": book,
+            "home_spread": spread, "total": total,
+            "home_spread_price": ln.get("current_home_spread_price"),
+            "away_spread_price": ln.get("current_away_spread_price"),
+            "over_price": ln.get("current_over_price"), "under_price": ln.get("current_under_price"),
+            "tipoff": g.get("tipoff"), "captured_at": ts, "minutes_to_tip": mins, "pick_ids": sorted(pick_ids)}
+
+
+def closing_line_snapshot(today: str, now, led: pd.DataFrame, allow_api: bool, log=lambda m: None, client=None,
+                          lines=None, cache: dict | None = None, window: float = CLOSE_WINDOW_MIN) -> int:
+    """Snapshot the closing spread/total of every game with an open official or lean play tipping within `window`
+    minutes, into closing_line_snapshots (insert-only; never picks, the ledger or the hash chain):
+      * ESPN/DK (free) every run;
+      * The Odds API (multi-book, via the run's ONE shared 'pretip' call) when at least one target game has no
+        Odds API snapshot yet, or when this run already holds the board (free). A refused claim = ESPN only.
+    Returns rows written. Skips (logs, 0) without Supabase credentials or before the migration is applied."""
+    from czarp import supabase_writer as sw
+    targets = closing_targets(led, today, now, window)
+    if not targets:
+        return 0
+    if client is None:
+        if not (os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_SERVICE_KEY")):
+            log("  closing lines: no Supabase credentials — skipped")
+            return 0
+        client = sw.Client()
+    lines = lines or dr.espn_dk_lines
+    utc_now = pd.Timestamp(now).tz_convert("UTC")
+    evs = ",".join(sorted(targets))
+    games = [g for g in client.get_all("games", order="id", select="id,external_id,home,away,tipoff,status",
+                                       date=f"eq.{today}", external_id=f"in.({evs})")
+             if g.get("status") != "final" and g.get("tipoff") and pd.Timestamp(g["tipoff"]) > utc_now]
+    if not games:
+        return 0
+    ids = ",".join(str(int(g["id"])) for g in games)
+    try:
+        done = {int(r["game_id"]) for r in client.get_all(CLOSE_TABLE, order="id", select="game_id",
+                                                          game_id=f"in.({ids})", source="eq.oddsapi")}
+    except Exception as e:                     # table missing (migration not applied): nothing to write to
+        log(f"  closing lines: {CLOSE_TABLE} not readable ({type(e).__name__}) — skipped")
+        return 0
+    ts = now.isoformat(timespec="seconds")
+    rows, snap = [], _snapshot(today)
+    for g in games:
+        ev = str(g["external_id"])
+        ln = {k: sw._clean(v) for k, v in (lines(ev) or {}).items()}
+        r = _snap_row(g, ev, today, "espn", ln.get("book") or "DraftKings", ln, ts, now, targets[ev]["pick_ids"])
+        if r:
+            rows.append(r)
+    need_api = [g for g in games if int(g["id"]) not in done]
+    if allow_api and (need_api or (cache is not None and "board" in cache)):
+        work = []
+        for g in games:
+            s = snap.get(str(g["external_id"]), {})
+            work.append({"game": g, "event_id": str(g["external_id"]),
+                         "home_full": s.get("home_full") or g["home"], "away_full": s.get("away_full") or g["away"],
+                         "current_home_spread": None, "current_total": None})
+        _run_odds_api(work, today, log, cache)
+        for w in work:
+            src = str(w.get("price_source") or "")
+            if src.startswith("oddsapi:"):
+                r = _snap_row(w["game"], w["event_id"], today, "oddsapi", src.split(":", 1)[1] or None, w, ts, now,
+                              targets[w["event_id"]]["pick_ids"])
+                if r:
+                    rows.append(r)
+    if rows:
+        client.insert(CLOSE_TABLE, rows)
+    log(f"  closing lines: {len(rows)} snapshot row(s) for {len(games)} game(s) tipping within {window:g} min "
+        f"({sum(r['source'] == 'oddsapi' for r in rows)} from The Odds API)")
+    return len(rows)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--date")
@@ -239,6 +345,9 @@ def main(argv=None) -> int:
     ap.add_argument("--no-odds-api", action="store_true")
     ap.add_argument("--big-within", type=float, default=BIG_WITHIN_MIN,
                     help=f"report big moves on any game tipping within this many minutes (default {BIG_WITHIN_MIN}; 0 = off)")
+    ap.add_argument("--close-within", type=float, default=CLOSE_WINDOW_MIN,
+                    help=f"closing-line snapshot for official/lean plays tipping within this many minutes "
+                         f"(default {CLOSE_WINDOW_MIN}; 0 = off)")
     ap.add_argument("-v", "--verbose", action="store_true")
     a = ap.parse_args(argv)
     log = (lambda m: print(m, file=sys.stderr, flush=True)) if a.verbose else (lambda m: None)
@@ -264,12 +373,18 @@ def main(argv=None) -> int:
         print(f"Big moves {today} {now:%H:%M} CT — games tipping within {a.big_within:g} min (info only, not plays):")
         for ln in BM.pretip_lines(big):
             print(ln)
-    filled = {}
+    filled, board = {}, {}                     # board: this run's ONE shared Odds API call (pretip slot)
     if not a.dry_run:
         try:
-            filled = fill_missing_lines(today, now, led, allow_api=not a.no_odds_api, log=log)
+            filled = fill_missing_lines(today, now, led, allow_api=not a.no_odds_api, log=log, cache=board)
         except Exception as e:
             log(f"  missing-line fill failed ({type(e).__name__}: {e})")
+    if not a.dry_run and a.close_within and a.close_within > 0:
+        try:
+            closing_line_snapshot(today, now, led, allow_api=not a.no_odds_api, log=log, cache=board,
+                                  window=a.close_within)
+        except Exception as e:                 # never block the play checks
+            log(f"  closing-line snapshot failed ({type(e).__name__}: {e})")
     if todo.empty:
         return 0
     lines, missing = {}, []
@@ -282,7 +397,7 @@ def main(argv=None) -> int:
             missing.append(r)
         lines[i] = ln
     if missing:
-        extra = _odds_api_lines(missing, today, allow=not (a.no_odds_api or a.dry_run), log=log)
+        extra = _odds_api_lines(missing, today, allow=not (a.no_odds_api or a.dry_run), log=log, cache=board)
         for i, r in todo.iterrows():
             if str(r.event_id) in extra:
                 lines[i] = {**lines[i], **{k: v for k, v in extra[str(r.event_id)].items() if v is not None}}

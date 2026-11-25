@@ -15,8 +15,8 @@ Odds API hard cap (fail closed, server-side; see "Odds API: server-side hard cap
 API's own x-requests-used / x-requests-remaining from the free /v4/sports endpoint (key in a header). A paid call
 needs that read to succeed, credits above the reserve, and a free row in odds_api_refresh_claims (at most
 REFRESH_PAID_CALLS_PER_DAY per CT day, enforced in this job even across concurrent runs, --force and re-runs).
-The local/Actions-cache usage file is not used by this job. Worst case across all jobs: daily 1 + pretip 1 +
-refresh 3 = 5 paid calls a day (Christian's cap).
+The local/Actions-cache usage file is not used by this job. Worst case across all jobs: daily 2 + pretip 10 +
+refresh 6 + manual 2 = 20 paid calls a day (Christian's cap, raised from 5 on 24 Nov 2026).
 
 Each run, for today's games that have not tipped:
   1. pulls the current DraftKings line from ESPN (free); The Odds API only for games ESPN has no line for;
@@ -454,21 +454,21 @@ def recompute_edges(client, games: list[dict], now, bankroll: float | None, ts: 
 # ── Odds API: server-side hard cap ─────────────────────────────────────────────
 # The refresh job's paid Odds API calls are claimed in Supabase, not in a local/Actions-cache file, so a missing,
 # stale or unsaved cache can never hide earlier calls:
-#   odds_api_refresh_claims (day, n) primary key; this job only inserts n=1..REFRESH_PAID_CALLS_PER_DAY (3),
-#     even though the historical CHECK still allows n=1..4. The Python loop is the live refresh cap;
+#   odds_api_refresh_claims (day, n) primary key; this job only inserts n=1..REFRESH_PAID_CALLS_PER_DAY (6), and
+#     the table's CHECK (n between 1 and 6, migration 2026-11-25_odds_api_cap_20_closing_lines.sql) matches it;
 #   line_refresh_runs (day, slot) primary key -> one run per scheduled slot per CT day (double firings skip);
 #     each row also records the API's own x-requests-used / x-requests-remaining at the start of the run.
 # Before any paid call the run must have read the API's usage from the free /v4/sports endpoint (key in a header);
 # if that read fails, or credits are under the reserve, or the API's own numbers show >= ODDS_API_MAX_CALLS_PER_DAY
 # paid calls account-wide since today's first refresh run, the call is refused (ESPN only). daily (1) + pretip (1)
-# stay on the box's file, so the worst case is 1 + 1 + 3 = 5 paid calls a day.
+# + manual stay on the box's file, so the worst case is 2 + 10 + 6 + 2 = 20 paid calls a day.
 CLAIMS_TABLE = "odds_api_refresh_claims"
 RUNS_TABLE = "line_refresh_runs"
-REFRESH_PAID_CALLS_PER_DAY = 3                 # live refresh cap (historical table CHECK still allows 1..4)
+REFRESH_PAID_CALLS_PER_DAY = 6                 # live refresh cap = the table's CHECK (n between 1 and 6)
 ODDS_CREDITS_PER_CALL = 3                      # spreads, totals, h2h x 1 region (odds_fetcher.fetch_vegas_lines)
 FORCED_SLOT_BASE = 1000                        # --force runs: slot = 1000 + CT minute of day (never a real slot)
 assert REFRESH_PAID_CALLS_PER_DAY == dr.ODDS_API_JOB_SLOTS["refresh"]
-assert dr.ODDS_API_JOB_SLOTS["daily"] + dr.ODDS_API_JOB_SLOTS["pretip"] + REFRESH_PAID_CALLS_PER_DAY \
+assert sum(v for k, v in dr.ODDS_API_JOB_SLOTS.items() if k != JOB) + REFRESH_PAID_CALLS_PER_DAY \
     <= dr.ODDS_API_MAX_CALLS_PER_DAY
 
 

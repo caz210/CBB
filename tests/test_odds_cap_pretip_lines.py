@@ -13,6 +13,7 @@ import pytest
 import daily_run as dr
 import pretip_check as pc
 from czarp import supabase_writer as sw
+from tests.odds_fakes import claimed_fetch
 
 TODAY = "2026-11-21"
 
@@ -37,7 +38,7 @@ def odds(monkeypatch, tmp_path):
         return pd.DataFrame(board, columns=["vegas_home", "vegas_away", "vegas_spread", "vegas_total",
                                             "home_spread_price", "away_spread_price", "over_price",
                                             "under_price", "source_book"])
-    fake.fetch_vegas_lines = fetch
+    fake.fetch_vegas_lines = claimed_fetch(fake, fetch)
     monkeypatch.setitem(sys.modules, "odds_fetcher", fake)
     usage = tmp_path / "odds_api_usage.json"
     usage.write_text(json.dumps({"calls": {}, "remaining": 500}))
@@ -50,27 +51,30 @@ def _missing():
     return [dict(home_full="H", away_full="A", current_home_spread=None, current_total=None)]
 
 
-def test_cap_two_per_day_daily_cannot_take_pretip_slot_third_refused(odds):
+def test_cap_twenty_per_day_daily_cannot_take_pretip_slots_extra_refused(odds):
     calls, usage, _ = odds
-    assert dr.ODDS_API_MAX_CALLS_PER_DAY == 5 and dr.ODDS_API_JOB_SLOTS == {"daily": 1, "pretip": 1, "refresh": 3}
-    dr.odds_api_fallback(_missing(), TODAY, allow=True)                     # 7 AM run: its 1 slot
-    dr.odds_api_fallback(_missing(), TODAY, allow=True)                     # 7 AM re-run: refused (pre-tip slot kept)
-    assert len(calls) == 1
-    dr.odds_api_fallback(_missing(), TODAY, allow=True, job="pretip")       # pre-tip: the reserved slot
-    assert len(calls) == 2
-    dr.odds_api_fallback(_missing(), TODAY, allow=True, job="pretip")       # third call: refused
+    assert dr.ODDS_API_MAX_CALLS_PER_DAY == 20
+    assert dr.ODDS_API_JOB_SLOTS == {"daily": 2, "pretip": 10, "refresh": 6, "manual": 2}
+    D, P = dr.ODDS_API_JOB_SLOTS["daily"], dr.ODDS_API_JOB_SLOTS["pretip"]
+    for _ in range(D + 1):
+        dr.odds_api_fallback(_missing(), TODAY, allow=True)                 # 7 AM run + re-run(s): daily slot only
+    assert len(calls) == D                                                  # the extra re-run is refused
+    for _ in range(P):
+        dr.odds_api_fallback(_missing(), TODAY, allow=True, job="pretip")   # pre-tip: its own slots
+    assert len(calls) == D + P
+    dr.odds_api_fallback(_missing(), TODAY, allow=True, job="pretip")       # one more: refused
     dr.odds_api_fallback(_missing(), TODAY, allow=True)
-    assert len(calls) == 2
+    assert len(calls) == D + P
     u = json.loads(usage.read_text())
-    assert u["calls"][TODAY] == 2 and u["calls_by_job"][TODAY] == {"daily": 1, "pretip": 1}
-    assert dr.odds_api_claim("pretip") == (False, "pretip slot used (1/1; the other slot is reserved)")
+    assert u["calls"][TODAY] == D + P and u["calls_by_job"][TODAY] == {"daily": D, "pretip": P}
+    assert dr.odds_api_claim("pretip") == (False, f"pretip slot used ({P}/{P}; the other slot is reserved)")
     # a new CT day (real clock) starts fresh
     CLOCK["now"] += timedelta(days=1)
     dr.odds_api_fallback(_missing(), "2026-11-22", allow=True, job="pretip")
-    assert len(calls) == 3
+    assert len(calls) == D + P + 1
     # --no-odds-api still wins
     dr.odds_api_fallback(_missing(), "2026-11-22", allow=False)
-    assert len(calls) == 3
+    assert len(calls) == D + P + 1
 
 
 def test_total_cap_holds_even_if_slots_were_larger(odds, monkeypatch):
@@ -84,11 +88,12 @@ def test_total_cap_holds_even_if_slots_were_larger(odds, monkeypatch):
 
 def test_legacy_single_counter_counts_as_the_7am_call(odds):
     calls, usage, _ = odds
-    usage.write_text(json.dumps({"calls": {TODAY: 1}, "remaining": 500}))     # written by the old code at 7 AM
+    D = dr.ODDS_API_JOB_SLOTS["daily"]
+    usage.write_text(json.dumps({"calls": {TODAY: D}, "remaining": 500}))     # written by the old code at 7 AM
     dr.odds_api_fallback(_missing(), TODAY, allow=True)
     assert len(calls) == 0
     dr.odds_api_fallback(_missing(), TODAY, allow=True, job="pretip")
-    assert len(calls) == 1 and json.loads(usage.read_text())["calls"][TODAY] == 2
+    assert len(calls) == 1 and json.loads(usage.read_text())["calls"][TODAY] == D + 1
 
 
 def test_reserve_respected_and_nothing_claimed(odds):
@@ -116,10 +121,12 @@ def test_cap_holds_across_processes(odds):
     _, usage, _ = odds
     ctx = mp.get_context("fork")
     with ctx.Pool(8) as pool:
-        got = pool.map(_claim, [(str(usage), j) for j in ["daily", "pretip"] * 8])
-    assert sum(got) == 2
+        got = pool.map(_claim, [(str(usage), j) for j in ["daily", "pretip", "manual"] * 16])
+    S = dr.ODDS_API_JOB_SLOTS
+    assert sum(got) == S["daily"] + S["pretip"] + S["manual"]
     u = json.loads(usage.read_text())
-    assert u["calls"][TODAY] == 2 and u["calls_by_job"][TODAY] == {"daily": 1, "pretip": 1}
+    assert u["calls"][TODAY] == sum(got)
+    assert u["calls_by_job"][TODAY] == {"daily": S["daily"], "pretip": S["pretip"], "manual": S["manual"]}
 
 
 # ── fail closed: missing / truncated / malformed counter ─────────────────────────
@@ -337,7 +344,8 @@ def test_slate_date_does_not_change_the_budget_day(odds):
         dr.odds_api_fallback(_missing(), slate, allow=True)
         dr.odds_api_fallback(_missing(), slate, allow=True, job="pretip")
     u = json.loads(usage.read_text())
-    assert len(calls) == 2 and u["calls"] == {TODAY: 2} and list(u["calls_by_job"]) == [TODAY]
+    n = dr.ODDS_API_JOB_SLOTS["daily"] + 4                                   # daily slot used up; 4 pretip calls
+    assert len(calls) == n and u["calls"] == {TODAY: n} and list(u["calls_by_job"]) == [TODAY]
 
 
 def test_caller_slate_date_is_ignored_for_budgeting(odds, monkeypatch):
