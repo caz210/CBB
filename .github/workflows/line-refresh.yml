@@ -14,8 +14,9 @@
 #
 # What it writes: new vegas 'current' market_lines rows (only when a line changed) and new projections rows
 # (7:15 projections unchanged, edges / skip reasons recomputed). Never picks, never the ledger, never KenPom.
-# The Odds API is used only for games ESPN has no line for, under the 'refresh' slot (max 4 calls a day). The
-# usage counter for this job lives in the Actions cache (restored before, saved after every run).
+# The Odds API is used only for games ESPN has no line for, under the 'refresh' slot (max 3 paid calls a day,
+# part of Christian's 5/day cap across all jobs). Paid refresh calls are claimed in Supabase
+# (odds_api_refresh_claims), not a runner cache; this workflow does not use odds_api_usage.json.
 
 name: Intraday line refresh
 
@@ -71,17 +72,6 @@ jobs:
             "numpy==2.4.6" \
             "python-dotenv==1.2.4"
 
-      - name: Restore Odds API usage counter
-        uses: actions/cache/restore@v4
-        with:
-          path: data/ledger/odds_api_usage.json
-          key: odds-usage-refresh-${{ github.run_id }}
-          restore-keys: |
-            odds-usage-refresh-
-
-      - name: Init counter if absent
-        run: python -m czarp.odds_usage --init
-
       - name: Refresh lines
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -101,10 +91,3 @@ jobs:
           if [ "$FORCE_INPUT" = "true" ]; then ARGS="$ARGS --force"; fi
           if [ "$DRY_RUN_INPUT" = "true" ]; then ARGS="$ARGS --dry-run"; fi
           python refresh_lines.py $ARGS
-
-      - name: Save Odds API usage counter
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: data/ledger/odds_api_usage.json
-          key: odds-usage-refresh-${{ github.run_id }}
