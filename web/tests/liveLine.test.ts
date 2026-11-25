@@ -7,7 +7,9 @@ import {
   remainingShare, timeLeftMin, roundToHalf, phi, erf, liveLine,
   defaultLiveState, defaultLiveScores, normalizeClock, sliderBounds,
   LIVE_LINE_DISCLAIMER, nextLiveLinePeriod, LIVE_LINE_PERIODS,
+  displayLiveSpread, projectedFinalScores, fmtProjectedScore,
 } from "../src/lib/liveLine";
+import { fmtOne, fmtSpread } from "../src/lib/labels";
 
 const duke = {
   czarpTotal: 151,
@@ -162,4 +164,121 @@ test("period radiogroup: Arrow, Home, and End move between 1H, Halftime, 2H, OT"
   assert.equal(nextLiveLinePeriod("2H", "Enter"), null);
   assert.equal(nextLiveLinePeriod("FINAL", "Home"), "1H");
   assert.equal(nextLiveLinePeriod("FINAL", "End"), "OT");
+});
+
+
+test("Rice vs Illinois Chicago (neutral): leading away favorite displays as Rice -1.5, not +1.5 / Rice", () => {
+  // Christian's screenshot: Rice 64, Illinois Chicago 62, 2H, 3:00 left.
+  // UIC is in the home slot on a neutral floor; Rice is away and leading.
+  // Pregame official total 146.5; remaining split leaves Rice a 1.5-pt live favorite at 67%.
+  const rice = {
+    czarpTotal: 146.5,
+    projHome: 76.4, // Illinois Chicago, pregame favorite
+    projAway: 70.1, // Rice
+    homeScore: 62,
+    awayScore: 64,
+    period: "2H" as const,
+    minutesLeft: 3,
+  };
+  const L = liveLine(rice);
+  assert.ok(L);
+  assert.equal(L.liveTotal, 137.5);
+  // LIVE TOTAL vs-pregame delta is unchanged (still from rounded live total − rounded official total).
+  assert.equal(L.liveTotal - 146.5, -9);
+  assert.equal(`${L.liveTotal - 146.5 > 0 ? "+" : ""}${fmtOne(L.liveTotal - 146.5)} vs pregame`, "-9.0 vs pregame");
+  // Internal value stays home-line (away − home): positive because the away team is ahead in the projection.
+  assert.equal(L.liveSpread, 1.5);
+  const view = displayLiveSpread(L.liveSpread, "Illinois Chicago", "Rice");
+  assert.equal(view.line, -1.5);
+  assert.equal(fmtSpread(view.line), "-1.5");
+  assert.equal(view.team, "Rice");
+  const pHome = Math.round(L.homeWinProb * 100);
+  const pAway = 100 - pHome;
+  assert.equal(pAway, 67);
+  assert.equal(pHome, 33);
+  const winTeam = pHome >= pAway ? "Illinois Chicago" : "Rice";
+  assert.equal(view.team, winTeam);
+  const proj = projectedFinalScores(L.liveTotal, L.liveSpread);
+  assert.equal(proj.away, 69.5);
+  assert.equal(proj.home, 68);
+  assert.equal(fmtProjectedScore(proj.away), "69.5");
+  assert.equal(fmtProjectedScore(proj.home), "68");
+  assert.equal(proj.away + proj.home, L.liveTotal);
+  // Swapping the slots still names Rice as the -1.5 favorite.
+  const swapped = liveLine({
+    czarpTotal: 146.5,
+    projHome: 70.1,
+    projAway: 76.4,
+    homeScore: 64,
+    awayScore: 62,
+    period: "2H",
+    minutesLeft: 3,
+  });
+  assert.ok(swapped);
+  assert.equal(swapped.liveTotal, 137.5);
+  assert.equal(swapped.liveSpread, -1.5);
+  const viewHome = displayLiveSpread(swapped.liveSpread, "Rice", "Illinois Chicago");
+  assert.equal(viewHome.line, -1.5);
+  assert.equal(viewHome.team, "Rice");
+  assert.equal(fmtSpread(viewHome.line), "-1.5");
+});
+
+test("live spread display: favorite is always negative, labeled with that team; PK at zero", () => {
+  // Home favorite: home-line is already negative, display stays negative / home.
+  assert.deepEqual(displayLiveSpread(-4.5, "Duke", "Michigan St."), { line: -4.5, team: "Duke" });
+  assert.equal(fmtSpread(displayLiveSpread(-4.5, "Duke", "Michigan St.").line), "-4.5");
+  // Away favorite: home-line is positive; flip the sign so the label and the number agree.
+  assert.deepEqual(displayLiveSpread(1.5, "Illinois Chicago", "Rice"), { line: -1.5, team: "Rice" });
+  assert.equal(fmtSpread(displayLiveSpread(1.5, "Illinois Chicago", "Rice").line), "-1.5");
+  // Pick 'em.
+  assert.deepEqual(displayLiveSpread(0, "Duke", "Michigan St."), { line: 0, team: "Pick 'em" });
+  assert.equal(fmtSpread(0), "PK");
+  assert.deepEqual(displayLiveSpread(-0, "Duke", "Michigan St."), { line: 0, team: "Pick 'em" });
+});
+
+test("live spread follows the live favorite, even when that team is trailing or was the pregame dog", () => {
+  // Home is trailing 60-64 but is still the live favorite (large remaining share, home was the pregame favorite).
+  const homeTrail = liveLine({
+    czarpTotal: 160, projHome: 90, projAway: 70,
+    homeScore: 60, awayScore: 64, period: "1H", minutesLeft: 20,
+  });
+  assert.ok(homeTrail);
+  assert.ok(homeTrail.liveSpread < 0);
+  assert.ok(homeTrail.homeWinProb > 0.5);
+  const homeView = displayLiveSpread(homeTrail.liveSpread, "Home", "Away");
+  assert.ok(homeView.line < 0);
+  assert.equal(homeView.team, "Home");
+  assert.equal(homeView.team, homeTrail.homeWinProb >= homeTrail.awayWinProb ? "Home" : "Away");
+  // Away is trailing 60-64 but is still the live favorite.
+  const awayTrail = liveLine({
+    czarpTotal: 160, projHome: 70, projAway: 90,
+    homeScore: 64, awayScore: 60, period: "1H", minutesLeft: 20,
+  });
+  assert.ok(awayTrail);
+  assert.ok(awayTrail.liveSpread > 0);
+  assert.ok(awayTrail.awayWinProb > 0.5);
+  const awayView = displayLiveSpread(awayTrail.liveSpread, "Home", "Away");
+  assert.equal(awayView.line, -awayTrail.liveSpread);
+  assert.ok(awayView.line < 0);
+  assert.equal(awayView.team, "Away");
+});
+
+test("projected final scores come from the displayed live total and spread only", () => {
+  // Rice / UIC: 137.5 and 1.5 (away favorite) → Rice 69.5, Illinois Chicago 68.
+  assert.deepEqual(projectedFinalScores(137.5, 1.5), { away: 69.5, home: 68 });
+  // Same total and magnitude, home favorite.
+  assert.deepEqual(projectedFinalScores(137.5, -1.5), { home: 69.5, away: 68 });
+  // Pick 'em with a whole total splits evenly.
+  assert.deepEqual(projectedFinalScores(140, 0), { home: 70, away: 70 });
+  assert.equal(fmtProjectedScore(70), "70");
+  assert.equal(fmtProjectedScore(69.5), "69.5");
+  // Odd half-point total with a whole spread: preserve the total (fav rounded, dog = total − fav).
+  const odd = projectedFinalScores(139.5, -1);
+  assert.equal(odd.home + odd.away, 139.5);
+  assert.equal(odd.home, 70.5);
+  assert.equal(odd.away, 69);
+  // Pick 'em on a half-point total keeps both scores equal (may not sum to the total).
+  const pk = projectedFinalScores(137.5, 0);
+  assert.equal(pk.home, pk.away);
+  assert.equal(pk.home, 69);
 });
