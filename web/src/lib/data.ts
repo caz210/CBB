@@ -22,7 +22,7 @@ import {
   parseTeamRanking,
   type TeamRankingSnapshot,
 } from "./teamPage";
-import { isPickTier, parsePickTier, type Market, type MarketSource, type PickTier } from "./labels";
+import { isOfficialTier, parsePickTier, type Market, type MarketSource, type PickTier } from "./labels";
 import { isMissingRelation, leanRecordLine, CZARP_LEANS_TAB } from "./lean";
 import { leanFixtureEnabled, mergeLeanFixtureGames, fixtureLeanResults } from "./leanFixture";
 import { wilsonCi, SMALL_SAMPLE_N } from "./stats";
@@ -172,7 +172,9 @@ function applyLocked(v: ValueBet, r: Row) {
     v.posted_at = str(r.posted_at);
     if (!v.logged_at) v.logged_at = str(r.posted_at);
   }
-  if (isPickTier(r.tier)) v.pick_tier = r.tier;
+  const lockedTier = parsePickTier(r.tier);
+  if (lockedTier === "track" || lockedTier === "lean") v.pick_tier = lockedTier;
+  else v.pick_tier = "official";
   if (num(r.edge_at_post_pct) != null) v.line_edge_pct = num(r.edge_at_post_pct)!;
 }
 
@@ -192,7 +194,12 @@ async function mergeOfficialLocked(sb: SB, sport: Sport, ids: number[], all: Val
   for (const r of (lk.data ?? []) as Row[]) {
     const hit = all.find((v) => lockedMatches(r, v));
     if (hit) applyLocked(hit, r);
-    else all.push(toValueBet({ ...r, sport: sport.key, side: r.bet || r.side }));
+    else {
+      const lockedTier = parsePickTier(r.tier);
+      // official_picks_locked is the official book; only an explicit non-official tier is kept.
+      const tier = lockedTier === "track" || lockedTier === "lean" ? lockedTier : "official";
+      all.push(toValueBet({ ...r, sport: sport.key, side: r.bet || r.side, tier }));
+    }
   }
   return all;
 }
@@ -217,7 +224,7 @@ async function attachOfficialRecord(sb: SB, sport: Sport, ids: number[], bets: V
       clv: num(r.clv),
       logged_at: r.logged_at ? str(r.logged_at) : null,
       pick_hash: r.pick_hash ? str(r.pick_hash) : null,
-      pick_tier: isPickTier(r.tier) ? r.tier : "official",
+      pick_tier: parsePickTier(r.tier) ?? undefined,
     });
     if (rec) rows.push(rec);
   }
@@ -750,7 +757,7 @@ export async function loadHero(sport: Sport): Promise<Loaded<Hero | null>> {
   const pick = async (q: PromiseLike<{ data: Row[] | null; error: { message: string } | null }>, when: "yesterday" | "latest") => {
     const r = await q;
     const row = r.data?.[0] ? toLedgerRow(r.data[0]) : null;
-    if (!row) return null;
+    if (!row || !isOfficialTier(row.pick_tier)) return null;
     const n = await sb.from("slate_games").select("game").eq("game_id", row.game_id).limit(1);
     const neutral = (await neutralIds(sb, [row.game_id])).has(row.game_id);
     return { kind: "graded" as const, when, row, game: n.data?.[0] ? str(n.data[0].game) : null, neutral };
@@ -993,8 +1000,8 @@ export type ResultsData = {
 const LEDGER_LIMIT = 1000;
 const NAME_LOOKUP_LIMIT = 200;
 
-/** Units for a ledger row: official = ¼-Kelly profit_units; tracked = flat 1u result. */
-export const rowUnits = (r: LedgerRow) => (r.pick_tier === "track" ? r.flat_units ?? r.profit_units : r.profit_units);
+/** Units for a ledger row: official = ¼-Kelly profit_units; track/lean = flat 1u result. */
+export const rowUnits = (r: LedgerRow) => (isOfficialTier(r.pick_tier) ? r.profit_units : r.flat_units ?? r.profit_units);
 
 export type MarketUnits = { kelly: number; flat: number; staked: number; roi: number | null };
 

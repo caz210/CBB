@@ -1,4 +1,5 @@
 import type { LedgerRow } from "./types";
+import { isOfficialTier } from "./labels";
 
 export type PortfolioRisk = {
   maxDrawdown: number; // units, peak-to-trough (always >= 0)
@@ -6,7 +7,7 @@ export type PortfolioRisk = {
   currentStreak: { n: number; result: "W" | "L" | null };
 };
 
-const unitsOf = (r: LedgerRow) => (r.pick_tier === "track" ? r.flat_units ?? r.profit_units : r.profit_units);
+const unitsOf = (r: LedgerRow) => (isOfficialTier(r.pick_tier) ? r.profit_units : r.flat_units ?? r.profit_units);
 
 /** Chronological risk stats from graded ledger rows. Pushes don't break or extend W/L streaks. */
 export function portfolioRisk(ledger: LedgerRow[]): PortfolioRisk {

@@ -7,6 +7,7 @@ import { marketRatings, type MarketRating } from "@/lib/verdict";
 import { nowLine } from "@/lib/cardHeader";
 import { LineMoveNote, OpenNowNote } from "@/components/HeaderRow";
 import { totalFair } from "@/lib/posted";
+import { officialBetsOf } from "@/lib/officialPick";
 import {
   COMPARE_ROWS,
   DEFAULT_SHEET_TAB,
@@ -114,8 +115,9 @@ export function QuickBetBlock({ g, bets }: { g: SlateGame; bets: ValueBet[] }) {
   const czTotal = totalFair(g, bets);
   const curS = g.insight?.cur_spread ?? g.market_spread;
   const curT = g.insight?.cur_total ?? g.market_total;
-  const officialSpread = bets.find((b) => b.market === "spread" || b.market === "moneyline");
-  const officialTotal = bets.find((b) => b.market === "total");
+  const official = officialBetsOf(bets);
+  const officialSpread = official.find((b) => b.market === "spread" || b.market === "moneyline");
+  const officialTotal = official.find((b) => b.market === "total");
   const edgeS = ratings.spread.edgeNow != null ? fmtEdgeVsBar(ratings.spread.edgeNow, "spread") : null;
   const edgeT = ratings.total.edgeNow != null ? fmtEdgeVsBar(ratings.total.edgeNow, "total") : null;
   // Home-line notation still names the home team on a neutral floor.

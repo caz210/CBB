@@ -3,7 +3,7 @@
  *  stored official-record and slate fields. Customers see official picks only. */
 
 import type { LedgerRow, SlateGame, ValueBet } from "./types";
-import { fmtClv, fmtEdgeVsBar, fmtOne, fmtPlayPct, fmtSpread, fmtTipoff, fmtUnits, MARKET_LABEL, type Market } from "./labels";
+import { fmtClv, fmtEdgeVsBar, fmtOne, fmtPlayPct, fmtSpread, fmtTipoff, fmtUnits, isOfficialTier, MARKET_LABEL, type Market } from "./labels";
 import { marketRatings } from "./verdict";
 import { currentLineForBet } from "./posted";
 
@@ -25,7 +25,7 @@ export type OfficialRecord = {
 };
 
 export function ledgerToOfficialRecord(r: Pick<LedgerRow, "game_id" | "pick" | "stake_units" | "result" | "profit_units" | "clv" | "logged_at" | "pick_hash" | "pick_tier">): OfficialRecord | null {
-  if (r.pick_tier && r.pick_tier !== "official") return null;
+  if (!isOfficialTier(r.pick_tier)) return null;
   return {
     game_id: r.game_id,
     pick: r.pick ?? null,
@@ -48,12 +48,12 @@ function recordMatches(b: ValueBet, r: OfficialRecord): boolean {
 }
 
 /** Attach stake / result / P/L / CLV from the official ledger onto official ValueBets.
- *  Tracked rows are ignored. Does not invent numbers; unmatched bets are left as they were. */
+ *  Lean, track, and unknown-tier rows are ignored. Does not invent numbers; unmatched bets are left as they were. */
 export function applyOfficialRecord(bets: ValueBet[], rows: OfficialRecord[]): ValueBet[] {
   const officialRows = rows.filter((r) => r.game_id != null);
   if (!officialRows.length) return bets;
   return bets.map((b) => {
-    if ((b.pick_tier ?? "official") !== "official") return b;
+    if (!isOfficialTier(b.pick_tier)) return b;
     const hit = officialRows.find((r) => recordMatches(b, r));
     if (!hit) return b;
     return {
@@ -69,7 +69,7 @@ export function applyOfficialRecord(bets: ValueBet[], rows: OfficialRecord[]): V
 }
 
 export function officialBetsOf(bets: ValueBet[]): ValueBet[] {
-  return bets.filter((b) => (b.pick_tier ?? "official") === "official");
+  return bets.filter((b) => isOfficialTier(b.pick_tier));
 }
 
 export function stakeUnitsLabel(units: number | null | undefined): string | null {
@@ -108,7 +108,7 @@ function finite(n: unknown): n is number {
   return typeof n === "number" && Number.isFinite(n);
 }
 
-/** One banner block per official bet on the game. Tracked picks are omitted. */
+/** One banner block per official bet on the game. Lean, track, and unknown-tier picks are omitted. */
 export function officialPickViews(g: SlateGame, bets: ValueBet[]): OfficialPickView[] {
   const official = officialBetsOf(bets);
   if (!official.length) return [];

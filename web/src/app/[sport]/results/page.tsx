@@ -236,7 +236,7 @@ function Live({ data, range }: { data: Extract<Awaited<ReturnType<typeof loadRes
         <div className="card p-4 md:p-5">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="font-bold">Cumulative units</h2>
-            <span className="text-xs text-zinc-500">{data.tier === "track" ? "flat 1u" : "¼-Kelly"} · {RANGES[range].label}</span>
+            <span className="text-xs text-zinc-500">{data.tier === "official" ? "¼-Kelly" : "flat 1u"} · {RANGES[range].label}</span>
           </div>
           {data.cumulativeUnits.length >= 3 ? (
             <UnitsChart data={data.cumulativeUnits} />
@@ -383,8 +383,8 @@ function Live({ data, range }: { data: Extract<Awaited<ReturnType<typeof loadRes
 }
 
 function stakeLabel(r: LedgerRow) {
-  if (r.pick_tier === "track") return "1u flat";
-  return r.stake_units == null ? "—" : `${r.stake_units.toFixed(2)}u`;
+  if (r.pick_tier === "official") return r.stake_units == null ? "—" : `${r.stake_units.toFixed(2)}u`;
+  return "1u flat";
 }
 function Proof({ r, inline }: { r: LedgerRow; tipoff?: string; inline?: boolean }) {
   const posted = fmtPostedStamp(r.logged_at ?? r.created_at);

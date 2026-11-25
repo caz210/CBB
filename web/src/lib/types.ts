@@ -132,7 +132,7 @@ export type ValueBet = {
   prob_edge: number; // model_prob - market_prob
   line_edge_pct: number; // |fair − price| ÷ Vegas total (fraction); the headline Edge %
   kelly_quarter_units: number | null; // 1u = 1% of bankroll
-  pick_tier?: PickTier; // 'official' (staked) or 'track' (paper-only 1u)
+  pick_tier?: PickTier; // 'official' (staked), 'track' (paper 1u), or 'lean' (CZarp Lean, 1u, not official)
   logged_at?: string | null; // timestamptz the pick was posted
   /** Market line at post (picks.line_or_price). */
   posted_line?: number | null;

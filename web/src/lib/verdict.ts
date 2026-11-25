@@ -4,7 +4,7 @@
  *  lib/verdicts.ts and is judged on the current line only. If the edge columns are missing/null,
  *  the vs-now line is hidden and the market reads Toss Up unless it has a posted official pick.
  */
-import { fmtEdgeVsBar, fmtPlayPct, fmtThresholdPct, type Market } from "./labels";
+import { fmtEdgeVsBar, fmtPlayPct, fmtThresholdPct, isOfficialTier, type Market } from "./labels";
 import type { SlateGame, ValueBet } from "./types";
 import { marketPauseText } from "./coach";
 import { currentLineForBet } from "./posted";
@@ -145,7 +145,7 @@ export type CardHeadline = {
 };
 
 function officialBetsOnly(bets: ValueBet[]): ValueBet[] {
-  return bets.filter((b) => b.pick_tier !== "track");
+  return bets.filter((b) => isOfficialTier(b.pick_tier));
 }
 
 /** Headline market: an official market if any (Official wins ties); else the market highest on the
