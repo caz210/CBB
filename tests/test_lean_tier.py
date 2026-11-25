@@ -160,7 +160,7 @@ def test_lean_cannot_be_promoted_or_have_its_rule_changed(tmp_path, monkeypatch)
 
 
 def test_old_ledgers_without_new_coach_column_still_load_and_verify(tmp_path, monkeypatch):
-    led = _ledger(tmp_path, monkeypatch)
+    _ledger(tmp_path, monkeypatch)
     raw = pd.read_csv(dr.LEDGER, dtype={"event_id": str, "pick_id": str}).drop(columns=["new_coach"])
     raw[raw.tier == "official"].to_csv(dr.LEDGER, index=False)
     old = dr.read_ledger()
@@ -231,6 +231,29 @@ def test_supabase_sends_lean_with_new_coach_when_enabled(tmp_path, monkeypatch):
     assert pk["9-spread"]["new_coach"] is False                # same keys on every row (PostgREST bulk upsert)
 
 
+def test_supabase_skips_lean_when_enabled_but_migration_missing(tmp_path, monkeypatch):
+    """CZARP_SYNC_LEAN=1 before the migration: hold lean rows, keep official going, no new_coach column."""
+    from czarp import supabase_writer as sw
+    from tests.test_supabase_writer import FakeClient
+
+    class NoCol(FakeClient):
+        def get(self, table, **params):
+            if table == "picks" and "new_coach" in str(params.get("select", "")):
+                raise RuntimeError(
+                    '400 {"code":"PGRST204","message":"Could not find the \'new_coach\' column of \'picks\'"}')
+            return super().get(table, **params)
+
+    monkeypatch.setenv("CZARP_SYNC_LEAN", "1")
+    led = _ledger(tmp_path, monkeypatch)
+    c, logs = NoCol(), []
+    sw.sync([], led, None, _now(), log=logs.append, client=c)
+    pk = {r["pick_key"]: r for r in c.calls.get("picks", [])}
+    assert set(pk) == {"9-spread"}
+    assert "new_coach" not in pk["9-spread"]
+    assert any("lean migration is not applied" in x for x in logs)
+    assert any("2 CZarp Lean picks kept local" in x for x in logs)
+
+
 def test_projection_rows_carry_flag_and_fallback_drops_it():
     from czarp import supabase_writer as sw
     g = _game(open_home_spread=-8.5, current_home_spread=-6.5)
@@ -251,6 +274,41 @@ def test_projection_rows_carry_flag_and_fallback_drops_it():
     sw.upsert_projections(c, [{"game_id": 1, "line_moved_away": True, "line_moved_away_pts": 2.0, "spread": -11.0}],
                           log=logs.append)
     assert c.sent == [{"game_id": 1, "spread": -11.0}] and "optional columns missing" in logs[0]
+
+
+def test_fallback_keeps_full_precision_when_only_flags_missing():
+    """Prod has home_margin_full / total_full but not the flag columns until the lean migration is applied."""
+    from czarp import supabase_writer as sw
+
+    class C:
+        def __init__(self):
+            self.sent = []
+            self.cols = {"game_id", "spread", "home_margin_full", "total_full"}
+
+        def upsert(self, table, rows, on_conflict=None, returning=True, ignore_duplicates=False):
+            for r in rows:
+                missing = [k for k in r if k not in self.cols]
+                if missing:
+                    raise RuntimeError(
+                        '400 {"code":"PGRST204","message":"Could not find the \'%s\' column of \'projections\'"}'
+                        % missing[0])
+            self.sent.extend([dict(r) for r in rows])
+
+    c, logs = C(), []
+    sw.upsert_projections(c, [{"game_id": 1, "spread": -11.0,
+                               "home_margin_full": 11.234, "total_full": 146.78,
+                               "line_moved_away": True, "line_moved_away_pts": 2.0}],
+                          log=logs.append)
+    assert len(c.sent) == 1
+    assert c.sent[0]["home_margin_full"] == 11.234 and c.sent[0]["total_full"] == 146.78
+    assert "line_moved_away" not in c.sent[0] and "line_moved_away_pts" not in c.sent[0]
+    assert "optional columns missing" in logs[0]
+
+
+def test_verdict_suffix_uses_truthy_for_new_coach():
+    assert "new coach" in dr._verdict_suffix({"tier": "lean", "new_coach": True})
+    assert "new coach" not in dr._verdict_suffix({"tier": "lean", "new_coach": False})
+    assert "new coach" not in dr._verdict_suffix({"tier": "lean", "new_coach": float("nan")})
 
 
 def test_refresh_projection_rows_write_flag_only_when_db_has_columns():

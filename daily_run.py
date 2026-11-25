@@ -1736,7 +1736,7 @@ def _verdict_suffix(r) -> str:
     if r.get("tier") == "track":
         return "Tracked" + (f": {'; '.join(reasons)}" if reasons else "")
     if r.get("tier") == "lean":
-        return "CZarp Lean (1u tracked, not official)" + (" · new coach" if r.get("new_coach") else "")
+        return "CZarp Lean (1u tracked, not official)" + (" · new coach" if _truthy(r.get("new_coach")) else "")
     label = "Low value (edge only vs now)" if is_lean(r) else "Low value"
     return label + (f": {'; '.join(reasons)}" if reasons else "")
 
