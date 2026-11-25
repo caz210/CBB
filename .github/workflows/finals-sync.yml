@@ -11,20 +11,21 @@
 # ledger, and it does not use KenPom or the Odds API.
 #
 # Cron is UTC, at :07 and :37 to stay off the top-of-hour rush.
-# Hours 21-23 and 0-7 UTC cover:
-#   CST (UTC-6, through mid-March): 3:07 PM to 1:37 AM CT
-#   CDT (UTC-5, mid-March through early November): 4:07 PM to 2:37 AM CT
+# Hours 14-23 and 0-7 UTC cover the whole slate day in both DST modes:
+#   CST (UTC-6, through mid-March): 8:07 AM to 1:37 AM CT
+#   CDT (UTC-5, mid-March through early November): 9:07 AM to 2:37 AM CT
+# The 8:07 AM CST start is a little early so CDT still begins at 9:07 AM.
 # The late end of the window is meant to catch Hawaii home games
 # (HST is UTC-10; a 9:30 PM HST final is 7:30 UTC / 1:30 AM CST / 2:30 AM CDT).
-# Early tips around 4 PM CT fall inside the CST start at 3:07 PM.
 # GitHub may start a scheduled run a few minutes late, which is fine.
+# This file already accepts workflow_dispatch (used for ad-hoc runs and a follow-up routine).
 
 name: Evening finals sync
 
 on:
   schedule:
     # Every 30 minutes at :07 and :37, 21:07-23:37 and 00:07-07:37 UTC.
-    - cron: "7,37 0-7,21-23 * * *"
+    - cron: "7,37 0-7,14-23 * * *"
   workflow_dispatch:
     inputs:
       lookback:
