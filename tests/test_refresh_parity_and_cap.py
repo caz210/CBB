@@ -1,5 +1,5 @@
 """Scantron #65 blockers: F1 edge parity with daily_run (full precision, change-only, per market) and F2 the
-Odds API hard cap (server-side claims, API usage read, slot dedupe, --force capped, worst case 6/day)."""
+Odds API hard cap (server-side claims, API usage read, slot dedupe, --force capped, worst case 5/day)."""
 import json
 import sys
 import types
@@ -309,7 +309,7 @@ def test_usage_read_is_free_and_keyed_by_header(api):
     assert RL.read_odds_usage(None, api.get) is None
 
 
-def test_eight_runs_stale_cache_and_failed_saves_never_exceed_six_paid_calls(api, monkeypatch):
+def test_eight_runs_stale_cache_and_failed_saves_never_exceed_five_paid_calls(api, monkeypatch):
     games, projs, lines = _late_games()
     db = FakeDB(games, projs, lines)
     stale = api.usage_file.read_text()
@@ -324,22 +324,22 @@ def test_eight_runs_stale_cache_and_failed_saves_never_exceed_six_paid_calls(api
         _paid_run(db, games, now, api, force=force)
     monkeypatch.setattr(dr, "now_ct", lambda: ct(18))
     dr.odds_api_fallback([dict(current_home_spread=None, current_total=None)], TODAY, True, job="pretip")
-    assert api.paid <= dr.ODDS_API_MAX_CALLS_PER_DAY == 6
-    assert len(db.tables[RL.CLAIMS_TABLE]) == 4 == RL.REFRESH_PAID_CALLS_PER_DAY
-    assert api.paid == 6                                    # daily 1 + refresh 4 + pretip 1
+    assert api.paid <= dr.ODDS_API_MAX_CALLS_PER_DAY == 5
+    assert len(db.tables[RL.CLAIMS_TABLE]) == 3 == RL.REFRESH_PAID_CALLS_PER_DAY
+    assert api.paid == 5                                    # daily 1 + refresh 3 + pretip 1
     slots = sorted(r["slot"] for r in db.tables[RL.RUNS_TABLE])
     assert [s for s in slots if s < RL.FORCED_SLOT_BASE] == [10, 13, 16, 19]   # duplicate 10 AM firing skipped
-    # a 9th forced run the same day is refused by the database cap
+    # a 9th forced run the same day is refused by the code/database cap
     _paid_run(db, games, ct(19, 40), api, force=True)
-    assert api.paid == 6
+    assert api.paid == 5
 
 
 def test_force_still_respects_cap_from_the_database(api):
     games, projs, lines = _late_games()
-    claims = [dict(day=TODAY, n=n, slot=10) for n in range(1, 5)]
+    claims = [dict(day=TODAY, n=n, slot=10) for n in range(1, RL.REFRESH_PAID_CALLS_PER_DAY + 1)]
     db = FakeDB(games, projs, lines, claims=claims, runs=[dict(day=TODAY, slot=10, requests_used=1000.0)])
     _paid_run(db, games, ct(11, 30), api, force=True)
-    assert api.paid == 0 and len(db.tables[RL.CLAIMS_TABLE]) == 4
+    assert api.paid == 0 and len(db.tables[RL.CLAIMS_TABLE]) == RL.REFRESH_PAID_CALLS_PER_DAY
 
 
 def test_new_day_starts_fresh_from_the_database_not_the_cache(api):
@@ -364,8 +364,8 @@ def test_low_credits_and_api_side_call_count_refuse(api):
     db = FakeDB(games, projs, lines)
     _paid_run(db, games, ct(10), api)
     assert api.paid == 0
-    # baseline 1000 at today's first run; the API now shows 18 credits (6 calls) used since: refuse
-    api.remaining, api.used = 19000, 1018
+    # baseline 1000 at today's first run; the API now shows 15 credits (5 calls) used since: refuse
+    api.remaining, api.used = 19000, 1015
     db = FakeDB(games, projs, lines, runs=[dict(day=TODAY, slot=10, requests_used=1000.0)])
     _paid_run(db, games, ct(13), api)
     assert api.paid == 0 and db.tables[RL.CLAIMS_TABLE] == []
@@ -392,10 +392,14 @@ def test_dry_run_never_reads_usage_or_claims(api):
     assert api.paid == 0 and api.sports_reads == [] and db.writes == []
 
 
-def test_budget_constants_add_up_to_six():
-    assert dr.ODDS_API_JOB_SLOTS["daily"] + dr.ODDS_API_JOB_SLOTS["pretip"] + RL.REFRESH_PAID_CALLS_PER_DAY == 6
+def test_budget_constants_add_up_to_five():
+    assert dr.ODDS_API_MAX_CALLS_PER_DAY == 5
+    assert dr.ODDS_API_JOB_SLOTS == {"daily": 1, "pretip": 1, "refresh": 3}
+    assert RL.REFRESH_PAID_CALLS_PER_DAY == 3
+    assert sum(dr.ODDS_API_JOB_SLOTS.values()) == dr.ODDS_API_MAX_CALLS_PER_DAY
+    # historical #65 migration CHECK still allows n=1..4; the live cap is the Python loop (n=1..3)
     sql = (ROOT / "db/migrations/2026-11-21_intraday_line_refresh.sql").read_text().lower()
-    assert f"check (n between 1 and {RL.REFRESH_PAID_CALLS_PER_DAY})" in sql
+    assert "check (n between 1 and 4)" in sql
 
 
 # ── migration ───────────────────────────────────────────────────────────────────
