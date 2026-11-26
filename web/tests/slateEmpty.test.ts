@@ -72,10 +72,10 @@ test("today with nothing on the schedule gets a plain no-games line, not the mor
 
 test("an empty games table only confirms 'no games' after the official morning run", async () => {
   const m = await import("../src/lib/slateEmpty");
-  // 2026-11-21 is CST (UTC-6): 13:00Z = 7:00 AM CT, 13:35Z = 7:35 AM CT (after 7:30).
-  const early = new Date("2026-11-21T13:00:00Z");
-  const after = new Date("2026-11-21T13:35:00Z");
-  assert.equal(m.minutesCT(early), 7 * 60);
+  // 2026-11-21 is CST (UTC-6): 12:00Z = 6:00 AM CT, 12:35Z = 6:35 AM CT (after 6:30).
+  const early = new Date("2026-11-21T12:00:00Z");
+  const after = new Date("2026-11-21T12:35:00Z");
+  assert.equal(m.minutesCT(early), 6 * 60);
   assert.equal(m.confirmedSchedule(false, early), null);
   assert.equal(m.slateEmptyBody("today", m.confirmedSchedule(false, early)), m.SLATE_UNPOSTED_EMPTY_BODY);
   assert.equal(m.confirmedSchedule(false, after), false);
