@@ -329,3 +329,16 @@ def test_official_picks_locked_official_only_migration():
     low = sql.lower()
     for bad in ("drop view", "drop trigger", "picks_guard", "picks_immutable()", "update picks", "delete from picks", "insert into picks"):
         assert bad not in low
+
+
+def test_sync_carries_tv_rating_from_game_when_data_is_none():
+    """A late-lines run has no KenPom data; the morning tv_rating must still be written."""
+    now = datetime(2026, 11, 26, 7, 0, tzinfo=dr.CENTRAL)
+    g = dict(event_id="5", game_date="2026-11-26", kp_home="H", kp_away="A", neutral=False, state="pre",
+             tip_utc=datetime(2026, 11, 27, 0, 0, tzinfo=timezone.utc),
+             v2_home_margin=7.2, v2_total=143.7, v2_home_win_prob=0.73, v1_total=145.0,
+             current_home_spread=-6.5, current_total=144.5, tv_rating=77.0, proj_possessions=70.0)
+    c = FakeClient()
+    sw.sync([g], pd.DataFrame(columns=dr.LEDGER_COLS), None, now, log=lambda *_: None, client=c, data=None)
+    rows = c.calls["projections"]
+    assert rows and all(p.get("tv_rating") == 77.0 for p in rows)

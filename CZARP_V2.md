@@ -59,10 +59,10 @@ python -m pytest -q tests
 
 ## Daily automation (`daily_run.py`)
 
-    python daily_run.py [--date YYYY-MM-DD] [--no-refresh] [--no-odds-api] [--no-kalshi] [--dry-run] [--config FILE]
+    python daily_run.py [--date YYYY-MM-DD] [--no-refresh] [--no-odds-api] [--no-kalshi] [--dry-run] [--late-lines-only] [--config FILE]
 
 One command: refresh KenPom (ratings/prior/HCA) + FanMatch → ESPN slate + DraftKings open/current
-lines (free) → Odds API fallback whenever any D-I game lacks an ESPN/DK line (≤20 paid calls per CT day across all jobs, raised from 5 on 24 Nov 2026 for The Odds API 20K plan: daily 2 (the 7 AM run + one re-run), pretip 10 (pretip_check: missing market_lines fill + closing-line snapshot, one shared call per run), refresh 6 (the intraday `refresh_lines.py`), manual 2 (app.py, run.py, team_mapper.py, results_tracker.py);
+lines (free) → Odds API fallback whenever any D-I game lacks an ESPN/DK line (≤20 paid calls per CT day across all jobs, raised from 5 on 24 Nov 2026 for The Odds API 20K plan: daily 2 (the 6 AM run + the 7 AM `--late-lines-only` catch-up), pretip 10 (pretip_check: missing market_lines fill + closing-line snapshot, one shared call per run), refresh 6 (the intraday `refresh_lines.py`), manual 2 (app.py, run.py, team_mapper.py, results_tracker.py);
 every paid request is claimed first in ONE place, `czarp/odds_budget.py` (via `odds_fetcher.fetch_vegas_lines` / `odds_fetcher.odds_api_get`), key in the `x-api-key` header;
 100-credit reserve, usage in `data/ledger/odds_api_usage.json` under the checkout — counted under the real CT date, never `--date`;
 fails closed if that file is missing/corrupt; create it once with `python3 -m czarp.odds_usage --init`, check it with `--check`.
@@ -74,6 +74,18 @@ unsaved Actions cache can never hide earlier calls, and --force or a duplicate f
 x-requests-used / x-requests-remaining from the free `/v4/sports` endpoint (key in a header); if that read fails, credits
 are under the reserve, or the API shows 20+ paid calls since today's first refresh run, it makes no paid call (ESPN only).
 Box daily (2) + pretip (10) + manual (2) + refresh (6) = at most 20 a day)
+
+**Late-line official catch-up (`daily_run.py --late-lines-only`, 7:00 AM CT on the box).** Markets that had no
+line (no open and no current, per market) at the first morning snapshot (`data/ledger/snapshots/YYYY-MM-DD_HHMM.csv`)
+can still become official / track / lean picks under the normal rules the first time a line appears. Games that
+already had a line at 6 AM do not re-qualify (they stay Late Value). The catch-up reuses the morning snapshot's
+model numbers (no KenPom refresh, no re-project). If a newly posted market has a current line but no open, current
+is treated as the open, unless the open was dropped by the 8-pt / 12-pt sanity check. If there is no morning
+snapshot, it logs `late-lines: No morning snapshot baseline; no late-line picks`, writes nothing
+(no ledger, no Supabase, no snapshot), and exits 0. New picks are appended to the CSV ledger (hash chain)
+and mirrored to Supabase only for games that gained a newly lined eligible market (those projection
+rows carry the morning `tv_rating`). Logs `late-lines: No late-line picks` when nothing is logged, so
+the 7 AM routine can stay quiet.
 
 **Intraday line refresh (`refresh_lines.py`, GitHub Actions on main: "Intraday line refresh").** Normal days run at 10 AM, 1 PM,
 4 PM and 7 PM CT; light days (fewer than `LIGHT_DAY_MAX_GAMES` = 20 D-I games on today's slate) at 12 PM and 5 PM CT. The workflow
