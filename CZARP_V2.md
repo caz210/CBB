@@ -81,9 +81,11 @@ can still become official / track / lean picks under the normal rules the first 
 already had a line at 6 AM do not re-qualify (they stay Late Value). The catch-up reuses the morning snapshot's
 model numbers (no KenPom refresh, no re-project). If a newly posted market has a current line but no open, current
 is treated as the open, unless the open was dropped by the 8-pt / 12-pt sanity check. If there is no morning
-snapshot, the job falls back to a full `daily_run`. New picks are appended to the CSV ledger (hash chain) and
-mirrored to Supabase the same way as the morning run. Logs `late-lines: No late-line picks` when nothing is
-logged, so the 7 AM routine can stay quiet.
+snapshot, it logs `late-lines: No morning snapshot baseline; no late-line picks`, writes nothing
+(no ledger, no Supabase, no snapshot), and exits 0. New picks are appended to the CSV ledger (hash chain)
+and mirrored to Supabase only for games that gained a newly lined eligible market (those projection
+rows carry the morning `tv_rating`). Logs `late-lines: No late-line picks` when nothing is logged, so
+the 7 AM routine can stay quiet.
 
 **Intraday line refresh (`refresh_lines.py`, GitHub Actions on main: "Intraday line refresh").** Normal days run at 10 AM, 1 PM,
 4 PM and 7 PM CT; light days (fewer than `LIGHT_DAY_MAX_GAMES` = 20 D-I games on today's slate) at 12 PM and 5 PM CT. The workflow

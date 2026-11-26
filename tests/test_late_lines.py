@@ -54,6 +54,22 @@ def test_first_snapshot_is_the_earliest(tmp_path):
     assert dr.first_snapshot(day, str(tmp_path / "missing")) is None
 
 
+def test_first_snapshot_ignores_prior_day_date_tomorrow_file(tmp_path):
+    """A --date <tomorrow> run the evening before writes <tomorrow>_HHMM.csv with
+    yesterday's snapshot_ct and must not become tomorrow's 6 AM anchor."""
+    day = "2026-11-27"
+    early = _write_snapshot(tmp_path, day, "2215", [_snap_row(snapshot_ct="2026-11-26T22:15:00-06:00")])
+    morning = _write_snapshot(tmp_path, day, "0600", [_snap_row(snapshot_ct="2026-11-27T06:00:00-06:00")])
+    later = _write_snapshot(tmp_path, day, "0705", [_snap_row(snapshot_ct="2026-11-27T07:05:00-06:00")])
+    assert Path(dr.first_snapshot(day, str(tmp_path))) == morning
+    # If the only file is the prior-day one, there is no safe anchor.
+    early.unlink()
+    morning.unlink()
+    later.unlink()
+    _write_snapshot(tmp_path, day, "2215", [_snap_row(snapshot_ct="2026-11-26T22:15:00-06:00")])
+    assert dr.first_snapshot(day, str(tmp_path)) is None
+
+
 def test_eligibility_is_per_market():
     # both missing
     assert dr.late_line_eligible_markets(_snap_row()) == {"spread", "total"}
@@ -283,46 +299,37 @@ def _logs(monkeypatch):
     return lines
 
 
-def test_late_lines_only_falls_back_without_morning_snapshot(monkeypatch, tmp_path):
+def test_late_lines_only_without_morning_snapshot_writes_nothing(monkeypatch, tmp_path):
     _patch_paths(monkeypatch, tmp_path)
     lines = _logs(monkeypatch)
-    called = {"kenpom": 0, "project": 0}
+    marker = "LEDGER_UNCHANGED\n"
+    Path(dr.LEDGER).write_text(marker)
+    monkeypatch.setenv("SUPABASE_URL", "http://example.invalid")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "x")
 
-    def load(today, refresh):
-        called["kenpom"] += 1
-        assert refresh is True
-        return {"config": None}
+    def boom(*a, **k):
+        raise AssertionError("missing snapshot must not load KenPom, grade, write, or sync")
 
-    def project(games, data):
-        called["project"] += 1
-        for g in games:
-            g["kp_home"], g["kp_away"] = "H", "A"
-            g["v2_home_margin"] = 11.0
-            g["v1_total"] = 141.0
-
-    g = dict(event_id="9", game_date="2029-12-31", state="pre",
-             tip_utc=datetime(2030, 1, 1, tzinfo=timezone.utc), tip_ct="2029-12-31 18:00",
-             home="H", away="A", kp_home="H", kp_away="A", neutral=False, time_tbd=False)
     monkeypatch.setattr(dr, "now_ct", lambda: _now())
-    monkeypatch.setattr(dr, "espn_scoreboard", lambda d: [dict(g)])
-    monkeypatch.setattr(dr, "espn_dk_lines", lambda e: {
-        "open_home_spread": -4.0, "current_home_spread": -4.5,
-        "open_total": 140.0, "current_total": 140.0,
-    })
-    monkeypatch.setattr(dr, "load_kenpom", load)
-    monkeypatch.setattr(dr, "fanmatch_preds", lambda d: {})
-    monkeypatch.setattr(dr, "project_all", project)
-    monkeypatch.setattr(dr, "tag_new_coaches", lambda *a, **k: {})
-    monkeypatch.setattr(dr, "odds_api_fallback", lambda *a, **k: 0)
-    monkeypatch.setattr(dr, "grade", lambda ledger, now: [])
+    monkeypatch.setattr(dr, "espn_scoreboard", boom)
+    monkeypatch.setattr(dr, "espn_dk_lines", boom)
+    monkeypatch.setattr(dr, "load_kenpom", boom)
+    monkeypatch.setattr(dr, "project_all", boom)
+    monkeypatch.setattr(dr, "grade", boom)
+    monkeypatch.setattr(dr, "write_ledger", boom)
+    monkeypatch.setattr(dr, "append_picks", boom)
+    monkeypatch.setattr(dr, "flag_plays", boom)
     monkeypatch.setattr(dr, "PACE_FIX", False)
 
-    rc = dr.main(["--late-lines-only", "--date", "2029-12-31", "--no-kalshi", "--dry-run"])
+    import czarp.supabase_writer as sw
+    monkeypatch.setattr(sw, "sync", boom)
+
+    rc = dr.main(["--late-lines-only", "--date", "2029-12-31", "--no-kalshi"])
     assert rc == 0
-    assert called["kenpom"] == 1 and called["project"] == 1
-    assert any("falling back to a full run" in x for x in lines)
-    assert not any("anchoring to first snapshot" in x for x in lines)
-    assert not any("No late-line picks" in x for x in lines)
+    assert any("late-lines: No morning snapshot baseline; no late-line picks" in x for x in lines)
+    assert Path(dr.LEDGER).read_text() == marker
+    assert list(Path(dr.SNAP_DIR).iterdir()) == []
+    assert not list(Path(dr.OUT_DIR).glob("*"))
 
 
 def test_late_lines_only_e2e_posts_official_and_keeps_morning_pick(monkeypatch, tmp_path):
@@ -423,3 +430,197 @@ def test_late_lines_only_logs_no_picks_marker_when_nothing_qualifies(monkeypatch
     rc = dr.main(["--late-lines-only", "--date", day, "--no-kalshi", "--dry-run"])
     assert rc == 0
     assert any(x == "  late-lines: No late-line picks" or x.endswith("No late-line picks") for x in lines)
+
+
+def test_apply_snapshot_projections_carries_tv_rating():
+    live = [{"event_id": "9", "state": "pre"}]
+    snap = {"9": _snap_row("9", tv_rating=77.0, reason="pace", proj_possessions=70.0)}
+    assert dr.apply_snapshot_projections(live, snap) == 1
+    assert live[0]["tv_rating"] == 77.0 and live[0]["reason"] == "pace"
+
+
+def test_newly_lined_eligible_games_only_returns_markets_that_just_got_a_line():
+    snap = {
+        "9": _snap_row("9"),  # both missing
+        "2": _snap_row("2", open_home_spread=-4.0, current_home_spread=-4.0,
+                       open_total=140.0, current_total=140.0),  # already lined
+        "8": _snap_row("8"),  # both missing, still no line at 7 AM
+    }
+    later = [
+        _game(event_id="9", open_home_spread=None, current_home_spread=-4.5,
+              open_total=None, current_total=140.0),
+        _game(event_id="2", open_home_spread=-4.0, current_home_spread=-4.5,
+              open_total=140.0, current_total=140.0),
+        _game(event_id="8", open_home_spread=None, current_home_spread=None,
+              open_total=None, current_total=None),
+    ]
+    got = dr.newly_lined_eligible_games(later, snap)
+    assert [g["event_id"] for g in got] == ["9"]
+
+
+def test_late_mode_preserves_tv_rating_and_skips_supabase_for_unchanged_games(monkeypatch, tmp_path):
+    """B2: only newly lined eligible games are passed to sync, and they keep tv_rating.
+    Unchanged already-lined games are not re-written. Zero new lines → sync is not called."""
+    from czarp import supabase_writer as sw
+
+    _patch_paths(monkeypatch, tmp_path)
+    _logs(monkeypatch)
+    day = "2029-12-31"
+    pd.DataFrame(columns=dr.LEDGER_COLS).to_csv(dr.LEDGER, index=False)
+
+    _write_snapshot(Path(dr.SNAP_DIR), day, "0621", [
+        _snap_row("9", v2_home_margin=11.0, v1_total=141.0, v2_total=142.0,
+                  v2_home_win_prob=0.73, proj_possessions=70.0, tv_rating=77.0,
+                  kp_home="H", kp_away="A"),
+        _snap_row("2", v2_home_margin=11.0, v1_total=141.0, v2_total=142.0,
+                  v2_home_win_prob=0.80, proj_possessions=68.0, tv_rating=81.0,
+                  kp_home="H2", kp_away="A2",
+                  open_home_spread=-4.0, current_home_spread=-4.0,
+                  open_total=140.0, current_total=140.0),
+    ])
+
+    captured = {"calls": []}
+
+    def fake_sync(games, ledger, cfg, now, **k):
+        captured["calls"].append([str(g["event_id"]) for g in games])
+        captured["ratings"] = {str(g["event_id"]): g.get("tv_rating") for g in games}
+        return "ok"
+
+    def scoreboard(d):
+        return [
+            dict(event_id="9", game_date=day, state="pre",
+                 tip_utc=datetime(2030, 1, 1, tzinfo=timezone.utc), tip_ct="2029-12-31 18:00",
+                 home="H", away="A", neutral=False, time_tbd=False),
+            dict(event_id="2", game_date=day, state="pre",
+                 tip_utc=datetime(2030, 1, 1, tzinfo=timezone.utc), tip_ct="2029-12-31 18:00",
+                 home="H2", away="A2", neutral=False, time_tbd=False),
+        ]
+
+    monkeypatch.setenv("SUPABASE_URL", "http://example.invalid")
+    monkeypatch.setenv("SUPABASE_SERVICE_KEY", "x")
+    monkeypatch.setattr(dr, "now_ct", lambda: _now())
+    monkeypatch.setattr(dr, "espn_scoreboard", scoreboard)
+    monkeypatch.setattr(dr, "espn_dk_lines", lambda e: {
+        "open_home_spread": -4.0, "current_home_spread": -4.5,
+        "open_total": 140.0, "current_total": 140.0,
+    })
+    monkeypatch.setattr(dr, "load_kenpom", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no kenpom")))
+    monkeypatch.setattr(dr, "odds_api_fallback", lambda *a, **k: 0)
+    monkeypatch.setattr(dr, "grade", lambda ledger, now: [])
+    monkeypatch.setattr(dr, "PACE_FIX", False)
+    monkeypatch.setattr(sw, "sync", fake_sync)
+
+    rc = dr.main(["--late-lines-only", "--date", day, "--no-kalshi"])
+    assert rc == 0
+    assert captured["calls"] == [["9"]]
+    assert captured["ratings"] == {"9": 77.0}
+
+    # Re-run: game 9 is still eligible historically but already has a pick; it still
+    # has a newly-lined eligible market so sync would fire again. For the "0 new
+    # lines" case, use a slate where every market was already lined at 6 AM.
+    captured["calls"].clear()
+    _write_snapshot(Path(dr.SNAP_DIR), "2029-12-30", "0621", [
+        _snap_row("2", v2_home_margin=11.0, v1_total=141.0, v2_total=142.0, tv_rating=81.0,
+                  kp_home="H2", kp_away="A2",
+                  open_home_spread=-4.0, current_home_spread=-4.0,
+                  open_total=140.0, current_total=140.0),
+    ])
+    monkeypatch.setattr(dr, "espn_scoreboard", lambda d: [
+        dict(event_id="2", game_date="2029-12-30", state="pre",
+             tip_utc=datetime(2030, 1, 1, tzinfo=timezone.utc), tip_ct="2029-12-30 18:00",
+             home="H2", away="A2", neutral=False, time_tbd=False),
+    ])
+    rc = dr.main(["--late-lines-only", "--date", "2029-12-30", "--no-kalshi"])
+    assert rc == 0
+    assert captured["calls"] == []
+
+
+def test_late_lines_uses_real_morning_snapshot_writer(monkeypatch, tmp_path):
+    """Nit 6: feed the real 6 AM writer's CSV into the late run (not a hand-built snapshot)."""
+    _patch_paths(monkeypatch, tmp_path)
+    lines = _logs(monkeypatch)
+    day = "2029-12-31"
+    clock = {"now": _now("2029-12-31 06:21")}
+
+    ratings = pd.DataFrame({
+        "TeamName": ["H", "A", "H2", "A2"],
+        "AdjOE": [112.0, 104.0, 115.0, 100.0],
+        "AdjDE": [98.0, 106.0, 96.0, 110.0],
+    })
+
+    def load(today, refresh):
+        return {"config": None, "ratings": ratings}
+
+    def project(games, data):
+        for g in games:
+            g["kp_home"], g["kp_away"] = g["home"], g["away"]
+            g["v2_home_margin"] = 11.0
+            g["v2_total"] = 142.0
+            g["v2_home_win_prob"] = 0.73
+            g["v1_total"] = 141.0
+            g["proj_possessions"] = 70.0
+            g["reason"] = "morning"
+
+    def scoreboard(d):
+        return [
+            dict(event_id="9", game_date=day, state="pre",
+                 tip_utc=datetime(2030, 1, 1, tzinfo=timezone.utc), tip_ct="2029-12-31 18:00",
+                 home="H", away="A", neutral=False, time_tbd=False),
+            dict(event_id="2", game_date=day, state="pre",
+                 tip_utc=datetime(2030, 1, 1, tzinfo=timezone.utc), tip_ct="2029-12-31 18:00",
+                 home="H2", away="A2", neutral=False, time_tbd=False),
+        ]
+
+    def lines_for(eid):
+        # 6 AM: only game 2 has a line. 7 AM: both have a qualifying official spread.
+        if clock["now"].hour < 7 and str(eid) == "9":
+            return {}
+        return {"open_home_spread": -4.0, "current_home_spread": -4.5,
+                "open_total": 140.0, "current_total": 140.0}
+
+    monkeypatch.setattr(dr, "now_ct", lambda: clock["now"])
+    monkeypatch.setattr(dr, "espn_scoreboard", scoreboard)
+    monkeypatch.setattr(dr, "espn_dk_lines", lines_for)
+    monkeypatch.setattr(dr, "load_kenpom", load)
+    monkeypatch.setattr(dr, "fanmatch_preds", lambda d: {})
+    monkeypatch.setattr(dr, "project_all", project)
+    monkeypatch.setattr(dr, "tag_new_coaches", lambda *a, **k: {})
+    monkeypatch.setattr(dr, "odds_api_fallback", lambda *a, **k: 0)
+    monkeypatch.setattr(dr, "grade", lambda ledger, now: [])
+    monkeypatch.setattr(dr, "PACE_FIX", False)
+
+    rc = dr.main(["--date", day, "--no-kalshi", "--no-refresh"])
+    assert rc == 0
+    morning_snaps = list(Path(dr.SNAP_DIR).glob(f"{day}_*.csv"))
+    assert len(morning_snaps) == 1 and morning_snaps[0].name == f"{day}_0621.csv"
+    snap = pd.read_csv(morning_snaps[0], dtype={"event_id": str})
+    row9 = snap[snap.event_id == "9"].iloc[0]
+    row2 = snap[snap.event_id == "2"].iloc[0]
+    assert pd.isna(row9["current_home_spread"]) and pd.isna(row9["open_home_spread"])
+    assert pd.notna(row2["current_home_spread"])
+    assert pd.notna(row9["tv_rating"]) and pd.notna(row2["tv_rating"])
+    morning_led = pd.read_csv(dr.LEDGER, dtype={"event_id": str, "pick_id": str})
+    assert "2-spread" in set(morning_led.pick_id.astype(str))
+    assert "9-spread" not in set(morning_led.pick_id.astype(str))
+    morning_fp = dr.pick_fingerprint(morning_led[morning_led.pick_id == "2-spread"].iloc[0])
+    morning_hash = morning_led[morning_led.pick_id == "2-spread"].iloc[0]["pick_hash"]
+    morning_tv = {str(r.event_id): r.tv_rating for _, r in snap.iterrows()}
+
+    # 7 AM catch-up against the real writer snapshot
+    clock["now"] = _now("2029-12-31 07:00")
+    lines.clear()
+    rc = dr.main(["--late-lines-only", "--date", day, "--no-kalshi"])
+    assert rc == 0
+    assert any("anchoring to first snapshot 2029-12-31_0621.csv" in x for x in lines)
+    assert any("late-lines: 1 official" in x for x in lines)
+    out = pd.read_csv(dr.LEDGER, dtype={"event_id": str, "pick_id": str})
+    assert "9-spread" in set(out.pick_id.astype(str))
+    # game 2 was already official at 6 AM; no second pick
+    assert list(out[out.pick_id == "2-spread"].pick_id) == ["2-spread"]
+    morning = out[out.pick_id == "2-spread"].iloc[0]
+    assert dr.pick_fingerprint(morning) == morning_fp
+    assert morning["pick_hash"] == morning_hash
+    assert dr.verify_ledger(out) == []
+    # The 6 AM snapshot file itself is unchanged and still holds TV Rating.
+    snap2 = pd.read_csv(morning_snaps[0], dtype={"event_id": str})
+    assert {str(r.event_id): r.tv_rating for _, r in snap2.iterrows()} == morning_tv

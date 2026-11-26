@@ -14,7 +14,7 @@ daily_run.py — fully automated daily PAPER-trading pipeline (no real bets are 
               no grading, no new picks, no ledger/Supabase writes)
              --late-lines-only (7 AM CT catch-up: only markets with no line at the first morning
               snapshot can become official / track / lean picks; reuses morning model numbers,
-              no KenPom refresh. If no morning snapshot exists, falls back to a full run)
+              no KenPom refresh. If no morning snapshot exists, logs that, writes nothing, and exits 0)
 
 Steps
   (a) refresh KenPom ratings / prior / per-team HCA (cached) and scrape FanMatch (KenPom predictions)
@@ -2077,11 +2077,45 @@ def _snapshot_paths(day: str, directory: str | None = None) -> list[str]:
             if n.startswith(f"{day}_") and n.endswith(".csv")]
 
 
+def _snapshot_ct_date(path: str) -> str | None:
+    """America/Chicago calendar date of `snapshot_ct`, or None if missing/unreadable."""
+    try:
+        cols = pd.read_csv(path, nrows=0).columns
+        if "snapshot_ct" not in cols:
+            return None
+        raw = pd.read_csv(path, usecols=["snapshot_ct"], nrows=1).iloc[0]["snapshot_ct"]
+    except Exception:
+        return None
+    raw = _none_if_nan(raw)
+    if raw is None or str(raw).strip() == "":
+        return None
+    try:
+        dt = datetime.fromisoformat(str(raw))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=CENTRAL)
+        return dt.astimezone(CENTRAL).date().isoformat()
+    except ValueError:
+        return None
+
+
 def first_snapshot(day: str, directory: str | None = None) -> str | None:
-    """Earliest snapshot CSV for `day` (`YYYY-MM-DD_HHMM.csv`). The 6 AM run is the
-    morning anchor; a later catch-up snapshot is ignored."""
+    """Earliest snapshot CSV for slate `day` (`YYYY-MM-DD_HHMM.csv`).
+
+    The 6 AM run is the morning anchor; a later catch-up snapshot is ignored.
+    Files whose `snapshot_ct` falls on a different Chicago calendar day (e.g. a
+    prior-day `daily_run --date <tomorrow>` run) are skipped so they cannot
+    become tomorrow's anchor.
+    """
     cands = _snapshot_paths(day, directory)
-    return min(cands) if cands else None
+    dated, undated = [], []
+    for path in cands:
+        ct = _snapshot_ct_date(path)
+        if ct is None:
+            undated.append(path)
+        elif ct == day:
+            dated.append(path)
+    pool = dated if dated else undated
+    return min(pool) if pool else None
 
 
 def latest_snapshot(day: str, directory: str | None = None) -> str | None:
@@ -2096,7 +2130,7 @@ SNAPSHOT_MODEL_FIELDS = (
     "v2_home_margin", "v2_total", "v2_home_win_prob",
     "v1_home_margin", "v1_total", "v1_total_raw", "v1_pace",
     "proj_possessions", "reason", "upset_alert", "upset_reason",
-    "archetype_tags", "kp_margin_home",
+    "archetype_tags", "kp_margin_home", "tv_rating",
     "coach_home", "coach_away",
 )
 
@@ -2145,6 +2179,42 @@ def apply_snapshot_projections(games: list[dict], snap_by_id: dict[str, dict]) -
                 v = _parse_maybe_dict(v) if k == "archetype_tags" else v
             g[k] = v
         n += 1
+    return n
+
+
+def newly_lined_eligible_games(games: list[dict], snap_by_id: dict) -> list[dict]:
+    """Games that have at least one previously lineless market which now has a line."""
+    out = []
+    for g in games:
+        elig = late_line_eligible_markets(snap_by_id.get(str(g.get("event_id"))))
+        if any(market_was_lined(g, m) for m in elig):
+            out.append(g)
+    return out
+
+
+def attach_tv_ratings(games: list[dict], data) -> int:
+    """Stamp projections.tv_rating onto each game so the morning snapshot carries it
+    and a --late-lines-only run can copy it onto any new projection rows."""
+    if data is None:
+        return 0
+    try:
+        from czarp.tv_rating import game_tv_rating, quality_from_data
+        qmap = quality_from_data(data)
+    except Exception:
+        return 0
+    if not qmap:
+        return 0
+    n = 0
+    for g in games:
+        if g.get("skip") or g.get("v2_home_margin") is None:
+            continue
+        T = g.get("v2_total")
+        total = g["v1_total"] if g.get("v1_total") is not None else T
+        rating = game_tv_rating(qmap, g.get("kp_home"), g.get("kp_away"), g.get("v2_home_win_prob"),
+                                possessions=g.get("proj_possessions"), total=total)
+        g["tv_rating"] = rating
+        if rating is not None:
+            n += 1
     return n
 
 
@@ -2463,7 +2533,7 @@ def main(argv=None) -> int:
     ap.add_argument("--late-lines-only", action="store_true",
                     help="7 AM CT catch-up: only markets that had no line at the first morning snapshot "
                          "can become official / track / lean picks. Reuses morning model numbers "
-                         "(no KenPom refresh). If no morning snapshot exists, falls back to a full run.")
+                         "(no KenPom refresh). If no morning snapshot exists, writes nothing and exits 0.")
     ap.add_argument("--exclude-line-moves", action="store_true",
                     help=f"exclude sides whose spread moved >= {LINE_MOVE_PTS:g} pts open->current (default: flag only)")
     ap.add_argument("--coach-lock-games", type=int, default=None,
@@ -2544,6 +2614,10 @@ def _daily(a) -> int:
         path = render_chat_from_snapshot(today)
         log(f"  chat summary → {path} (from snapshot; no grading, no new picks, ledger untouched)")
         return 0
+    if getattr(a, "late_lines_only", False) and first_snapshot(today) is None:
+        log(f"CZarp late-lines catch-up — slate {today}, {now.strftime('%Y-%m-%d %H:%M')} CT")
+        log("  late-lines: No morning snapshot baseline; no late-line picks")
+        return 0
     log(f"CZarp daily run — slate {today}, {now.strftime('%Y-%m-%d %H:%M')} CT")
 
     ledger = seal(read_ledger())        # rows from before the hash chain get sealed (in memory; written below)
@@ -2575,13 +2649,8 @@ def _daily(a) -> int:
     snap_by_id: dict[str, dict] = {}
     if late_mode:
         anchor = first_snapshot(today)
-        if anchor is None:
-            log(f"  --late-lines-only: no morning snapshot for {today} — falling back to a full run")
-            notes.append("Late-lines catch-up: no morning snapshot; ran a full daily_run instead.")
-            late_mode = False
-        else:
-            log(f"  --late-lines-only: anchoring to first snapshot {os.path.basename(anchor)}")
-            snap_by_id = snapshot_games_by_id(anchor)
+        log(f"  --late-lines-only: anchoring to first snapshot {os.path.basename(anchor)}")
+        snap_by_id = snapshot_games_by_id(anchor)
 
     new_rows = []
     top = []
@@ -2626,6 +2695,9 @@ def _daily(a) -> int:
                 kp = fm.get(frozenset([g.get("kp_home") or "", g.get("kp_away") or ""]))
                 if kp and kp[1] is not None:
                     g["kp_margin_home"] = kp[1] if kp[0] == g.get("kp_home") else -kp[1]
+            ntv = attach_tv_ratings(games, data)
+            if ntv:
+                log(f"  TV Rating: stamped on {ntv} games")
         d1pre = [g for g in pre if not g.get("skip")]
         n_issues = len(ODDS_API_COUNTER_ISSUES)
         try:
@@ -2715,7 +2787,11 @@ def _daily(a) -> int:
     if not (a.dry_run or a.resync):
         write_ledger(ledger)
     # optional Supabase mirror (CSV ledger stays the source of truth)
-    if not a.dry_run and os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_SERVICE_KEY"):
+    late_sync_games = newly_lined_eligible_games(games, snap_by_id) if late_mode else games
+    skip_supabase = bool(late_mode and not late_sync_games)
+    if skip_supabase:
+        log("  late-lines: no newly lined eligible markets — Supabase not written")
+    if not a.dry_run and not skip_supabase and os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_SERVICE_KEY"):
         try:
             from czarp.supabase_writer import sync
             if data is not None:
@@ -2723,7 +2799,7 @@ def _daily(a) -> int:
             else:
                 from czarp.config import load_config
                 cfg = load_config()
-            n = sync(games, ledger, cfg, now, log=log, data=data,
+            n = sync(late_sync_games if late_mode else games, ledger, cfg, now, log=log, data=data,
                      new_coach=nc if data is not None else None)
             log(f"  Supabase: synced {n}")
         except Exception as e:

@@ -427,10 +427,13 @@ def sync(games: list[dict], ledger: pd.DataFrame, cfg, now: datetime, log=print,
         poss = round(g["proj_possessions"], 1) if g.get("proj_possessions") is not None else None
         total = round(T, 1)
         # Same TV Rating on both model rows, from the card's v2 win% and possessions.
+        # A late-lines run has no KenPom `data`, so it carries the morning snapshot's tv_rating.
         extra = {}
         if qmap is not None:
             extra["tv_rating"] = game_tv_rating(qmap, g["kp_home"], g["kp_away"], win_p,
                                                 possessions=poss, total=total)
+        elif _clean(g.get("tv_rating")) is not None:
+            extra["tv_rating"] = round(float(g["tv_rating"]), 1)
         proj.append({**base, "season": _season(g["game_date"]), "game_id": gid[str(g["event_id"])],
                      "model_version": g.get("model_version", "czarp-v2"),
                      **dict(zip(("proj_home", "proj_away"), team_scores(hm, T, g.get("v1_total")))),
