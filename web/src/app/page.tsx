@@ -15,7 +15,7 @@ import { TitleLine } from "@/components/NeutralChip";
 import { gameSheetHref } from "@/lib/officialPick";
 import { gameTitle, retitle } from "@/lib/gameTitle";
 import { homeCtas, homePromoCtas } from "@/lib/accounts";
-import { OFFICIAL_POST_TIME } from "@/lib/officialPost";
+import { OFFICIAL_CATCHUP_TIME, OFFICIAL_POST_TIME } from "@/lib/officialPost";
 import { HOME_DESCRIPTION, HOME_TITLE, pageMetadata } from "@/lib/seo";
 import type { Metadata } from "next";
 
@@ -75,7 +75,9 @@ export default async function Landing() {
               ))}
             </div>
             <p className="mt-3 max-w-xl text-sm text-zinc-500">
-              Official plays post every morning by about {OFFICIAL_POST_TIME}. Follow{" "}
+              Official plays post every morning by about{" "}
+              <span className="whitespace-nowrap">{OFFICIAL_POST_TIME}</span>, with a single{" "}
+              <span className="whitespace-nowrap">{OFFICIAL_CATCHUP_TIME}</span> catch‑up for markets that had no line yet. Follow{" "}
               <a href="https://x.com/CZarpAnalytics" target="_blank" rel="noopener noreferrer" className="font-semibold text-zinc-300 hover:text-white">@CZarpAnalytics</a>
               {" "}on X.
             </p>

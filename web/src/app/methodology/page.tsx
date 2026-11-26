@@ -4,6 +4,7 @@ import { H, LegalPage } from "@/components/LegalPage";
 import { pageMetadata } from "@/lib/seo";
 import { SHOW_METHODOLOGY_PLACEHOLDERS, visibleMethodologySections } from "@/lib/methodology";
 import { GLOSSARY_ANCHOR, glossaryEntriesIn, type GlossaryGroup } from "@/lib/glossary";
+import { OFFICIAL_CATCHUP_TIME, OFFICIAL_POST_TIME } from "@/lib/officialPost";
 
 export const metadata: Metadata = pageMetadata({
   title: "Methodology",
@@ -44,7 +45,7 @@ export default function MethodologyPage() {
       eyebrow="How it works"
       title="Methodology"
     >
-      <p>Edge % compares our fair number to the market price. Official picks have to clear the play bar at the morning run: 4% edge on sides, 3% on totals, a stake of at least 0.1u, and on totals, no 3-point-or-more move against us since the open. A new-coach pause can also keep a pick off the record. Every official pick is time-stamped and can&apos;t be edited.</p>
+      <p>Edge % compares our fair number to the market price. Official picks have to clear the play bar at the morning run (about <span className="whitespace-nowrap">{OFFICIAL_POST_TIME}</span>, with a single <span className="whitespace-nowrap">{OFFICIAL_CATCHUP_TIME}</span> catch‑up for any market that didn&apos;t have a line yet): 4% edge on sides, 3% on totals, a stake of at least 0.1u, and on totals, no 3-point-or-more move against us since the open. A new-coach pause can also keep a pick off the record. Every official pick is time-stamped and can&apos;t be edited.</p>
       {sections.map((s) => (
         <div key={s.title}>
           <H>{s.title}</H>

@@ -4,7 +4,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { bottomNavLinks, headerNavLinks, homeCtas } from "../src/lib/accounts";
 import { MIN_STAKE_UNITS } from "../src/lib/labels";
-import { OFFICIAL_POST_HOME_NOTE, OFFICIAL_POST_MINUTES_CT, OFFICIAL_POST_TIME } from "../src/lib/officialPost";
+import { OFFICIAL_CATCHUP_TIME, OFFICIAL_POST_HOME_NOTE, OFFICIAL_POST_MINUTES_CT, OFFICIAL_POST_TIME } from "../src/lib/officialPost";
 import { HOLD_CODES } from "../src/lib/verdicts";
 import { HOME_DESCRIPTION, HOME_TITLE, TITLE_SUFFIX, pageMetadata } from "../src/lib/seo";
 import { CONTACT_EMAIL, CONTACT_MAILTO } from "../src/lib/contact";
@@ -37,15 +37,18 @@ test("methodology intro and hold copy: the 3+ pt move skip is totals-only", () =
   );
 });
 
-test("official post time is 6:30 AM CT, in one constant, and retired 7:30 / 7:15 times are gone from public copy", () => {
+test("official post is 6:30 AM CT with a 7:00 AM CT catch‑up, both in one module, and retired 7:30 / 7:15 times are gone from public copy", () => {
   assert.equal(OFFICIAL_POST_TIME, "6:30 AM CT");
   assert.equal(OFFICIAL_POST_MINUTES_CT, 6 * 60 + 30);
+  assert.equal(OFFICIAL_CATCHUP_TIME, "7:00 AM CT");
   assert.equal(
     OFFICIAL_POST_HOME_NOTE,
-    "Official plays post every morning by about 6:30 AM CT. Follow @CZarpAnalytics on X.",
+    "Official plays post every morning by about 6:30 AM CT, with a single 7:00 AM CT catch‑up for markets that had no line yet. Follow @CZarpAnalytics on X.",
   );
   const skip = new Set(["node_modules", ".next", ".test-build", "coverage"]);
-  const hits: string[] = [];
+  const retired: string[] = [];
+  const hardcoded: string[] = [];
+  const stale: string[] = [];
   const walk = (dir: string) => {
     for (const f of readdirSync(dir)) {
       if (skip.has(f)) continue;
@@ -53,12 +56,16 @@ test("official post time is 6:30 AM CT, in one constant, and retired 7:30 / 7:15
       if (statSync(p).isDirectory()) walk(p);
       else if (/\.(ts|tsx|mjs)$/.test(f) && !p.endsWith("officialPost.ts")) {
         const text = readFileSync(p, "utf8");
-        if (/7:15|7:30\s*AM|7 \* 60 \+ 30/.test(text)) hits.push(p);
+        if (/7:15|7:30\s*AM|7 \* 60 \+ 30/.test(text)) retired.push(p);
+        if (/7:00\s*AM/.test(text)) hardcoded.push(p);
+        if (/set once|never added later/i.test(text)) stale.push(p);
       }
     }
   };
   walk(join(root, "src"));
-  assert.deepEqual(hits, []);
+  assert.deepEqual(retired, []);
+  assert.deepEqual(hardcoded, [], "hardcode 7:00 AM CT via OFFICIAL_CATCHUP_TIME");
+  assert.deepEqual(stale, []);
 });
 
 test("header and bottom nav say Record, not Portfolio, and home CTAs go to the slate and the record", () => {
@@ -87,6 +94,7 @@ test("hero, about, results, and footer use the approved marketing copy", () => {
   assert.doesNotMatch(home, /No alerts yet/);
   assert.doesNotMatch(home, /Buy bets like|stocks — at a price|Full portfolio|Season portfolio/i);
   assert.match(home, /OFFICIAL_POST_TIME/);
+  assert.match(home, /OFFICIAL_CATCHUP_TIME/);
   assert.match(home, /https:\/\/x\.com\/CZarpAnalytics/);
 
   const about = read("src/app/about/page.tsx");

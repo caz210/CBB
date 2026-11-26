@@ -6,7 +6,7 @@
  *
  *  Glossary entries (lib/glossary.ts) and tap-to-learn tips (lib/explainers.ts) read VERDICT_LADDER. */
 import { fmtEdgeVsBar, fmtOne, fmtPlayPct, fmtSpread, MIN_STAKE_UNITS, PLAY_THRESHOLD, type Market } from "./labels";
-import { OFFICIAL_POST_TIME } from "./officialPost";
+import { OFFICIAL_CATCHUP_TIME, OFFICIAL_POST_TIME } from "./officialPost";
 
 /** Internal keys. "official" is the CZarp Play (a posted pick); customers never see the key. */
 export type VerdictLevel = "toss_up" | "lean" | "value" | "late_value" | "official";
@@ -37,7 +37,7 @@ export const TIER_BOUNDS = {
 
 const boundsFor = (m: Market) => (m === "total" ? TIER_BOUNDS.total : TIER_BOUNDS.spread);
 
-export const LATE_VALUE_NOTE = `Value on the current line. Not part of the official record; official plays are set at ${OFFICIAL_POST_TIME}.`;
+export const LATE_VALUE_NOTE = `Value on the current line. Not part of the official record. CZarp Plays post at ${OFFICIAL_POST_TIME}, with one ${OFFICIAL_CATCHUP_TIME} catch‑up only if the market had no line yet.`;
 
 /** Weakest to strongest; also the glossary order. */
 export const VERDICT_LADDER: readonly VerdictDef[] = [
@@ -64,7 +64,7 @@ export const VERDICT_LADDER: readonly VerdictDef[] = [
   {
     level: "official",
     label: "CZarp Play",
-    short: `Our official play, posted at the ${OFFICIAL_POST_TIME} run. It's time-stamped, graded in the public record, and stays a CZarp Play even if the line moves later.`,
+    short: `Our official play, posted at the ${OFFICIAL_POST_TIME} run, or on a single ${OFFICIAL_CATCHUP_TIME} catch‑up if the market had no line yet. It's time-stamped, graded in the public record, and never edited — it stays a CZarp Play even if the line moves later.`,
   },
 ] as const;
 
@@ -113,7 +113,7 @@ export function clearsBar(market: Market, edgeNow: number | null | undefined): b
 }
 
 /** One market's tier. Precedence, first match wins:
- *  1. CZarp Play: posted at the morning run, whatever the edge does later.
+ *  1. CZarp Play: posted at the morning run (or the single catch‑up if the market had no line yet), whatever the edge does later.
  *  2. Toss Up: no stored edge.
  *  3. Past the bar (≥ 4% sides / 3% totals): a hold code → Value (with the holds); none → Late Value.
  *  4. Value: ≥ 3% / 2.25%.   5. Small edge: ≥ 2% / 1.5%.   6. Toss Up otherwise.
