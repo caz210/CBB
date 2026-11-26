@@ -12,6 +12,9 @@ daily_run.py — fully automated daily PAPER-trading pipeline (no real bets are 
              --skip-side-moves (also skip sides whose spread moved >= 3 pts AGAINST our side; default flag only)
              --chat-only (rewrite outputs/daily/<date>.chat.md from the latest snapshot + ledger;
               no grading, no new picks, no ledger/Supabase writes)
+             --late-lines-only (7 AM CT catch-up: only markets with no line at the first morning
+              snapshot can become official / track / lean picks; reuses morning model numbers,
+              no KenPom refresh. If no morning snapshot exists, falls back to a full run)
 
 Steps
   (a) refresh KenPom ratings / prior / per-team HCA (cached) and scrape FanMatch (KenPom predictions)
@@ -26,11 +29,15 @@ Steps
       and a 'likely news/injury' flag when a side's spread moved >= 2 pts open -> current, plus a
       paste-ready outputs/daily/YYYY-MM-DD.chat.md with the same Top 10 as per-game line blocks
   Later in the day, pretip_check.py re-pulls lines for today's open plays and flags moves against us.
+  At 7:00 AM CT, --late-lines-only posts official / track / lean picks for markets that had no
+  line at the first morning snapshot (games that already had a line stay Late Value only).
 
 Rules (from the walk-forward backtest, Jan 2025 – Apr 2026, see outputs/walkforward/):
   SIDES require the edge to clear the threshold vs the OPENING line AND the current line (same side).
   TOTALS require it vs the OPENING line only (the vs-current check dropped hit rate 54.8% -> 48.3%,
-  coach_lock_study.py); the line-move skip below replaces it. No opening line -> no play.
+  coach_lock_study.py); the line-move skip below replaces it. If a market has a current line but no
+  open (e.g. an Odds API fill), current is treated as the open so the vs-open bar can be evaluated;
+  an open dropped by the 8-pt / 12-pt sanity check is not restored from current.
   SIDES  — v2 model-only margin vs the DK line; edge% = |model − line| / DK total >= 4%
            (vs open: n=85, 60.0% ATS, CLV +1.1; vs close it lost — bet early).
   TOTALS — original v1 total vs the DK total; edge% = |model − total| / total >= 3%
@@ -208,7 +215,7 @@ ODDS_API_MAX_CALLS_PER_DAY = 20  # hard cap per America/Chicago day, across ALL 
 # Christian raised the cap to ~20/day on 24 Nov 2026 (The Odds API 20K plan: 20,000 credits a month; one
 # fetch_vegas_lines call = spreads + totals + h2h x 1 region = 3 credits, so 20/day is ~1,800 credits/month).
 # Per-job share: no job can use another job's slot; the slots add up to the cap.
-#   daily   2  the 7 AM run (1) + one re-run of it the same day
+#   daily   2  the 6 AM run (1) + the 7 AM --late-lines-only catch-up (1)
 #   pretip 10  pretip_check: missing-line fill + the closing-line snapshot (one shared call per run), several runs
 #              a game day in the 4-10 PM tip window
 #   refresh 6  refresh_lines.py (GitHub Actions, capped in Supabase odds_api_refresh_claims): 1 per scheduled slot
@@ -330,12 +337,115 @@ def espn_dk_lines(event_id: str) -> dict:
         out["open_home_spread"] = -o
         out["open_home_spread_price"], out["open_away_spread_price"] = (
             out.get("open_away_spread_price"), out.get("open_home_spread_price"))
-    if o is not None and c is not None and abs(out["open_home_spread"] - c) > 8:
-        out["open_home_spread"] = None
-    if out.get("open_total") is not None and out.get("current_total") is not None \
-            and abs(out["open_total"] - out["current_total"]) > 12:
-        out["open_total"] = None
+    drop_unreliable_opens(out)
     return out
+
+
+# Flags set by drop_unreliable_opens so apply_current_as_open will not restore a dropped open.
+OPEN_DROP_FLAGS = {"spread": "open_home_spread_dropped", "total": "open_total_dropped"}
+MARKET_LINE_KEYS = {
+    "spread": {
+        "open": "open_home_spread", "current": "current_home_spread",
+        "open_prices": ("open_home_spread_price", "open_away_spread_price"),
+        "current_prices": ("current_home_spread_price", "current_away_spread_price"),
+    },
+    "total": {
+        "open": "open_total", "current": "current_total",
+        "open_prices": ("open_over_price", "open_under_price"),
+        "current_prices": ("current_over_price", "current_under_price"),
+    },
+}
+# Ephemeral fetch flags; not written into snapshot CSVs.
+_SNAP_EXCLUDE = ("tip_utc", "kalshi") + tuple(OPEN_DROP_FLAGS.values())
+
+
+def drop_unreliable_opens(out: dict) -> dict:
+    """Null an ESPN/DK opening line that disagrees too far with current (data-quality).
+
+    Spread: |open − current| > 8 pts. Total: |open − current| > 12 pts.
+    Sets open_*_dropped so apply_current_as_open will not copy current back onto open.
+    """
+    out.setdefault("open_home_spread_dropped", False)
+    out.setdefault("open_total_dropped", False)
+    o, c = out.get("open_home_spread"), out.get("current_home_spread")
+    if o is not None and c is not None and abs(o - c) > 8:
+        out["open_home_spread"] = None
+        out["open_home_spread_dropped"] = True
+    ot, ct = out.get("open_total"), out.get("current_total")
+    if ot is not None and ct is not None and abs(ot - ct) > 12:
+        out["open_total"] = None
+        out["open_total_dropped"] = True
+    return out
+
+
+def apply_current_as_open(g: dict, markets=None) -> list[str]:
+    """If a market has a current line but no open, copy current → open so the vs-open bar
+    can be evaluated (Odds API fills and first-posted ESPN lines often have no open).
+
+    Does not restore an open that drop_unreliable_opens just nulled (8-pt / 12-pt sanity
+    check). `markets` limits which markets are considered (late-lines catch-up uses this
+    so already-lined markets never get a synthetic open). Returns markets that were filled.
+    """
+    filled = []
+    wanted = ("spread", "total") if markets is None else markets
+    for m in wanted:
+        keys = MARKET_LINE_KEYS[m]
+        if g.get(OPEN_DROP_FLAGS[m]):
+            continue
+        if _line_present(g.get(keys["open"])) or not _line_present(g.get(keys["current"])):
+            continue
+        g[keys["open"]] = g[keys["current"]]
+        for op, cp in zip(keys["open_prices"], keys["current_prices"]):
+            if g.get(op) is None and g.get(cp) is not None:
+                g[op] = g[cp]
+        filled.append(m)
+    return filled
+
+
+def _line_present(v) -> bool:
+    v = _none_if_nan(v)
+    if v is None or v == "":
+        return False
+    return True
+
+
+def market_was_lined(g: dict | None, market: str) -> bool:
+    """True if this market had an open or current line on the (morning) game dict."""
+    if not g:
+        return False
+    keys = MARKET_LINE_KEYS[market]
+    return _line_present(g.get(keys["open"])) or _line_present(g.get(keys["current"]))
+
+
+def late_line_eligible_markets(snap_game: dict | None) -> set[str]:
+    """Markets with no open AND no current in the first morning snapshot.
+
+    A game missing from the snapshot is eligible on both markets (first look), but
+    without morning model numbers it still will not produce picks.
+    A market whose open was dropped by the sanity check while current existed is
+    NOT eligible (a line was posted).
+    """
+    if snap_game is None:
+        return {"spread", "total"}
+    return {m for m in ("spread", "total") if not market_was_lined(snap_game, m)}
+
+
+def select_late_line_plays(rows: list[dict], snap_by_id: dict) -> list[dict]:
+    """Keep only plays whose market had no line at the first morning snapshot."""
+    return [r for r in rows
+            if r["market"] in late_line_eligible_markets(snap_by_id.get(str(r["event_id"])))]
+
+
+def fill_opens_from_current(games: list[dict], snap_by_id: dict | None = None) -> int:
+    """apply_current_as_open across the slate. If snap_by_id is given (late-lines mode),
+    only previously lineless markets are filled, so an already-lined market never gets
+    a synthetic open. Returns the number of markets filled."""
+    n = 0
+    for g in games:
+        markets = (late_line_eligible_markets(snap_by_id.get(str(g.get("event_id"))))
+                   if snap_by_id is not None else None)
+        n += len(apply_current_as_open(g, markets=markets))
+    return n
 
 
 # ── The Odds API (budget-aware fallback) ──────────────────────────────────────
@@ -1944,6 +2054,7 @@ def games_from_snapshot(path: str) -> list[dict]:
     games = []
     for rec in df.to_dict(orient="records"):
         g = {k: _none_if_nan(v) for k, v in rec.items()}
+        g["event_id"] = _snapshot_event_id(g)
         for k in ("coach_home", "coach_away"):
             g[k] = _parse_coach(g.get(k))
         g["neutral"] = bool(g.get("neutral"))
@@ -1958,13 +2069,83 @@ def games_from_snapshot(path: str) -> list[dict]:
     return games
 
 
-def latest_snapshot(day: str, directory: str | None = None) -> str | None:
+def _snapshot_paths(day: str, directory: str | None = None) -> list[str]:
     d = directory or SNAP_DIR
     if not os.path.isdir(d):
-        return None
-    cands = [os.path.join(d, n) for n in os.listdir(d)
-             if n.startswith(f"{day}_") and n.endswith(".csv")]
+        return []
+    return [os.path.join(d, n) for n in os.listdir(d)
+            if n.startswith(f"{day}_") and n.endswith(".csv")]
+
+
+def first_snapshot(day: str, directory: str | None = None) -> str | None:
+    """Earliest snapshot CSV for `day` (`YYYY-MM-DD_HHMM.csv`). The 6 AM run is the
+    morning anchor; a later catch-up snapshot is ignored."""
+    cands = _snapshot_paths(day, directory)
+    return min(cands) if cands else None
+
+
+def latest_snapshot(day: str, directory: str | None = None) -> str | None:
+    cands = _snapshot_paths(day, directory)
     return max(cands) if cands else None
+
+
+# Model / identity fields copied from the morning snapshot in --late-lines-only
+# (never lines, edges, skip reasons, state, or tip — those come from the live fetch).
+SNAPSHOT_MODEL_FIELDS = (
+    "kp_home", "kp_away", "skip", "model_version",
+    "v2_home_margin", "v2_total", "v2_home_win_prob",
+    "v1_home_margin", "v1_total", "v1_total_raw", "v1_pace",
+    "proj_possessions", "reason", "upset_alert", "upset_reason",
+    "archetype_tags", "kp_margin_home",
+    "coach_home", "coach_away",
+)
+
+
+def _parse_maybe_dict(v):
+    v = _none_if_nan(v)
+    if v is None or isinstance(v, dict):
+        return v
+    try:
+        x = ast.literal_eval(str(v))
+        return x if isinstance(x, dict) else v
+    except (ValueError, SyntaxError):
+        return v
+
+
+def _snapshot_event_id(g: dict) -> str:
+    v = _none_if_nan(g.get("event_id"))
+    if v is None:
+        return ""
+    s = str(v).strip()
+    try:
+        f = float(s)
+        if f == int(f):
+            return str(int(f))
+    except (TypeError, ValueError):
+        pass
+    return s
+
+
+def snapshot_games_by_id(path: str) -> dict[str, dict]:
+    return {_snapshot_event_id(g): g for g in games_from_snapshot(path) if _snapshot_event_id(g)}
+
+
+def apply_snapshot_projections(games: list[dict], snap_by_id: dict[str, dict]) -> int:
+    """Copy morning model numbers onto the live ESPN slate. Returns games that matched a snapshot row."""
+    n = 0
+    for g in games:
+        sg = snap_by_id.get(str(g.get("event_id")))
+        if not sg:
+            continue
+        for k in SNAPSHOT_MODEL_FIELDS:
+            if k not in sg:
+                continue
+            v = sg[k]
+            if k in ("coach_home", "coach_away", "archetype_tags"):
+                v = _parse_maybe_dict(v) if k == "archetype_tags" else v
+            g[k] = v
+        n += 1
+    return n
 
 
 def snapshot_now(games, fallback=None) -> datetime:
@@ -2279,6 +2460,10 @@ def main(argv=None) -> int:
     ap.add_argument("--chat-only", action="store_true",
                     help="rewrite outputs/daily/<date>.chat.md from the latest snapshot + ledger "
                          "(no grading, no new picks, no ledger/Supabase writes)")
+    ap.add_argument("--late-lines-only", action="store_true",
+                    help="7 AM CT catch-up: only markets that had no line at the first morning snapshot "
+                         "can become official / track / lean picks. Reuses morning model numbers "
+                         "(no KenPom refresh). If no morning snapshot exists, falls back to a full run.")
     ap.add_argument("--exclude-line-moves", action="store_true",
                     help=f"exclude sides whose spread moved >= {LINE_MOVE_PTS:g} pts open->current (default: flag only)")
     ap.add_argument("--coach-lock-games", type=int, default=None,
@@ -2308,6 +2493,8 @@ def main(argv=None) -> int:
         ap.error("--resync and --dry-run are mutually exclusive")
     if a.chat_only and (a.resync or a.dry_run):
         ap.error("--chat-only cannot be combined with --resync or --dry-run")
+    if a.late_lines_only and (a.resync or a.chat_only):
+        ap.error("--late-lines-only cannot be combined with --resync or --chat-only")
     if a.config:
         os.environ["CZARP_CONFIG"] = a.config
     if a.exclude_line_moves:
@@ -2384,6 +2571,18 @@ def _daily(a) -> int:
         log(f"  ESPN scoreboard failed ({type(e).__name__}: {e})"); notes.append("ESPN scoreboard unavailable — no slate.")
     log(f"  ESPN slate: {len(games)} games ({sum(g['state'] == 'pre' for g in games)} not started)")
 
+    late_mode = bool(getattr(a, "late_lines_only", False))
+    snap_by_id: dict[str, dict] = {}
+    if late_mode:
+        anchor = first_snapshot(today)
+        if anchor is None:
+            log(f"  --late-lines-only: no morning snapshot for {today} — falling back to a full run")
+            notes.append("Late-lines catch-up: no morning snapshot; ran a full daily_run instead.")
+            late_mode = False
+        else:
+            log(f"  --late-lines-only: anchoring to first snapshot {os.path.basename(anchor)}")
+            snap_by_id = snapshot_games_by_id(anchor)
+
     new_rows = []
     top = []
     big = None
@@ -2394,19 +2593,25 @@ def _daily(a) -> int:
     matchup = None
     nc = {}
     if games:
-        # (a) data
-        try:
-            data = load_kenpom(today, refresh=not a.no_refresh)
-        except Exception as e:
-            data = None
-            log(f"  KenPom data unavailable ({type(e).__name__}: {e})"); notes.append("KenPom data unavailable — no projections.")
-        fm = fanmatch_preds(today)
+        # (a) data — late-lines reuses morning model numbers; never refresh KenPom or re-project.
+        if late_mode:
+            nproj = apply_snapshot_projections(games, snap_by_id)
+            log(f"  late-lines: reused morning snapshot projections for {nproj} of {len(games)} games "
+                "(KenPom not refreshed, margins not re-projected)")
+        else:
+            try:
+                data = load_kenpom(today, refresh=not a.no_refresh)
+            except Exception as e:
+                data = None
+                log(f"  KenPom data unavailable ({type(e).__name__}: {e})"); notes.append("KenPom data unavailable — no projections.")
+            fm = fanmatch_preds(today)
         # (b) prices
         pre = [g for g in games if g["state"] == "pre"]
         for g in games:                 # all games, so the top-edges list works on a late run too
             g.update(espn_dk_lines(g["event_id"]))
         log(f"  ESPN/DK lines: {sum(g.get('current_home_spread') is not None for g in pre)} spreads, "
             f"{sum(g.get('current_total') is not None for g in pre)} totals of {len(pre)} upcoming games")
+        fill_opens_from_current(games, snap_by_id if late_mode else None)
         if data is not None:
             project_all(games, data)
             matchup = matchup_parity(games, data, today, notes)
@@ -2427,6 +2632,7 @@ def _daily(a) -> int:
             odds_api_fallback(d1pre, today, allow=not a.no_odds_api)
         except Exception as e:                 # the fallback is optional; never block plays
             log(f"  Odds API fallback failed ({type(e).__name__}: {e}) — continuing without it")
+        fill_opens_from_current(games, snap_by_id if late_mode else None)
         for why in ODDS_API_COUNTER_ISSUES[n_issues:]:
             notes.append(f"Odds API call refused (fail closed): {why}. Games ESPN had no line for were not "
                          "backfilled; check with `python3 -m czarp.odds_usage --check` (recovery: CZARP_V2.md).")
@@ -2446,13 +2652,15 @@ def _daily(a) -> int:
                 except Exception:
                     pass
         # snapshot of every projection + price (for later analysis)
-        snap = pd.DataFrame([{k: v for k, v in g.items() if k not in ("tip_utc", "kalshi")} for g in games])
+        snap = pd.DataFrame([{k: v for k, v in g.items() if k not in _SNAP_EXCLUDE} for g in games])
         snap["snapshot_ct"] = now.isoformat(timespec="seconds")
         if not (a.dry_run or a.resync):
             snap.to_csv(os.path.join(SNAP_DIR, f"{today}_{now.strftime('%H%M')}.csv"), index=False)
-        # (d) plays
-        if data is not None:
+        # (d) plays — late-lines has model numbers from the morning snapshot, not from `data`
+        if data is not None or late_mode:
             new_rows = [] if a.resync else flag_plays(games, bankroll(ledger), board, now)
+            if late_mode:
+                new_rows = select_late_line_plays(new_rows, snap_by_id)
             have = set(ledger.pick_id.astype(str))
             have_gm = {(str(e), m) for e, m in zip(ledger.event_id, ledger.market)}
             # one pick per game+market (any tier), first price kept
@@ -2462,6 +2670,13 @@ def _daily(a) -> int:
                 f"{sum(r['market'] == 'total' for r in off_new)} totals); tracked (not played): "
                 f"{sum(r.get('tier') == 'track' for r in new_rows)} sides; CZarp Leans (1u, not official): "
                 f"{sum(r.get('tier') == 'lean' for r in new_rows)} sides")
+            if late_mode:
+                if new_rows:
+                    log(f"  late-lines: {len(off_new)} official, "
+                        f"{sum(r.get('tier') == 'track' for r in new_rows)} track, "
+                        f"{sum(r.get('tier') == 'lean' for r in new_rows)} lean")
+                else:
+                    log("  late-lines: No late-line picks")
             cands = candidates(games, now)
             played = {r["pick_id"] for r in new_rows if r.get("tier", "official") == "official"} | \
                 set(official(ledger).loc[lambda d: d.game_date == today, "pick_id"].astype(str))
@@ -2491,6 +2706,8 @@ def _daily(a) -> int:
                     log(f"  info extras skipped ({type(e).__name__}: {e})")
     else:
         notes.append("No games on the slate today.")
+        if late_mode:
+            log("  late-lines: No late-line picks")
 
     # (e) ledger
     if new_rows:
