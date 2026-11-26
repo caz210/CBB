@@ -1,5 +1,6 @@
 /** Methodology page sections. Placeholder boxes and the Official-vs-tracked
  *  copy are gated so flipping the flags restores them. No data or queries here. */
+import { OFFICIAL_CATCHUP_TIME } from "./officialPost";
 import { SHOW_TRACKED_TIER } from "./pickTier";
 
 export const SHOW_METHODOLOGY_PLACEHOLDERS = false;
@@ -21,7 +22,7 @@ export const METHODOLOGY_SECTIONS: MethodologySection[] = [
   {
     title: "Fair value, price, and edge",
     placeholder: true,
-    body: "Edge is the gap between our number and the market price, as a share of the expected total score: |fair − price| ÷ market total, for both sides and totals. Play bar: sides 4%, totals 3%. Each game gets two ratings, one for the spread and one for the total, judged on the edge vs the current line: Toss Up (under 2% sides / 1.5% totals), Small edge (2–3% / 1.5–2.25%), Value (3–4% / 2.25–3%, or past the bar with a hold rule), Late Value (past the bar with no hold, after the morning run; not part of the official record), and CZarp Play (posted at the morning run).",
+    body: `Edge is the gap between our number and the market price, as a share of the expected total score: |fair − price| ÷ market total, for both sides and totals. Play bar: sides 4%, totals 3%. Each game gets two ratings, one for the spread and one for the total, judged on the edge vs the current line: Toss Up (under 2% sides / 1.5% totals), Small edge (2–3% / 1.5–2.25%), Value (3–4% / 2.25–3%, or past the bar with a hold rule), Late Value (past the bar with no hold, after the morning run, on a market that already had a line; not part of the official record), and CZarp Play (posted at the morning run, or on a single ${OFFICIAL_CATCHUP_TIME} catch‑up if the market had no line yet).`,
   },
   {
     title: "Official vs tracked",

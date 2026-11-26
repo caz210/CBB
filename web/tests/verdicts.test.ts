@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { HOLD_CODES, LATE_VALUE_NOTE, LINE_MOVE_NOTE, NO_LINE_TIP, TIER_BOUNDS, VERDICT_LADDER, VERDICT_RANK, clearsBar, holdCodes, ladderLevel, lineMovedAwayFromCzarp, officialBelowBar, officialOpenNowContext, showsLineMoveNote, verdictLabel, type LadderInput, type VerdictLevel } from "../src/lib/verdicts";
-import { OFFICIAL_POST_TIME } from "../src/lib/officialPost";
+import { OFFICIAL_CATCHUP_TIME, OFFICIAL_POST_TIME } from "../src/lib/officialPost";
 import { MIN_STAKE_UNITS } from "../src/lib/labels";
 import { cardHeaderRow } from "../src/lib/cardHeader";
 import { cardHeadline, marketRatings, marketVerdict, notAPlayLine, notAPlayLines } from "../src/lib/verdict";
@@ -113,9 +113,17 @@ test("line-move note: only when a CZarp Play is below the bar AND the line moved
   assert.equal(showsLineMoveNote({ official: true, market: "spread", edgeNow: 0.04, postedLine: -3.5, currentLine: -6.5, fair: -1 }), false);
 });
 
-test("ladder copy: Late Value says it's off the record; no paper, model-version or KenPom wording", () => {
-  assert.equal(LATE_VALUE_NOTE, `Value on the current line. Not part of the official record; official plays are set at ${OFFICIAL_POST_TIME}.`);
-  assert.ok(VERDICT_LADDER[3].short.endsWith(`official plays are set at ${OFFICIAL_POST_TIME}.`));
+test("ladder copy: Late Value says it's off the record; official copy covers the 7:00 AM CT catch‑up; no paper, model-version or KenPom wording", () => {
+  assert.equal(LATE_VALUE_NOTE, `Value on the current line. Not part of the official record. CZarp Plays post at ${OFFICIAL_POST_TIME}, with one ${OFFICIAL_CATCHUP_TIME} catch‑up only if the market had no line yet.`);
+  assert.ok(VERDICT_LADDER[3].short.endsWith(LATE_VALUE_NOTE));
+  assert.match(VERDICT_LADDER[4].short, new RegExp(`posted at the ${OFFICIAL_POST_TIME} run`));
+  assert.match(VERDICT_LADDER[4].short, new RegExp(`single ${OFFICIAL_CATCHUP_TIME} catch‑up`));
+  assert.match(VERDICT_LADDER[4].short, /never edited/);
+  assert.match(EXPLAINERS.ladderRule.body, new RegExp(`post at ${OFFICIAL_POST_TIME}`));
+  assert.match(EXPLAINERS.ladderRule.body, new RegExp(`single ${OFFICIAL_CATCHUP_TIME} catch‑up`));
+  assert.match(EXPLAINERS.ladderRule.body, /never edited/);
+  assert.match(EXPLAINERS.ladderRule.body, /already had a line stay Late Value/);
+  assert.doesNotMatch(EXPLAINERS.ladderRule.body, /set once|never added later/);
   for (const d of VERDICT_LADDER) {
     assert.doesNotMatch(`${d.label} ${d.short}`, /paper|\bv[12]\b|kenpom|\bfavor\b/i, d.level);
     assert.doesNotMatch(`${d.label} ${d.short}`, /Official Play/, d.level);
