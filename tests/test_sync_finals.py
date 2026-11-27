@@ -367,3 +367,69 @@ def test_cli_exits_nonzero_when_every_espn_date_fails(monkeypatch):
 
     monkeypatch.setattr(sf, "sync_finals", boom)
     assert main(["--date", "2026-11-08"]) == 1
+
+
+def test_espn_sides_flipped_and_reorient_home_lines():
+    """Neutral-site home/away flip: detect the swap, negate spreads, swap prices/MLs, keep 0.0 unsigned."""
+    import math
+    from czarp.sync_finals import (
+        espn_sides_flipped, reorient_home_lines, align_fetched_lines, negate_home_spread,
+    )
+
+    # Unflipped (same labels)
+    assert espn_sides_flipped("San Diego St.", "Texas Tech", "San Diego St.", "Texas Tech") is False
+    # Flip, including ESPN location vs stored KenPom abbreviation (no explicit matcher)
+    assert espn_sides_flipped("San Diego St.", "Texas Tech", "Texas Tech", "San Diego State") is True
+    # displayName does not match on its own, but the location alt is enough when passed as primary
+    assert espn_sides_flipped("San Diego St.", "Texas Tech",
+                              "Texas Tech Red Raiders", "San Diego State Aztecs") is None
+    assert espn_sides_flipped("San Diego St.", "Texas Tech",
+                              "Texas Tech", "San Diego State",
+                              espn_home_alt="Texas Tech Red Raiders",
+                              espn_away_alt="San Diego State Aztecs") is True
+    # Unknown pair
+    assert espn_sides_flipped("A", "B", "C", "D") is None
+    assert espn_sides_flipped("A", "B", None, None) is None
+
+    # Unflipped lines stay unchanged (including a pick'em)
+    raw = {"current_home_spread": -8.5, "current_total": 142.5,
+           "current_home_spread_price": -108, "current_away_spread_price": -112,
+           "current_home_ml": -400, "current_away_ml": 320, "open_home_spread": -8.5}
+    keep = dict(raw)
+    out, flipped = align_fetched_lines(keep, "San Diego St.", "Texas Tech",
+                                       "San Diego St.", "Texas Tech")
+    assert flipped is False and out["current_home_spread"] == -8.5 and out is keep
+    assert out["current_home_spread_price"] == -108 and out["current_home_ml"] == -400
+
+    # Flipped: TTU -8.5 from ESPN's new home becomes SDSU +8.5 in the stored frame
+    flipped_ln = dict(raw)
+    out, flipped = align_fetched_lines(flipped_ln, "San Diego St.", "Texas Tech",
+                                       "Texas Tech", "San Diego State")
+    assert flipped is True and out is flipped_ln
+    assert out["current_home_spread"] == 8.5
+    assert out["open_home_spread"] == 8.5
+    assert out["current_total"] == 142.5
+    assert out["current_home_spread_price"] == -112
+    assert out["current_away_spread_price"] == -108
+    assert out["current_home_ml"] == 320
+    assert out["current_away_ml"] == -400
+
+    # Pick'em 0.0 stays 0.0 (never -0.0) on both orientations
+    pk = {"current_home_spread": 0.0, "current_home_spread_price": -110, "current_away_spread_price": -110}
+    reorient_home_lines(pk, True)
+    assert pk["current_home_spread"] == 0.0
+    assert math.copysign(1.0, pk["current_home_spread"]) == 1.0
+    assert negate_home_spread(0.0) == 0.0
+    assert math.copysign(1.0, negate_home_spread(0.0)) == 1.0
+    assert negate_home_spread(-0.0) == 0.0
+    assert math.copysign(1.0, negate_home_spread(-0.0)) == 1.0
+    assert negate_home_spread(None) is None
+
+    # Nested market_lines prices dict is swapped too
+    row = {"spread": None, "prices": {"home_spread_price": -105, "away_spread_price": -115, "over_price": -110}}
+    # reorient_home_lines does not touch bare "spread" (that's a market_lines column used at repair time
+    # by a dedicated write, not this helper, to avoid colliding with model spread).
+    reorient_home_lines(row, True)
+    assert row["prices"]["home_spread_price"] == -115
+    assert row["prices"]["away_spread_price"] == -105
+    assert row["prices"]["over_price"] == -110

@@ -18,6 +18,13 @@ from tests.odds_fakes import claimed_fetch
 
 ROOT = Path(__file__).resolve().parents[1]
 TODAY = "2026-11-21"
+
+
+@pytest.fixture(autouse=True)
+def _no_espn_scoreboard(monkeypatch):
+    """Line-orientation looks up the ESPN scoreboard; these cap tests stay offline."""
+    monkeypatch.setattr(pc, "_espn_by_id", lambda *a, **k: {})
+
 NOW = datetime(2026, 11, 21, 18, 40, tzinfo=dr.CENTRAL)
 MIGRATION = ROOT / "db/migrations/2026-11-25_odds_api_cap_20_closing_lines.sql"
 

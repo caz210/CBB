@@ -532,21 +532,57 @@ def register_run(client, day: str, slot: int, usage: dict | None) -> tuple[bool,
 
 
 # ── lines ───────────────────────────────────────────────────────────────────────
+def _team_matcher(games) -> object | None:
+    """NameMatcher over stored games.home / games.away, or None if those labels are empty."""
+    from backtest import NameMatcher
+    names = {g.get("home") for g in games} | {g.get("away") for g in games}
+    names.discard(None)
+    names.discard("")
+    return NameMatcher(names) if names else None
+
+
 def fresh_lines(pre: list[dict], espn_games: dict, lines_for=None, allow_api=True, today="", log=print,
                 claim=None) -> dict:
     """game_id -> fresh current lines. ESPN/DK first (free); the Odds API only for games still missing a spread or
-    a total, and only through `claim` (RefreshBudget.claim; None = no paid call)."""
+    a total, and only through `claim` (RefreshBudget.claim; None = no paid call).
+
+    ESPN/DK spreads are home-perspective. Neutral events often flip ESPN's homeAway
+    after we persist games.home / games.away; a raw write would invert the spread
+    (e.g. Texas Tech -8.5 stored under home=San Diego St.). Lines are reoriented
+    to the stored labels before they are written. Odds API matching also uses the
+    stored names so its spread stays in the same frame.
+    """
+    from czarp.sync_finals import align_fetched_lines
     lines_for = lines_for or dr.espn_dk_lines
+    matcher = _team_matcher(pre)
     work = {}
+    n_flipped = 0
     for g in pre:
         eid = str(g["external_id"])
         e = espn_games.get(eid, {})
-        f = lines_for(eid) or {}
-        w = {"event_id": eid, "home_full": e.get("home_full") or g["home"], "away_full": e.get("away_full") or g["away"]}
+        f = dict(lines_for(eid) or {})
+        f, flipped = align_fetched_lines(
+            f, g.get("home"), g.get("away"),
+            e.get("home"), e.get("away"),
+            match=matcher,
+            espn_home_alt=e.get("home_full"), espn_away_alt=e.get("away_full"))
+        if flipped is True:
+            n_flipped += 1
+            # Odds API matching uses ESPN display names in the *stored* home/away order
+            # so the returned spread stays in games.home's frame.
+            w = {"event_id": eid,
+                 "home_full": e.get("away_full") or g["home"],
+                 "away_full": e.get("home_full") or g["away"]}
+        else:
+            w = {"event_id": eid,
+                 "home_full": e.get("home_full") or g["home"],
+                 "away_full": e.get("away_full") or g["away"]}
         for x in ("current_home_spread", "current_total") + tuple(f"current_{p}" for p in PRICE_KEYS):
             w[x] = _f(f.get(x))
         w["price_source"] = f"espn:{f.get('book') or 'DraftKings'}"
         work[int(g["id"])] = w
+    if n_flipped:
+        log(f"  ESPN home/away flipped vs stored labels on {n_flipped} game(s); spreads reoriented")
     missing = [w for w in work.values() if w["current_home_spread"] is None or w["current_total"] is None]
     log(f"  ESPN/DK: {len(work) - len(missing)} of {len(work)} games with both lines")
     if missing and allow_api:

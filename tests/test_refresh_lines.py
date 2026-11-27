@@ -444,7 +444,10 @@ def _seed(n_games=25):
 
 
 def _scoreboard(games, state="pre"):
-    return lambda day: [dict(event_id=g["external_id"], state=state, home_full=g["home"], away_full=g["away"],
+    return lambda day: [dict(event_id=g["external_id"], state=state,
+                             home=g["home"], away=g["away"],
+                             home_full=g.get("home_full") or g["home"],
+                             away_full=g.get("away_full") or g["away"],
                              tip_utc=pd.Timestamp(g["tipoff"]).to_pydatetime()) for g in games]
 
 
@@ -628,7 +631,8 @@ def test_pretip_fill_restamps_edges_for_filled_games(monkeypatch):
     db = FakeDB(games, projs, lines)
     now = ct(15)
     pc.fill_missing_lines(TODAY, now, pd.DataFrame(columns=dr.LEDGER_COLS), allow_api=False, client=db,
-                          lines=lambda e: {"current_total": 141.0, "book": "DraftKings"})
+                          lines=lambda e: {"current_total": 141.0, "book": "DraftKings"},
+                          scoreboard=lambda d: [])
     assert [(op, t) for op, t, _ in db.writes] == [("insert", "market_lines"), ("upsert", "projections")]
     rows = _written(db, "projections")
     assert {r["game_id"] for r in rows} == {2}
@@ -661,3 +665,79 @@ def test_client_count_uses_head_with_exact_count(monkeypatch):
     assert c.count("games", date="eq.2026-11-21", league="eq.ncaam") == 51
     assert seen["url"].endswith("/rest/v1/games") and seen["headers"] == {"Prefer": "count=exact"}
     assert seen["params"]["date"] == "eq.2026-11-21"
+
+
+def test_refresh_keeps_unflipped_neutral_spread():
+    """A neutral game whose ESPN home still matches games.home is written as-is."""
+    games, projs, lines = _seed(n_games=25)
+    games[0]["home"], games[0]["away"] = "San Diego St.", "Texas Tech"
+    db = FakeDB(games, projs, lines)
+    out = RL.run(ct(10), db, scoreboard=_scoreboard(games),
+                 lines_for=lambda e: {"current_home_spread": 8.5, "current_total": 142.5,
+                                      "current_home_spread_price": -112, "current_away_spread_price": -108,
+                                      "book": "DraftKings"},
+                 allow_api=False, log=QUIET)
+    assert out["ran"] and out["lines_written"] == 25
+    row = [r for r in _written(db, "market_lines") if r["game_id"] == 1][-1]
+    assert row["spread"] == 8.5 and row["total"] == 142.5
+    assert row["prices"]["home_spread_price"] == -112
+    assert row["prices"]["away_spread_price"] == -108
+
+
+def test_refresh_reorients_spread_when_espn_flips_neutral_home_away():
+    """ESPN later lists the stored away as home (TTU -8.5); we write SDSU +8.5 under games.home."""
+    games, projs, lines = _seed(n_games=25)
+    games[0]["home"], games[0]["away"] = "San Diego St.", "Texas Tech"
+    db = FakeDB(games, projs, lines)
+
+    def sb(day):
+        rows = _scoreboard(games)(day)
+        for r in rows:
+            if r["event_id"] == games[0]["external_id"]:
+                r["home"], r["away"] = "Texas Tech", "San Diego State"
+                r["home_full"], r["away_full"] = "Texas Tech Red Raiders", "San Diego State Aztecs"
+        return rows
+
+    def lines_for(eid):
+        if eid == games[0]["external_id"]:
+            return {"current_home_spread": -8.5, "current_total": 142.5,
+                    "current_home_spread_price": -108, "current_away_spread_price": -112,
+                    "current_home_ml": -400, "current_away_ml": 320, "book": "DraftKings"}
+        return {"current_home_spread": -6.0, "current_total": 148.0, "book": "DraftKings"}
+
+    logs = []
+    out = RL.run(ct(10), db, scoreboard=sb, lines_for=lines_for, allow_api=False,
+                 log=logs.append)
+    assert out["ran"]
+    assert any("flipped vs stored labels" in x for x in logs)
+    row = [r for r in _written(db, "market_lines") if r["game_id"] == 1][-1]
+    assert row["spread"] == 8.5 and row["total"] == 142.5
+    assert row["prices"]["home_spread_price"] == -112
+    assert row["prices"]["away_spread_price"] == -108
+    # An unflipped sibling is unchanged (still -6, the stored current was already -6 so maybe no write)
+    # Game 2's fresh -6 matches the seed current -6: no new row required. Just confirm no inverted sibling.
+
+
+def test_refresh_pickem_zero_stays_unsigned_after_flip():
+    import math
+    games, projs, lines = _seed(n_games=25)
+    games[0]["home"], games[0]["away"] = "HomeA", "AwayB"
+    db = FakeDB(games, projs, lines)
+
+    def sb(day):
+        rows = _scoreboard(games)(day)
+        for r in rows:
+            if r["event_id"] == games[0]["external_id"]:
+                r["home"], r["away"] = "AwayB", "HomeA"
+                r["home_full"], r["away_full"] = "AwayB", "HomeA"
+        return rows
+
+    out = RL.run(ct(10), db, scoreboard=sb,
+                 lines_for=lambda e: {"current_home_spread": 0.0, "current_total": 140.0,
+                                      "current_home_spread_price": -110, "current_away_spread_price": -110,
+                                      "book": "DraftKings"},
+                 allow_api=False, log=QUIET)
+    assert out["ran"]
+    row = [r for r in _written(db, "market_lines") if r["game_id"] == 1][-1]
+    assert row["spread"] == 0.0
+    assert math.copysign(1.0, row["spread"]) == 1.0
