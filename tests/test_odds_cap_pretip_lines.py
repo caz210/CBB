@@ -18,6 +18,13 @@ from tests.odds_fakes import claimed_fetch
 TODAY = "2026-11-21"
 
 
+@pytest.fixture(autouse=True)
+def _no_espn_scoreboard(monkeypatch):
+    """Line-orientation looks up the ESPN scoreboard; these cap tests stay offline."""
+    monkeypatch.setattr(pc, "_espn_by_id", lambda *a, **k: {})
+
+
+
 CLOCK = {"now": datetime(2026, 11, 21, 10, 0, tzinfo=dr.CENTRAL)}
 
 

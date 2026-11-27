@@ -152,6 +152,142 @@ def _scoreboard(day: date):
 
 
 
+def _name_resolver(stored_home, stored_away, match=None):
+    """Map an ESPN / stored team name onto the stored label pair.
+
+    If `match` is omitted, a NameMatcher is built from the stored names so
+    'San Diego State' lines up with stored 'San Diego St.'.
+    """
+    if match is None:
+        from backtest import NameMatcher
+        names = [n for n in (stored_home, stored_away) if n]
+        match = NameMatcher(names) if names else None
+
+    def _n(name):
+        if not name:
+            return None
+        if match is not None:
+            got = match(str(name))
+            if got:
+                return got
+        return str(name)
+
+    return _n
+
+
+def espn_sides_flipped(stored_home, stored_away, espn_home, espn_away, match=None,
+                       espn_home_alt=None, espn_away_alt=None):
+    """True if ESPN's home is our stored away, False if same orientation, None if unknown.
+
+    Neutral events often flip ESPN's homeAway after we persist games.home /
+    games.away (or the morning snapshot). Prefer ESPN's location (`home`) over
+    displayName (`home_full`); pass the displayName as the *_alt fallback.
+    Never falls back to slot order.
+    """
+    if not stored_home or not stored_away:
+        return None
+    _n = _name_resolver(stored_home, stored_away, match)
+    sh, sa = _n(stored_home), _n(stored_away)
+    if not sh or not sa:
+        return None
+
+    def _try(eh_name, ea_name):
+        if not eh_name or not ea_name:
+            return None
+        eh, ea = _n(eh_name), _n(ea_name)
+        if sh == eh and sa == ea:
+            return False
+        if sh == ea and sa == eh:
+            return True
+        return None
+
+    got = _try(espn_home, espn_away)
+    if got is not None:
+        return got
+    return _try(espn_home_alt, espn_away_alt)
+
+
+def negate_home_spread(value):
+    """Negate a home-perspective spread, mapping -0.0 to 0.0. None stays None."""
+    if value is None or value == "":
+        return None
+    try:
+        v = -float(value)
+    except (TypeError, ValueError):
+        return value
+    if v != v:          # NaN
+        return value
+    return 0.0 if v == 0.0 else v
+
+
+# Home-perspective spread fields on ESPN/DK line dicts and closing-line snapshots.
+_HOME_SPREAD_KEYS = (
+    "open_home_spread", "current_home_spread", "close_home_spread",
+    "home_spread",
+)
+# Home/away price (and ML, if present) pairs to swap when ESPN's sides are flipped.
+_PRICE_SWAPS = (
+    ("open_home_spread_price", "open_away_spread_price"),
+    ("current_home_spread_price", "current_away_spread_price"),
+    ("close_home_spread_price", "close_away_spread_price"),
+    ("home_spread_price", "away_spread_price"),
+    ("open_home_ml", "open_away_ml"),
+    ("current_home_ml", "current_away_ml"),
+    ("close_home_ml", "close_away_ml"),
+    ("home_ml", "away_ml"),
+    ("ml_home", "ml_away"),
+    ("vegas_home_ml", "vegas_away_ml"),
+)
+
+
+def reorient_home_lines(lines: dict, flipped: bool) -> dict:
+    """If `flipped`, negate home spreads and swap home/away spread prices and MLs.
+
+    Mutates and returns `lines`. Totals are unchanged. A pick'em stays 0.0
+    (never -0.0). Unknown keys are left alone. Do not pass a projections row
+    (its model `spread` is a fair value, not a Vegas home line).
+    """
+    if not flipped or not lines:
+        return lines
+    for k in _HOME_SPREAD_KEYS:
+        if k in lines and lines[k] is not None:
+            lines[k] = negate_home_spread(lines[k])
+    for a, b in _PRICE_SWAPS:
+        if a in lines or b in lines:
+            lines[a], lines[b] = lines.get(b), lines.get(a)
+    prices = lines.get("prices")
+    if isinstance(prices, dict):
+        prices = dict(prices)
+        swapped = False
+        for a, b in (("home_spread_price", "away_spread_price"),
+                     ("ml_home", "ml_away"), ("home_ml", "away_ml")):
+            if a in prices or b in prices:
+                prices[a], prices[b] = prices.get(b), prices.get(a)
+                swapped = True
+        if swapped:
+            lines["prices"] = prices
+    ml = lines.get("moneyline")
+    if isinstance(ml, dict) and ("home" in ml or "away" in ml):
+        lines["moneyline"] = {**ml, "home": ml.get("away"), "away": ml.get("home")}
+    return lines
+
+
+def align_fetched_lines(lines, stored_home, stored_away, espn_home, espn_away,
+                        match=None, espn_home_alt=None, espn_away_alt=None):
+    """Reorient a home-frame ESPN/DK line dict onto stored home/away.
+
+    Returns (lines, flipped). `lines` is mutated only when flipped is True.
+    When ESPN names are missing or cannot be matched, lines are left unchanged
+    and flipped is None (do not guess).
+    """
+    flipped = espn_sides_flipped(stored_home, stored_away, espn_home, espn_away,
+                                 match=match, espn_home_alt=espn_home_alt,
+                                 espn_away_alt=espn_away_alt)
+    if flipped is True:
+        reorient_home_lines(lines, True)
+    return lines, flipped
+
+
 def align_espn_box(stored_home, stored_away, espn_home, espn_away, home_score, away_score,
                    match=None):
     """Assign ESPN scores (and close-line orientation) to our stored home/away labels.
@@ -168,23 +304,13 @@ def align_espn_box(stored_home, stored_away, espn_home, espn_away, home_score, a
     """
     if home_score is None or away_score is None:
         return None
-    if not stored_home or not stored_away or not espn_home or not espn_away:
+    flipped = espn_sides_flipped(stored_home, stored_away, espn_home, espn_away, match=match)
+    if flipped is None:
         return None
-
-    def _n(name):
-        if match is not None:
-            got = match(str(name))
-            if got:
-                return got
-        return str(name)
-
-    sh, sa, eh, ea = _n(stored_home), _n(stored_away), _n(espn_home), _n(espn_away)
     hs, aws = int(home_score), int(away_score)
-    if sh == eh and sa == ea:
-        return hs, aws, False
-    if sh == ea and sa == eh:
+    if flipped:
         return aws, hs, True
-    return None
+    return hs, aws, False
 
 
 def map_espn_scores(stored_home, stored_away, espn_home, espn_away, home_score, away_score,

@@ -2182,6 +2182,54 @@ def apply_snapshot_projections(games: list[dict], snap_by_id: dict[str, dict]) -
     return n
 
 
+def align_live_slate_to_snapshot(games: list[dict], snap_by_id: dict[str, dict]) -> int:
+    """Keep --late-lines-only in the morning snapshot's home/away frame.
+
+    Neutral events often flip ESPN's homeAway after the 6 AM slate. The snapshot
+    model's v2_home_margin / kp_home are in the morning frame (and games.home in
+    Supabase is too). Flag a flip, restore morning labels so Odds API matching
+    stays in that frame, and return how many games were flipped. Callers then
+    reorient ESPN/DK lines with reorient_snapshot_lines.
+    """
+    from czarp.sync_finals import espn_sides_flipped
+    n = 0
+    for g in games:
+        sg = snap_by_id.get(str(g.get("event_id")))
+        if not sg:
+            continue
+        # Prefer KenPom labels (what games.home stores). Auto-matcher is built from
+        # this pair only — including ESPN aliases in the catalog would make
+        # "San Diego State" resolve to itself instead of "San Diego St.".
+        stored_h = sg.get("kp_home") or sg.get("home")
+        stored_a = sg.get("kp_away") or sg.get("away")
+        flipped = espn_sides_flipped(stored_h, stored_a, g.get("home"), g.get("away"),
+                                     espn_home_alt=g.get("home_full"),
+                                     espn_away_alt=g.get("away_full"))
+        g["_espn_sides_flipped"] = flipped
+        if flipped is not True:
+            continue
+        n += 1
+        # Restore morning labels so Odds API + Supabase sync stay in the stored frame.
+        if sg.get("home"):
+            g["home"] = sg["home"]
+        if sg.get("away"):
+            g["away"] = sg["away"]
+        g["home_full"] = sg.get("home_full") or sg.get("kp_home") or g.get("home")
+        g["away_full"] = sg.get("away_full") or sg.get("kp_away") or g.get("away")
+    return n
+
+
+def reorient_snapshot_lines(games: list[dict]) -> int:
+    """Negate ESPN/DK home spreads on games flagged flipped by align_live_slate_to_snapshot."""
+    from czarp.sync_finals import reorient_home_lines
+    n = 0
+    for g in games:
+        if g.get("_espn_sides_flipped") is True:
+            reorient_home_lines(g, True)
+            n += 1
+    return n
+
+
 def newly_lined_eligible_games(games: list[dict], snap_by_id: dict) -> list[dict]:
     """Games that have at least one previously lineless market which now has a line."""
     out = []
@@ -2675,9 +2723,16 @@ def _daily(a) -> int:
                 log(f"  KenPom data unavailable ({type(e).__name__}: {e})"); notes.append("KenPom data unavailable — no projections.")
             fm = fanmatch_preds(today)
         # (b) prices
+        if late_mode:
+            nflip = align_live_slate_to_snapshot(games, snap_by_id)
+            if nflip:
+                log(f"  late-lines: ESPN home/away flipped vs morning snapshot on {nflip} game(s); "
+                    "spreads will be reoriented to the stored labels")
         pre = [g for g in games if g["state"] == "pre"]
         for g in games:                 # all games, so the top-edges list works on a late run too
             g.update(espn_dk_lines(g["event_id"]))
+        if late_mode:
+            reorient_snapshot_lines(games)
         log(f"  ESPN/DK lines: {sum(g.get('current_home_spread') is not None for g in pre)} spreads, "
             f"{sum(g.get('current_total') is not None for g in pre)} totals of {len(pre)} upcoming games")
         fill_opens_from_current(games, snap_by_id if late_mode else None)

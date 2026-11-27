@@ -624,3 +624,53 @@ def test_late_lines_uses_real_morning_snapshot_writer(monkeypatch, tmp_path):
     # The 6 AM snapshot file itself is unchanged and still holds TV Rating.
     snap2 = pd.read_csv(morning_snaps[0], dtype={"event_id": str})
     assert {str(r.event_id): r.tv_rating for _, r in snap2.iterrows()} == morning_tv
+
+
+def test_late_lines_reorients_spread_when_espn_flips_neutral_home_away():
+    """Morning snapshot stored SDSU as home; ESPN later lists Texas Tech as home with TTU -8.5."""
+    live = [dict(event_id="401920535", game_date="2026-11-27", state="pre",
+                 home="Texas Tech", away="San Diego State",
+                 home_full="Texas Tech Red Raiders", away_full="San Diego State Aztecs",
+                 neutral=True)]
+    snap = {"401920535": _snap_row(
+        "401920535", kp_home="San Diego St.", kp_away="Texas Tech",
+        home="San Diego State", away="Texas Tech",
+        home_full="San Diego State Aztecs", away_full="Texas Tech Red Raiders",
+        v2_home_margin=-9.0, v2_total=146.2)}
+    assert dr.apply_snapshot_projections(live, snap) == 1
+    assert live[0]["kp_home"] == "San Diego St." and live[0]["v2_home_margin"] == -9.0
+    n = dr.align_live_slate_to_snapshot(live, snap)
+    assert n == 1 and live[0]["_espn_sides_flipped"] is True
+    # Morning labels restored so Odds API / sync stay in the stored frame
+    assert live[0]["home"] == "San Diego State" and live[0]["away"] == "Texas Tech"
+    live[0].update({"current_home_spread": -8.5, "current_total": 142.5,
+                    "current_home_spread_price": -108, "current_away_spread_price": -112,
+                    "current_home_ml": -400, "current_away_ml": 320,
+                    "open_home_spread": -8.5})
+    assert dr.reorient_snapshot_lines(live) == 1
+    assert live[0]["current_home_spread"] == 8.5
+    assert live[0]["open_home_spread"] == 8.5
+    assert live[0]["current_total"] == 142.5
+    assert live[0]["current_home_spread_price"] == -112
+    assert live[0]["current_away_spread_price"] == -108
+    assert live[0]["current_home_ml"] == 320
+    # An unflipped sibling is left alone
+    other = [dict(event_id="2", home="H2", away="A2")]
+    snap2 = {"2": _snap_row("2", kp_home="H2", kp_away="A2", home="H2", away="A2")}
+    dr.apply_snapshot_projections(other, snap2)
+    assert dr.align_live_slate_to_snapshot(other, snap2) == 0
+    other[0]["current_home_spread"] = -4.5
+    assert dr.reorient_snapshot_lines(other) == 0
+    assert other[0]["current_home_spread"] == -4.5
+
+
+def test_late_lines_pickem_zero_stays_unsigned_after_flip():
+    import math
+    live = [dict(event_id="9", home="AwayB", away="HomeA")]
+    snap = {"9": _snap_row("9", kp_home="HomeA", kp_away="AwayB", home="HomeA", away="AwayB")}
+    dr.apply_snapshot_projections(live, snap)
+    assert dr.align_live_slate_to_snapshot(live, snap) == 1
+    live[0]["current_home_spread"] = 0.0
+    dr.reorient_snapshot_lines(live)
+    assert live[0]["current_home_spread"] == 0.0
+    assert math.copysign(1.0, live[0]["current_home_spread"]) == 1.0

@@ -33,7 +33,7 @@ import argparse
 import contextlib
 import os
 import sys
-from datetime import timedelta
+from datetime import date, timedelta
 
 import pandas as pd
 
@@ -64,7 +64,6 @@ def big_moves_soon(today: str, now, within: float, led: pd.DataFrame, log=lambda
                    scoreboard=None, lines=None) -> list[dict]:
     """BIG MOVES on any not-started game tipping within `within` minutes (fresh DK lines)."""
     from czarp import big_moves as BM
-    from datetime import date
     scoreboard = scoreboard or dr.espn_scoreboard
     lines = lines or dr.espn_dk_lines
     utc_now = now.astimezone(dr.timezone.utc)
@@ -80,7 +79,11 @@ def big_moves_soon(today: str, now, within: float, led: pd.DataFrame, log=lambda
     for g in games:
         s = snap.get(str(g["event_id"]), {})
         g = {**g, **{k: s.get(k) for k in ("kp_home", "kp_away", "v1_total", "v2_total", "v2_home_margin") if s.get(k) is not None}}
-        g.update({k: v for k, v in (lines(str(g["event_id"])) or {}).items() if v is not None})
+        ln = dict(lines(str(g["event_id"])) or {})
+        _align_lines_to_game(ln, {"home": g.get("kp_home") or s.get("home") or g.get("home"),
+                                  "away": g.get("kp_away") or s.get("away") or g.get("away")},
+                             g)
+        g.update({k: v for k, v in ln.items() if v is not None})
         for m in ("total", "spread"):
             pid = f"{g['event_id']}-{m}"
             r = BM.build_row(g, m, None, official=pid in played)
@@ -161,8 +164,29 @@ def _odds_api_lines(rows, today, allow, log, cache: dict | None = None) -> dict:
     return {g["event_id"]: g for g in games if g.get("current_home_spread") is not None or g.get("current_total") is not None}
 
 
+def _espn_by_id(today: str, scoreboard=None, log=lambda m: None) -> dict:
+    """event_id -> ESPN scoreboard row for `today`, or {} if the board cannot be fetched."""
+    try:
+        fetch = scoreboard or dr.espn_scoreboard
+        return {str(e["event_id"]): e for e in fetch(date.fromisoformat(today))}
+    except Exception as e:
+        log(f"  ESPN scoreboard unavailable for line orientation ({type(e).__name__})")
+        return {}
+
+
+def _align_lines_to_game(lines: dict, game: dict, espn_event: dict | None) -> bool | None:
+    """Reorient `lines` from ESPN's current home onto stored games.home / games.away."""
+    from czarp.sync_finals import align_fetched_lines
+    e = espn_event or {}
+    _, flipped = align_fetched_lines(
+        lines, game.get("home"), game.get("away"),
+        e.get("home"), e.get("away"),
+        espn_home_alt=e.get("home_full"), espn_away_alt=e.get("away_full"))
+    return flipped
+
+
 def fill_missing_lines(today: str, now, led: pd.DataFrame, allow_api: bool, log=lambda m: None,
-                       client=None, lines=None, cache: dict | None = None) -> dict:
+                       client=None, lines=None, cache: dict | None = None, scoreboard=None) -> dict:
     """Fill today's not-started games whose newest Vegas line in market_lines lacks a spread or total.
 
     Order: official open plays first, then by tip time. ESPN/DK (free) first; the reserved pre-tip Odds API call
@@ -182,6 +206,7 @@ def fill_missing_lines(today: str, now, led: pd.DataFrame, allow_api: bool, log=
              if g.get("status") != "final" and g.get("tipoff") and pd.Timestamp(g["tipoff"]) > utc_now]
     if not games:
         return {}
+    espn_by_id = _espn_by_id(today, scoreboard=scoreboard, log=log)
     ids = ",".join(str(int(g["id"])) for g in games)
     newest = sw.newest_vegas_current(client.get_all(
         "market_lines", order="fetched_at.desc,id.desc",
@@ -205,7 +230,9 @@ def fill_missing_lines(today: str, now, led: pd.DataFrame, allow_api: bool, log=
         w = {"game_id": int(g["id"]), "event_id": str(g["external_id"]),
              "home_full": s.get("home_full") or g["home"], "away_full": s.get("away_full") or g["away"],
              "current_home_spread": sw._clean(old.get("spread")), "current_total": sw._clean(old.get("total"))}
-        fresh = lines(w["event_id"]) or {}
+        fresh = dict(lines(w["event_id"]) or {})
+        ev = espn_by_id.get(w["event_id"], {})
+        _align_lines_to_game(fresh, g, ev)
         for key in ("current_home_spread", "current_total"):
             if w[key] is None and fresh.get(key) is not None:
                 w[key] = fresh[key]
@@ -274,7 +301,8 @@ def _snap_row(g: dict, ev: str, today: str, source: str, book, ln: dict, ts: str
 
 
 def closing_line_snapshot(today: str, now, led: pd.DataFrame, allow_api: bool, log=lambda m: None, client=None,
-                          lines=None, cache: dict | None = None, window: float = CLOSE_WINDOW_MIN) -> int:
+                          lines=None, cache: dict | None = None, window: float = CLOSE_WINDOW_MIN,
+                          scoreboard=None) -> int:
     """Snapshot the closing spread/total of every game with an open official or lean play tipping within `window`
     minutes, into closing_line_snapshots (insert-only; never picks, the ledger or the hash chain):
       * ESPN/DK (free) every run;
@@ -298,6 +326,7 @@ def closing_line_snapshot(today: str, now, led: pd.DataFrame, allow_api: bool, l
              if g.get("status") != "final" and g.get("tipoff") and pd.Timestamp(g["tipoff"]) > utc_now]
     if not games:
         return 0
+    espn_by_id = _espn_by_id(today, scoreboard=scoreboard, log=log)
     ids = ",".join(str(int(g["id"])) for g in games)
     try:
         done = {int(r["game_id"]) for r in client.get_all(CLOSE_TABLE, order="id", select="game_id",
@@ -310,6 +339,7 @@ def closing_line_snapshot(today: str, now, led: pd.DataFrame, allow_api: bool, l
     for g in games:
         ev = str(g["external_id"])
         ln = {k: sw._clean(v) for k, v in (lines(ev) or {}).items()}
+        _align_lines_to_game(ln, g, espn_by_id.get(ev, {}))
         r = _snap_row(g, ev, today, "espn", ln.get("book") or "DraftKings", ln, ts, now, targets[ev]["pick_ids"])
         if r:
             rows.append(r)
@@ -387,9 +417,11 @@ def main(argv=None) -> int:
             log(f"  closing-line snapshot failed ({type(e).__name__}: {e})")
     if todo.empty:
         return 0
+    espn_by_id = _espn_by_id(today, log=log)
     lines, missing = {}, []
     for i, r in todo.iterrows():
-        ln = dr.espn_dk_lines(str(r.event_id))
+        ln = dict(dr.espn_dk_lines(str(r.event_id)) or {})
+        _align_lines_to_game(ln, {"home": r.home, "away": r.away}, espn_by_id.get(str(r.event_id), {}))
         f = filled.get(str(r.event_id)) or {}
         ln = {**{k: v for k, v in f.items() if k.startswith("current_") and v is not None}, **{k: v for k, v in ln.items() if v is not None}}
         if (r.market == "spread" and ln.get("current_home_spread") is None) or \
